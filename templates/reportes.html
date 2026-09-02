@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reportes y hojas — Control de Obra HAP</title>
+<link rel="stylesheet" href="/static/estilos.css">
+<link rel="stylesheet" href="/static/reportes.css">
+</head>
+<body>
+
+<header class="barra">
+  <div class="barra-izq">
+    <span class="logo">HAP</span>
+    <div>
+      <h1>Reportes y hojas de trabajo</h1>
+      <p class="sub">Genera hojas por proveedor y reportes imprimibles</p>
+    </div>
+  </div>
+  <div class="barra-der">
+    <a href="/" class="btn-reporte btn-reportes-sec">← Volver a captura</a>
+    <a href="/historico" class="btn-reporte btn-reportes-sec">📅 Días pasados</a>
+    <a href="/reporte" class="btn-reporte">Reporte para dirección →</a>
+  </div>
+</header>
+
+<!-- SECCIÓN 0: Captura masiva por Excel -->
+<section class="rep-seccion rep-destacada no-print">
+  <h2>⚡ Captura rápida por Excel</h2>
+  <p class="rep-desc">En vez de llenar partida por partida, baja una plantilla de Excel, escribe los
+     porcentajes (y si quieres, fecha y causa) y súbela de regreso. La plataforma actualiza todo de un jalón,
+     emparejando por el <b>Código</b> de cada partida.</p>
+
+  <div class="cap-pasos">
+    <div class="cap-paso">
+      <span class="cap-num">1</span>
+      <div>
+        <b>Baja la plantilla</b>
+        <p class="rep-hint">Puedes bajar todas las partidas o solo las de un proveedor.</p>
+        <div class="rep-controles">
+          <div class="filtro-combo">
+            <input list="dl-prov-cap" id="sel-prov-cap" placeholder="Todos los proveedores" autocomplete="off">
+            <datalist id="dl-prov-cap"></datalist>
+          </div>
+          <a id="btn-plantilla" class="btn-pri" href="#">Bajar plantilla Excel</a>
+        </div>
+      </div>
+    </div>
+
+    <div class="cap-paso">
+      <span class="cap-num">2</span>
+      <div>
+        <b>Llénala en Excel</b>
+        <p class="rep-hint">Escribe el <b>NUEVO avance %</b> en la columna amarilla (0, 25, 50, 75, 100).
+           La fecha y la causa son opcionales. No cambies la columna Código.</p>
+      </div>
+    </div>
+
+    <div class="cap-paso">
+      <span class="cap-num">3</span>
+      <div>
+        <b>Súbela de regreso</b>
+        <p class="rep-hint">Selecciona el archivo lleno y la plataforma actualiza el avance.</p>
+        <div class="rep-controles">
+          <input type="file" id="file-importar" accept=".xlsx" class="cap-file">
+          <button id="btn-importar" class="btn-pri">Importar avances</button>
+        </div>
+        <div id="importar-result" class="cap-result" hidden></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- SECCIÓN 1: Hoja por proveedor -->
+<section class="rep-seccion">
+  <h2>1 · Hoja para un proveedor</h2>
+  <p class="rep-desc">Genera la hoja con las partidas de un proveedor para que te diga en qué va.
+     Las partidas retrasadas salen marcadas en rojo. Descárgala en PDF (para anotar a mano) o Excel (para llenar en la compu).</p>
+  <div class="rep-controles">
+    <div class="filtro-combo">
+      <input list="dl-prov-hoja" id="sel-prov-hoja" placeholder="Escribe o elige el proveedor" autocomplete="off">
+      <datalist id="dl-prov-hoja"></datalist>
+    </div>
+    <a id="btn-hoja-pdf" class="btn-pri" href="#" target="_blank">Descargar PDF</a>
+    <a id="btn-hoja-xlsx" class="btn-sec" href="#" target="_blank">Descargar Excel</a>
+  </div>
+  <p class="rep-hint" id="hoja-hint"></p>
+</section>
+
+
+<!-- SECCIÓN 1.5: Hoja por departamento interno -->
+<section class="rep-seccion">
+  <h2>1.5 · Hoja para un departamento interno</h2>
+  <p class="rep-desc">Lo mismo que la hoja del proveedor, pero para los departamentos del hospital
+     (Biomédica, Sistemas, Herrería, Mantenimiento, Compras). Las retrasadas salen marcadas en rojo.</p>
+  <div class="rep-controles">
+    <div class="filtro-combo">
+      <input list="dl-depto-hoja" id="sel-depto-hoja" placeholder="Escribe o elige el departamento" autocomplete="off">
+      <datalist id="dl-depto-hoja"></datalist>
+    </div>
+    <a id="btn-depto-pdf" class="btn-pri" href="#" target="_blank">Descargar PDF</a>
+    <a id="btn-depto-xlsx" class="btn-sec" href="#" target="_blank">Descargar Excel</a>
+  </div>
+  <p class="rep-hint" id="depto-hint"></p>
+</section>
+
+<!-- SECCIÓN 2: Cómo va cada proveedor -->
+<section class="rep-seccion">
+  <h2>2 · Avance por proveedor</h2>
+  <p class="rep-desc">Cómo va cada proveedor: su avance, partidas listas y retrasadas. El más atrasado aparece primero.</p>
+  <div class="rep-controles">
+    <button onclick="window.print()" class="btn-sec">Imprimir esta tabla</button>
+  </div>
+  <table class="tabla-rep" id="tabla-prov">
+    <thead><tr><th>Proveedor</th><th>Partidas</th><th>Listas</th><th>Retrasadas</th><th class="der">Avance</th><th class="col-graf">Progreso</th></tr></thead>
+    <tbody id="tbody-prov"></tbody>
+  </table>
+</section>
+
+<!-- SECCIÓN 3: Reporte filtrado a la medida -->
+<section class="rep-seccion no-print">
+  <h2>3 · Reporte a la medida</h2>
+  <p class="rep-desc">Arma un reporte filtrando por lo que necesites y descárgalo en PDF o Excel.</p>
+  <div class="rep-controles rep-controles-grid">
+    <div class="filtro-combo"><input list="dl-r-bloque" id="r-bloque" placeholder="Bloque" autocomplete="off"><datalist id="dl-r-bloque"></datalist></div>
+    <div class="filtro-combo"><input list="dl-r-area" id="r-area" placeholder="Área" autocomplete="off"><datalist id="dl-r-area"></datalist></div>
+    <div class="filtro-combo"><input list="dl-r-giro" id="r-giro" placeholder="Giro" autocomplete="off"><datalist id="dl-r-giro"></datalist></div>
+    <div class="filtro-combo"><input list="dl-r-prov" id="r-prov" placeholder="Proveedor" autocomplete="off"><datalist id="dl-r-prov"></datalist></div>
+    <div class="filtro-combo"><input list="dl-r-tipo" id="r-tipo" placeholder="Tipo" autocomplete="off"><datalist id="dl-r-tipo"></datalist></div>
+    <label class="chk-retraso"><input type="checkbox" id="r-retraso"> Solo lo retrasado</label>
+  </div>
+  <div class="rep-controles">
+    <a id="btn-med-pdf" class="btn-pri" href="#" target="_blank">Descargar PDF</a>
+    <a id="btn-med-xlsx" class="btn-sec" href="#" target="_blank">Descargar Excel</a>
+    <button id="btn-med-limpiar" class="btn-sec">Limpiar filtros</button>
+  </div>
+</section>
+
+<div id="toast" class="toast" hidden></div>
+<script src="/static/reportes.js"></script>
+</body>
+</html>

@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Entrar — Control de Obra HAP</title>
+<link rel="stylesheet" href="/static/estilos.css">
+<style>
+.login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;background:#0f1b2d;background:linear-gradient(135deg,#0f1b2d,#1F4E78)}
+.login-card{background:#fff;border-radius:16px;padding:36px 34px;width:340px;box-shadow:0 20px 60px rgba(0,0,0,.35)}
+.login-logo{width:56px;height:56px;border-radius:12px;background:#1F4E78;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:22px;margin:0 auto 16px}
+.login-card h1{font-size:20px;text-align:center;margin:0 0 4px;color:#1F2937}
+.login-card p.sub{text-align:center;color:#8a94a3;font-size:13px;margin:0 0 22px}
+.login-card label{display:block;font-size:13px;color:#4b5563;margin:12px 0 4px;font-weight:600}
+.login-card input{width:100%;padding:11px 12px;border:1px solid #cbd2da;border-radius:9px;font-size:15px;box-sizing:border-box}
+.login-card input:focus{outline:none;border-color:#1F4E78;box-shadow:0 0 0 3px rgba(31,78,120,.12)}
+.login-btn{width:100%;margin-top:20px;padding:12px;background:#1F4E78;color:#fff;border:none;border-radius:9px;font-size:15px;font-weight:600;cursor:pointer}
+.login-btn:hover{background:#163a5c}
+.login-err{background:#FDECEC;border:1px solid #F0B4B4;color:#B00020;border-radius:8px;padding:9px 12px;font-size:13px;margin-top:14px;display:none}
+</style>
+</head>
+<body>
+<div class="login-wrap">
+  <div class="login-card">
+    <div class="login-logo">HAP</div>
+    <h1>Control de Obra</h1>
+    <p class="sub">Unidad Quirúrgica · Torre B</p>
+    <label>Usuario</label>
+    <input id="usuario" autocomplete="username" placeholder="Tu usuario">
+    <label>Contraseña</label>
+    <input id="clave" type="password" autocomplete="current-password" placeholder="Tu contraseña">
+    <button class="login-btn" id="btn-entrar">Entrar</button>
+    <div class="login-err" id="err"></div>
+  </div>
+</div>
+<script>
+const $ = (s) => document.querySelector(s);
+async function entrar() {
+  const usuario = $("#usuario").value.trim();
+  const clave = $("#clave").value;
+  if (!usuario || !clave) { mostrarErr("Escribe usuario y contraseña"); return; }
+  const r = await fetch("/api/login", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ usuario, clave }),
+  });
+  const d = await r.json();
+  if (d.error) { mostrarErr(d.error); return; }
+  // redirige según el rol
+  if (d.rol === "admin") location.href = "/";
+  else location.href = "/portal";
+}
+function mostrarErr(m) { const e = $("#err"); e.textContent = m; e.style.display = "block"; }
+$("#btn-entrar").addEventListener("click", entrar);
+document.addEventListener("keydown", (e) => { if (e.key === "Enter") entrar(); });
+</script>
+</body>
+</html>

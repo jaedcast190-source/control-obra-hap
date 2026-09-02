@@ -1,0 +1,41 @@
+.v-seccion{background:#fff;margin:18px 24px;border-radius:14px;padding:20px 22px;box-shadow:0 1px 3px rgba(0,0,0,.05)}
+.v-seccion h2{margin:0 0 4px;font-size:18px;color:#1F2937;display:flex;align-items:center;gap:10px}
+.v-cont{background:#1F4E78;color:#fff;font-size:13px;padding:2px 10px;border-radius:20px;font-weight:700}
+.v-desc{color:#6b7280;font-size:14px;margin:0 0 14px;line-height:1.5}
+.v-tabla-wrap{overflow-x:auto}
+.v-tabla{width:100%;border-collapse:collapse;font-size:14px}
+.v-tabla th{background:#f4f6f8;text-align:left;padding:10px 12px;font-size:12px;color:#6b7280;text-transform:uppercase;border-bottom:2px solid #e3e6ea}
+.v-tabla td{padding:11px 12px;border-bottom:1px solid #eef1f4;vertical-align:top}
+.v-tabla .mono{font-family:monospace;font-size:12px;color:#8a94a3}
+.v-part{max-width:280px}
+.v-coment{max-width:200px;color:#6b7280;font-size:13px}
+.v-cen{text-align:center}
+.v-nuevo{font-weight:700;color:#1F4E78}
+.v-btns{white-space:nowrap;text-align:right}
+.v-btns button{border:none;border-radius:8px;padding:7px 14px;font-size:13px;font-weight:600;cursor:pointer;margin-left:6px}
+.v-ok{background:#1E7B4B;color:#fff}
+.v-ok:hover{background:#166638}
+.v-no{background:#fff;color:#B00020;border:1px solid #F0B4B4 !important}
+.v-no:hover{background:#FDECEC}
+.v-vacio{color:#8a94a3;font-style:italic;padding:16px 4px}
+.v-acciones-masa{margin-top:14px;text-align:right}
+
+.v-sub{font-size:14px;color:#6b7280;margin:16px 0 8px;text-transform:uppercase;letter-spacing:.3px;font-weight:700}
+.v-ok2{background:#1F4E78;color:#fff}
+.v-ok2:hover{background:#163a5c}
+
+/* Fuera de zona */
+.badge-fuera-zona{display:inline-flex;align-items:center;gap:4px;background:#FDF0D5;color:#935800;border:1px solid #E6C280;padding:3px 8px;border-radius:12px;font-size:11px;font-weight:800;letter-spacing:.3px;white-space:nowrap;margin-left:6px}
+.fila-fuera-zona{background:#FFFDF7}
+.fila-fuera-zona td{border-bottom-color:#F5E2BE}
+
+/* Modal de Rechazo */
+.modal-overlay{position:fixed;inset:0;background:rgba(22,33,29,.45);z-index:300;display:flex;align-items:center;justify-content:center}
+.modal-overlay[hidden]{display:none !important}
+.modal-caja{background:#fff;border-radius:12px;width:440px;max-width:92vw;box-shadow:0 12px 40px rgba(0,0,0,.22);overflow:hidden}
+.modal-caja .modal-cab{padding:16px 20px;border-bottom:1px solid #eef1f4;display:flex;justify-content:space-between;align-items:center}
+.modal-caja .modal-cab h3{margin:0;font-size:16px;color:#B00020}
+.modal-caja .modal-cuerpo{padding:18px 20px}
+.modal-caja .modal-pie{padding:14px 20px;border-top:1px solid #eef1f4;display:flex;justify-content:flex-end;gap:10px}
+.modal-caja textarea{width:100%;box-sizing:border-box;padding:10px;border:1px solid #d4ddd9;border-radius:6px;font-family:inherit;font-size:13.5px}
+

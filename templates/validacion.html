@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Validación — Control de Obra HAP</title>
+<link rel="stylesheet" href="/static/estilos.css">
+<link rel="stylesheet" href="/static/validacion.css">
+</head>
+<body>
+
+<header class="barra">
+  <div class="barra-izq">
+    <span class="logo">HAP</span>
+    <div>
+      <h1>Validación de lo reportado</h1>
+      <p class="sub">Revisa y firma lo que mandan los proveedores</p>
+    </div>
+  </div>
+  <div class="barra-der">
+    <a href="/" class="btn-reporte btn-reportes-sec">← Volver a la obra</a>
+    <a href="/usuarios" class="btn-reporte btn-reportes-sec">Usuarios / accesos</a>
+  </div>
+</header>
+
+<!-- Avances declarados en partidas oficiales -->
+<section class="v-seccion">
+  <h2>Avances reportados <span class="v-cont" id="cont-av">0</span></h2>
+  <p class="v-desc">Estas partidas ya eran tuyas. El proveedor dice que avanzaron. Al <b>firmar</b>, el avance oficial toma ese valor.</p>
+  <div class="v-tabla-wrap">
+    <table class="v-tabla" id="tabla-av">
+      <thead><tr>
+        <th>Proveedor</th><th>Código</th><th>Área</th><th>Partida</th>
+        <th>Avance oficial</th><th>Reportado</th><th>De dónde</th><th></th>
+      </tr></thead>
+      <tbody id="tbody-av"></tbody>
+    </table>
+    <p class="v-vacio" id="vacio-av" hidden>No hay avances por revisar.</p>
+  </div>
+  <div class="v-acciones-masa" id="masa-av" hidden>
+    <button class="btn-pri" id="btn-todos-av">Firmar todos los avances</button>
+  </div>
+</section>
+
+<!-- Actividades nuevas propuestas -->
+<section class="v-seccion">
+  <h2>Actividades nuevas propuestas <span class="v-cont" id="cont-prop">0</span></h2>
+  <p class="v-desc">Tareas que el proveedor agregó. No cuentan en el control hasta que las <b>apruebes</b>. Al aprobar, entran como oficiales.</p>
+  <div class="v-tabla-wrap">
+    <table class="v-tabla" id="tabla-prop">
+      <thead><tr>
+        <th>Proveedor</th><th>Bloque</th><th>Área</th><th>Partida</th>
+        <th>Avance</th><th>De dónde</th><th>Comentario</th><th></th>
+      </tr></thead>
+      <tbody id="tbody-prop"></tbody>
+    </table>
+    <p class="v-vacio" id="vacio-prop" hidden>No hay actividades nuevas por revisar.</p>
+  </div>
+</section>
+
+<!-- Necesitan tu atención: rechazadas y no reconocidas -->
+<section class="v-seccion">
+  <h2>Necesitan tu atención <span class="v-cont" id="cont-aten">0</span></h2>
+  <p class="v-desc">Actividades que un proveedor <b>no reconoce</b> como suyas, y las que <b>rechazaste</b>. Aquí las corriges o las reactivas — no se pierden.</p>
+
+  <h3 class="v-sub">No reconocidas por el proveedor</h3>
+  <div class="v-tabla-wrap">
+    <table class="v-tabla" id="tabla-noreco">
+      <thead><tr>
+        <th>Proveedor</th><th>Código</th><th>Bloque</th><th>Área</th><th>Partida</th><th>Qué dijo</th><th></th>
+      </tr></thead>
+      <tbody id="tbody-noreco"></tbody>
+    </table>
+    <p class="v-vacio" id="vacio-noreco" hidden>Nada por aquí.</p>
+  </div>
+
+  <h3 class="v-sub">Rechazadas</h3>
+  <div class="v-tabla-wrap">
+    <table class="v-tabla" id="tabla-rech">
+      <thead><tr>
+        <th>Proveedor</th><th>Código</th><th>Bloque</th><th>Área</th><th>Partida</th><th>Motivo</th><th></th>
+      </tr></thead>
+      <tbody id="tbody-rech"></tbody>
+    </table>
+    <p class="v-vacio" id="vacio-rech" hidden>Nada rechazado.</p>
+  </div>
+</section>
+
+<div id="toast" class="toast" hidden></div>
+<script src="/static/validacion.js"></script>
+
+<!-- ===== Modal: motivo del rechazo ===== -->
+<div id="modal-rechazo" class="modal-overlay" hidden>
+  <div class="modal-caja">
+    <div class="modal-cab"><h3>Rechazar</h3>
+      <button class="cerrar" id="btn-cerrar-rechazo">✕</button></div>
+    <div class="modal-cuerpo">
+      <input type="hidden" id="rechazo-id">
+      <p class="v-desc">Escribe por qué lo rechazas. <b>El proveedor lo va a ver</b> en su pantalla, para que lo corrija.</p>
+      <textarea id="rechazo-motivo" rows="4" placeholder="ej. El porcentaje no coincide con lo que se ve en obra"></textarea>
+    </div>
+    <div class="modal-pie">
+      <button class="btn-sec" id="btn-cancelar-rechazo">Cancelar</button>
+      <button class="v-no" id="btn-confirmar-rechazo" style="padding:8px 16px;border-radius:8px;font-weight:600;cursor:pointer">Rechazar</button>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

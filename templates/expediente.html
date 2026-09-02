@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Expediente de proveedores — HAP</title>
+<link rel="stylesheet" href="/static/estilos.css">
+<link rel="stylesheet" href="/static/expediente.css">
+</head>
+<body>
+
+<header class="barra">
+  <div class="barra-izq">
+    <span class="logo">HAP</span>
+    <div>
+      <h1>Expediente de proveedores</h1>
+      <p class="sub">Datos de empresa y contacto de cada proveedor de la obra</p>
+    </div>
+  </div>
+  <div class="barra-der">
+    <a href="/" class="btn-reporte btn-reportes-sec">← Volver a la obra</a>
+  </div>
+</header>
+
+<section class="exp-intro">
+  <input type="search" id="buscar-prov" placeholder="Buscar proveedor…">
+  <span class="flex"></span>
+  <span class="exp-hint">Da clic en un proveedor para llenar o editar su ficha.</span>
+</section>
+
+<div class="exp-lista" id="exp-lista"></div>
+
+<!-- Panel de ficha -->
+<div class="overlay" id="overlay-f" hidden></div>
+<aside class="panel" id="panel-f" hidden>
+  <div class="panel-cab">
+    <h2 id="f-titulo">Ficha de proveedor</h2>
+    <button class="cerrar" id="f-cerrar">✕</button>
+  </div>
+  <div class="panel-cuerpo">
+    <input type="hidden" id="f-nombre">
+    <div class="campo"><label>Nombre (como aparece en la obra)</label>
+      <input id="f-nombre-vis" readonly></div>
+    <div class="campo"><label>Razón social / empresa</label>
+      <input id="f-empresa" placeholder="Nombre legal de la empresa"></div>
+    <div class="fila-2">
+      <div class="campo"><label>Tipo</label>
+        <select id="f-tipo"><option>Externo</option><option>Interno</option></select></div>
+      <div class="campo"><label>Giro / especialidad</label>
+        <input id="f-funcion" placeholder="Eléctrico, aire, cancelería…"></div>
+    </div>
+    <div class="campo"><label>Persona de contacto</label>
+      <input id="f-contacto" placeholder="Nombre de quien atiende"></div>
+    <div class="fila-2">
+      <div class="campo"><label>Teléfono</label>
+        <input id="f-telefono" placeholder="Celular u oficina"></div>
+      <div class="campo"><label>Correo</label>
+        <input id="f-correo" placeholder="correo@empresa.com"></div>
+    </div>
+    <div class="campo"><label>Notas</label>
+      <textarea id="f-notas" rows="4" placeholder="Contrato, condiciones, observaciones…"></textarea></div>
+  </div>
+  <div class="panel-pie">
+    <span class="flex"></span>
+    <button id="f-cancelar" class="btn-sec">Cancelar</button>
+    <button id="f-guardar" class="btn-pri">Guardar ficha</button>
+  </div>
+</aside>
+
+<div id="toast" class="toast" hidden></div>
+<script src="/static/expediente.js"></script>
+</body>
+</html>

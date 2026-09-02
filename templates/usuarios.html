@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Usuarios y accesos — HAP</title>
+<link rel="stylesheet" href="/static/estilos.css">
+<link rel="stylesheet" href="/static/validacion.css">
+<style>
+.u-wrap{margin:18px 24px}
+.u-form{background:#F4F8FC;border:1px solid #D6E4F0;border-radius:12px;padding:18px 20px;margin-bottom:20px;display:grid;grid-template-columns:repeat(2,1fr) auto;grid-auto-rows:auto;gap:12px;align-items:end}
+.u-form .campo label{font-size:13px;color:#4b5563;font-weight:600;display:block;margin-bottom:4px}
+.u-form input,.u-form select{width:100%;padding:9px 11px;border:1px solid #cbd2da;border-radius:8px;font-size:14px;box-sizing:border-box}
+.u-hint{color:#6b7280;font-size:13px;margin:0 0 14px}
+@media(max-width:800px){.u-form{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<header class="barra">
+  <div class="barra-izq">
+    <span class="logo">HAP</span>
+    <div>
+      <h1>Usuarios y accesos</h1>
+      <p class="sub">Da de alta a cada proveedor para que entre a reportar</p>
+    </div>
+  </div>
+  <div class="barra-der">
+    <a href="/" class="btn-reporte btn-reportes-sec">← Volver a la obra</a>
+    <a href="/validacion" class="btn-reporte">Ir a validación →</a>
+  </div>
+</header>
+
+<div class="u-wrap">
+  <p class="u-hint">Crea un usuario por cada proveedor. Cuando entren con su usuario y contraseña,
+     solo verán y reportarán las actividades de su empresa. Tú les pasas el usuario y la contraseña que definas aquí.</p>
+
+  <div class="u-form">
+    <div class="campo"><label>Usuario (para entrar)</label>
+      <input id="u-usuario" placeholder="ej. cebsa" autocomplete="off"></div>
+    <div class="campo"><label>Contraseña</label>
+      <input id="u-clave" placeholder="la que tú decidas" autocomplete="off"></div>
+    <div class="campo"><label>Tipo de acceso</label>
+      <select id="u-mundo">
+        <option value="obra">Proveedor externo (contratista)</option>
+        <option value="interno">Departamento interno (HAP)</option>
+      </select></div>
+    <div class="campo"><label id="u-lbl-prov">Proveedor (ve solo lo suyo)</label>
+      <input list="dl-u-prov" id="u-proveedor" placeholder="Elige el proveedor" autocomplete="off">
+      <datalist id="dl-u-prov"></datalist>
+      <p class="ayuda" id="u-ayuda" style="font-size:11.5px;color:#6b7280;margin-top:4px">
+        Debe coincidir <b>letra por letra</b> con el nombre que traen las actividades.</p></div>
+    <button class="btn-pri" id="u-crear">Crear acceso</button>
+  </div>
+
+  <div class="v-tabla-wrap">
+    <table class="v-tabla" id="tabla-u">
+      <thead><tr><th>Usuario</th><th>Proveedor / Departamento</th><th>Tipo</th><th>Rol</th><th></th></tr></thead>
+      <tbody id="tbody-u"></tbody>
+    </table>
+  </div>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+<script>
+const $ = (s) => document.querySelector(s);
+let CAT = {};
+function llenarLista(){
+  const interno = $("#u-mundo").value === "interno";
+  const lista = interno ? (CAT.departamentos||[]) : (CAT.proveedores||[]);
+  $("#dl-u-prov").innerHTML = lista.map(p=>`<option value="${esc(p)}">`).join("");
+  $("#u-lbl-prov").textContent = interno ? "Departamento (ve solo lo suyo)" : "Proveedor (ve solo lo suyo)";
+  $("#u-proveedor").placeholder = interno ? "Elige el departamento" : "Elige el proveedor";
+  $("#u-proveedor").value = "";
+}
+const $$ = (s) => document.querySelectorAll(s);
+function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
+function toast(m){const t=$("#toast");t.textContent=m;t.hidden=false;setTimeout(()=>t.hidden=true,2200);}
+
+async function cargar() {
+  const q = await (await fetch("/api/quien_soy")).json();
+  if (!q.login) { location.href = "/login"; return; }
+  if (q.rol !== "admin") { location.href = "/portal"; return; }
+  CAT = await (await fetch("/api/catalogos")).json();
+  llenarLista();
+  const us = await (await fetch("/api/usuarios")).json();
+  $("#tbody-u").innerHTML = us.map(u => `
+    <tr>
+      <td class="mono">${esc(u.usuario)}</td>
+      <td>${esc(u.proveedor||"—")}</td>
+      <td>${u.mundo==="interno"?'<span class="exp-tipo ti">Interno HAP</span>':'<span class="exp-tipo te">Externo</span>'}</td>
+      <td>${u.rol==="admin"?"<b>Administrador</b>":"Proveedor"}</td>
+      <td class="v-btns">
+        ${u.rol==="admin"?"":`<button class="v-no" data-id="${u.id}">Quitar</button>`}
+      </td>
+    </tr>`).join("");
+  $$("#tbody-u .v-no").forEach(b => b.onclick = async () => {
+    if (!confirm("¿Quitar este acceso?")) return;
+    await fetch("/api/usuario/" + b.dataset.id, { method: "DELETE" });
+    toast("Acceso eliminado"); cargar();
+  });
+}
+
+$("#u-crear").addEventListener("click", async () => {
+  const usuario = $("#u-usuario").value.trim();
+  const clave = $("#u-clave").value.trim();
+  const proveedor = $("#u-proveedor").value.trim();
+  const mundo = $("#u-mundo").value;
+  if (!usuario || !clave || !proveedor) { toast("Llena usuario, contraseña y a quién pertenece"); return; }
+  const r = await (await fetch("/api/usuarios", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ usuario, clave, proveedor, mundo }),
+  })).json();
+  if (r.error) { toast(r.error); return; }
+  ["#u-usuario","#u-clave","#u-proveedor"].forEach(s=>$(s).value="");
+  toast("Acceso creado para " + proveedor);
+  cargar();
+});
+
+$("#u-mundo").addEventListener("change", llenarLista);
+cargar();
+</script>
+</body>
+</html>

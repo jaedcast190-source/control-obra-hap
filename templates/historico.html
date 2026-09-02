@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Consultar días pasados — Control de Obra HAP</title>
+<link rel="stylesheet" href="/static/estilos.css">
+<link rel="stylesheet" href="/static/reportes.css">
+<link rel="stylesheet" href="/static/historico.css">
+</head>
+<body>
+
+<header class="barra">
+  <div class="barra-izq">
+    <span class="logo">HAP</span>
+    <div>
+      <h1>Consultar días pasados</h1>
+      <p class="sub">Cómo estaba la obra en una fecha, y cuánto se movió entre dos fechas</p>
+    </div>
+  </div>
+  <div class="barra-der">
+    <a href="/" class="btn-reporte btn-reportes-sec">← Volver a la obra</a>
+    <a href="/reportes" class="btn-reporte btn-reportes-sec">Reportes y hojas</a>
+  </div>
+</header>
+
+<div class="h-mundo">
+  <button class="sm-op activo" id="h-obra">🏗️ Trabajos Obra</button>
+  <button class="sm-op" id="h-interno">🏥 Adecuaciones internas</button>
+</div>
+
+<!-- ============ 1. Cómo estaba en una fecha ============ -->
+<section class="rep-seccion">
+  <h2>1 · ¿Cómo estaba la obra este día?</h2>
+  <p class="rep-desc">Elige una fecha y verás el avance tal como estaba ese día, comparado con hoy.</p>
+
+  <div class="rep-controles">
+    <label class="h-lbl">Fecha</label>
+    <input type="date" id="h-fecha" class="h-fecha">
+    <button class="btn-pri" id="btn-ver">Ver ese día</button>
+    <span class="flex"></span>
+    <span class="h-origen" id="h-origen" hidden></span>
+  </div>
+  <p class="rep-hint" id="h-disponible"></p>
+
+  <div id="h-resultado" hidden>
+    <div class="h-kpis">
+      <div class="h-kpi">
+        <span class="h-kpi-lbl">Avance ese día</span>
+        <span class="h-kpi-val" id="k-entonces">—</span>
+        <div class="barra-avance"><div class="barra-avance-fill" id="k-entonces-bar"></div></div>
+      </div>
+      <div class="h-kpi">
+        <span class="h-kpi-lbl">Avance hoy</span>
+        <span class="h-kpi-val verde" id="k-hoy">—</span>
+        <div class="barra-avance"><div class="barra-avance-fill" id="k-hoy-bar"></div></div>
+      </div>
+      <div class="h-kpi">
+        <span class="h-kpi-lbl">Se avanzó</span>
+        <span class="h-kpi-val azul" id="k-dif">—</span>
+      </div>
+      <div class="h-kpi">
+        <span class="h-kpi-lbl">Partidas</span>
+        <span class="h-kpi-val" id="k-total">—</span>
+      </div>
+    </div>
+
+    <h3 class="v-sub">Por responsable</h3>
+    <table class="tabla-rep">
+      <thead><tr><th>Responsable</th><th>Partidas</th><th class="der">Ese día</th>
+        <th class="der">Hoy</th><th class="der">Movimiento</th><th class="col-graf"></th></tr></thead>
+      <tbody id="tb-resp"></tbody>
+    </table>
+
+    <h3 class="v-sub">Por bloque</h3>
+    <table class="tabla-rep">
+      <thead><tr><th>Bloque</th><th>Partidas</th><th class="der">Avance ese día</th><th class="col-graf">Progreso</th></tr></thead>
+      <tbody id="tb-bloque"></tbody>
+    </table>
+
+    <h3 class="v-sub">Partidas que más se movieron desde entonces</h3>
+    <table class="tabla-rep">
+      <thead><tr><th>Código</th><th>Área</th><th>Partida</th><th>Responsable</th>
+        <th class="der">Ese día</th><th class="der">Hoy</th><th class="der">Cambio</th></tr></thead>
+      <tbody id="tb-detalle"></tbody>
+    </table>
+    <p class="rep-hint" id="h-nota-detalle"></p>
+  </div>
+</section>
+
+<!-- ============ 2. Comparar dos fechas ============ -->
+<section class="rep-seccion">
+  <h2>2 · Comparar dos fechas</h2>
+  <p class="rep-desc">Cuánto se movió cada responsable entre un día y otro. Sirve para la junta de obra:
+     quién jaló y quién se quedó parado en ese periodo.</p>
+  <div class="rep-controles">
+    <label class="h-lbl">Del</label>
+    <input type="date" id="c-desde" class="h-fecha">
+    <label class="h-lbl">al</label>
+    <input type="date" id="c-hasta" class="h-fecha">
+    <button class="btn-pri" id="btn-comparar">Comparar</button>
+  </div>
+
+  <div id="c-resultado" hidden>
+    <p class="h-resumen" id="c-resumen"></p>
+    <h3 class="v-sub">Movimiento por responsable</h3>
+    <table class="tabla-rep">
+      <thead><tr><th>Responsable</th><th>Partidas</th><th class="der">Antes</th>
+        <th class="der">Después</th><th class="der">Movimiento</th></tr></thead>
+      <tbody id="tb-cresp"></tbody>
+    </table>
+    <h3 class="v-sub">Movimiento por bloque</h3>
+    <table class="tabla-rep">
+      <thead><tr><th>Bloque</th><th>Partidas</th><th class="der">Antes</th>
+        <th class="der">Después</th><th class="der">Movimiento</th></tr></thead>
+      <tbody id="tb-cbloque"></tbody>
+    </table>
+  </div>
+</section>
+
+<div id="toast" class="toast" hidden></div>
+<script src="/static/historico.js"></script>
+</body>
+</html>

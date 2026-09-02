@@ -1,0 +1,90 @@
+.p-aviso{padding:14px 24px 4px}
+.p-aviso p{background:#F4F8FC;border:1px solid #D6E4F0;border-radius:10px;padding:12px 16px;color:#31506e;font-size:14px;margin:0;line-height:1.5}
+.p-aviso-mini{background:#FDF6EC;border:1px solid #F0D9A8;border-radius:8px;padding:10px 12px;color:#8a6d3b;font-size:13px;margin:0 0 8px;line-height:1.45}
+.p-controles{display:flex;align-items:center;gap:12px;padding:12px 24px;flex-wrap:wrap}
+.p-filtro{padding:10px 12px;border:1px solid #cbd2da;border-radius:9px;font-size:14px;background:#fff;color:#1F2937;min-width:150px}
+.p-controles input[type=search]{flex:0 0 240px;max-width:50%;padding:10px 12px;border:1px solid #cbd2da;border-radius:9px;font-size:14px}
+.p-contador{color:#8a94a3;font-size:13px}
+.p-lista{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px;padding:8px 24px 40px}
+.p-card{background:#fff;border:1px solid #e3e6ea;border-radius:12px;padding:14px 16px;box-shadow:0 1px 2px rgba(0,0,0,.03)}
+.p-card.propuesta{border-color:#F0D9A8;background:#FFFDF8}
+.p-card.rechazada{opacity:.6;background:#FBFBFC}
+.p-card-top{display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap}
+.p-cod{font-size:12px;color:#8a94a3;font-family:monospace}
+.p-origen{font-size:10px;background:#FDF6EC;color:#b08a4a;padding:1px 7px;border-radius:20px;font-weight:600;text-transform:uppercase}
+.p-tag{font-size:11px;padding:3px 10px;border-radius:20px;font-weight:600;margin-left:auto}
+.p-val{background:#EAF7EE;color:#1E7B4B}
+.p-rev{background:#FFF3CD;color:#8a6d3b}
+.p-prop{background:#E7F0F8;color:#1F4E78}
+.p-rech{background:#FDECEC;color:#B00020}
+.p-card-bloque{font-size:11px;color:#1F4E78;font-weight:700;text-transform:uppercase;letter-spacing:.3px;margin-bottom:2px}
+.p-card-area{font-size:13px;color:#6b7280;margin-bottom:2px}
+.p-card-part{font-size:15px;color:#1F2937;font-weight:500;margin-bottom:10px;line-height:1.35}
+.p-barra{height:8px;background:#eef1f4;border-radius:5px;overflow:hidden;margin-bottom:12px}
+.p-barra-fill{height:100%;background:#1F4E78;border-radius:5px}
+.p-reportar{width:100%;padding:10px;background:#1F4E78;color:#fff;border:none;border-radius:9px;font-size:14px;font-weight:600;cursor:pointer}
+.p-reportar:hover{background:#163a5c}
+.p-ficha{background:#F5F7F8;border-radius:10px;padding:12px 14px;margin-bottom:14px}
+.p-ficha>div{margin-bottom:6px}
+.p-ficha .p-lbl{display:block;font-size:11px;color:#8a94a3;text-transform:uppercase}
+.p-avance-botones{display:flex;gap:8px;flex-wrap:wrap}
+.p-avance-botones button{flex:1;min-width:52px;padding:12px 0;border:2px solid #cbd2da;background:#fff;border-radius:10px;font-size:15px;font-weight:700;color:#4b5563;cursor:pointer}
+.p-avance-botones button:hover{border-color:#1F4E78}
+.p-avance-botones button.sel{background:#1F4E78;border-color:#1F4E78;color:#fff}
+@media(max-width:640px){
+  .p-controles input[type=search]{flex:1;max-width:none}
+  .p-lista{grid-template-columns:1fr;padding:8px 14px 40px}
+  .barra-der .btn-reporte{padding:8px 10px;font-size:13px}
+}
+
+/* ===== Reconocimiento de actividades ===== */
+.p-card.sin-reconocer{border:2px solid #E53935;background:#FEF6F6}
+.p-tag.p-nueva{background:#FDECEC;color:#C62828}
+.p-reco-botones{display:flex;gap:8px;margin-top:4px}
+.p-reconocer{flex:1;padding:10px;background:#1E7B4B;color:#fff;border:none;border-radius:9px;font-size:14px;font-weight:600;cursor:pointer}
+.p-reconocer:hover{background:#166638}
+.p-norecon{flex:1;padding:10px;background:#fff;color:#C62828;border:1px solid #F0B4B4;border-radius:9px;font-size:14px;font-weight:600;cursor:pointer}
+.p-norecon:hover{background:#FDECEC}
+/* botón nuevas asignadas */
+#btn-nuevas{background:#5b6470;color:#fff}
+#btn-nuevas:disabled{opacity:.5;cursor:default}
+#btn-nuevas.con-nuevas{background:#E53935;color:#fff;animation:pulso 1.6s ease-in-out infinite}
+@keyframes pulso{0%,100%{box-shadow:0 0 0 0 rgba(229,57,53,.5)}50%{box-shadow:0 0 0 6px rgba(229,57,53,0)}}
+/* barra de reconocer en lote */
+.barra-reconocer{display:flex;align-items:center;gap:14px;margin:0 24px 10px;padding:14px 18px;background:#FEF6F6;border:1px solid #F0B4B4;border-radius:12px;flex-wrap:wrap}
+.br-texto{flex:1;min-width:220px;color:#8a3a3a;font-size:14px;line-height:1.45}
+.br-boton{padding:11px 18px;background:#1E7B4B;color:#fff;border:none;border-radius:9px;font-size:14px;font-weight:700;cursor:pointer}
+.br-boton:hover{background:#166638}
+.br-boton-sec{padding:11px 16px;background:#fff;color:#4b5563;border:1px solid #cbd2da;border-radius:9px;font-size:14px;cursor:pointer}
+@media(max-width:640px){.barra-reconocer{margin:0 14px 10px}}
+
+/* Alerta de rechazo visible */
+.p-alerta-rechazo{background:#FDECEC;border:1px solid #F0B4B4;border-radius:8px;padding:8px 12px;margin:8px 0;font-size:12.5px;color:#B00020;line-height:1.4}
+.p-alerta-rechazo b{display:block;font-size:11.5px;text-transform:uppercase;letter-spacing:.3px;margin-bottom:2px}
+
+/* Indicadores de dependencias */
+.p-dep-badge{display:inline-block;padding:3px 8px;border-radius:6px;font-size:11px;font-weight:600;margin-bottom:6px}
+.p-dep-bloqueada{background:#FDF0D5;color:#8a5000;border:1px solid #E6C280}
+.p-dep-liberada{background:#EAF7EE;color:#1E7B4B;border:1px solid #B8E4C7}
+
+/* Modal de Zona Solo Lectura */
+.modal-zona-caja{background:#fff;border-radius:14px;width:950px;max-width:96vw;max-height:90vh;display:flex;flex-direction:column;box-shadow:0 12px 40px rgba(0,0,0,.25);overflow:hidden}
+.modal-zona-cab{padding:16px 22px;border-bottom:1px solid #eef1f4;display:flex;justify-content:space-between;align-items:center;background:#1F4E78;color:#fff}
+.modal-zona-cab h2{font-size:17px;margin:0}
+.modal-zona-cab .cerrar{color:#fff}
+.modal-zona-cuerpo{padding:16px 22px;overflow-y:auto;flex:1}
+.badge-solo-lectura{background:#E7F0F8;color:#1F4E78;border:1px solid #BCD6EC;padding:3px 8px;border-radius:20px;font-size:11px;font-weight:700;margin-left:10px}
+.tabla-zona{width:100%;border-collapse:collapse;font-size:13px}
+.tabla-zona th{background:#f4f6f8;text-align:left;padding:9px 10px;font-size:11.5px;color:#6b7280;text-transform:uppercase;border-bottom:2px solid #e3e6ea;position:sticky;top:0;z-index:2}
+.tabla-zona td{padding:9px 10px;border-bottom:1px solid #eef1f4;vertical-align:top}
+.tabla-zona tr:hover{background:#f8fafc}
+
+/* Modal de Cambio de Clave */
+.modal-overlay{position:fixed;inset:0;background:rgba(22,33,29,.45);z-index:300;display:flex;align-items:center;justify-content:center}
+.modal-overlay[hidden]{display:none !important}
+.modal-caja{background:#fff;border-radius:12px;width:420px;max-width:92vw;box-shadow:0 12px 40px rgba(0,0,0,.22);overflow:hidden}
+.modal-caja .modal-cab{padding:16px 20px;border-bottom:1px solid #eef1f4;display:flex;justify-content:space-between;align-items:center}
+.modal-caja .modal-cab h3{margin:0;font-size:16px;color:#1F4E78}
+.modal-caja .modal-cuerpo{padding:18px 20px}
+.modal-caja .modal-pie{padding:14px 20px;border-top:1px solid #eef1f4;display:flex;justify-content:flex-end;gap:10px}
+

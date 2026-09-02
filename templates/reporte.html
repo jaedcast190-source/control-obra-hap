@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Reporte de Avance — Unidad Quirúrgica HAP</title>
+<link rel="stylesheet" href="/static/reporte.css">
+</head>
+<body>
+
+<div class="acciones no-print">
+  <a href="/" class="btn-volver">← Volver a captura</a>
+  <button onclick="window.print()" class="btn-imprimir">Imprimir / Guardar PDF</button>
+</div>
+
+<main class="hoja" id="hoja">
+  <header class="rep-cab">
+    <div>
+      <h1>Reporte de Avance de Obra</h1>
+      <p class="rep-sub">Unidad Quirúrgica · Quirófanos Piso 1 Torre B · Hospital Aranda de la Parra</p>
+    </div>
+    <div class="rep-fecha">
+      <p>Fecha del reporte</p>
+      <strong id="rep-hoy">—</strong>
+    </div>
+  </header>
+
+  <section class="resumen-alto">
+    <div class="ra-item destacado">
+      <span class="ra-num" id="ra-global">—</span>
+      <span class="ra-lbl">Avance global del proyecto</span>
+      <div class="ra-barra"><div class="ra-barra-fill" id="ra-barra"></div></div>
+    </div>
+    <div class="ra-item">
+      <span class="ra-num" id="ra-dias">—</span>
+      <span class="ra-lbl">días para la entrega<br>(31 de octubre 2026)</span>
+    </div>
+    <div class="ra-item">
+      <span class="ra-num verde" id="ra-listas">—</span>
+      <span class="ra-lbl">actividades terminadas</span>
+    </div>
+    <div class="ra-item">
+      <span class="ra-num rojo" id="ra-retraso">—</span>
+      <span class="ra-lbl">actividades retrasadas</span>
+    </div>
+  </section>
+
+  <section class="bloque-rep">
+    <h2>Avance por tipo de trabajo</h2>
+    <table class="tabla-rep">
+      <thead><tr><th>Tipo</th><th>Partidas</th><th class="der">Avance</th><th class="col-graf">Progreso</th></tr></thead>
+      <tbody id="tbody-tipos"></tbody>
+    </table>
+  </section>
+
+  <section class="bloque-rep">
+    <h2>Avance por bloque de obra</h2>
+    <table class="tabla-rep">
+      <thead><tr><th>Bloque</th><th>Actividades</th><th class="der">Avance</th><th class="col-graf">Progreso</th></tr></thead>
+      <tbody id="tbody-bloques"></tbody>
+    </table>
+  </section>
+
+  <section class="bloque-rep" id="sec-retraso">
+    <h2>⚠ Actividades retrasadas <span class="conteo" id="cnt-retraso"></span></h2>
+    <p class="nota-vacia" id="vacio-retraso" hidden>No hay actividades retrasadas al día de hoy.</p>
+    <table class="tabla-rep" id="tabla-retraso">
+      <thead><tr><th>Área</th><th>Partida</th><th>Proveedor</th><th>Compromiso</th><th class="der">Días</th><th class="der">Avance</th></tr></thead>
+      <tbody id="tbody-retraso"></tbody>
+    </table>
+  </section>
+
+  <section class="bloque-rep" id="sec-riesgo">
+    <h2>Próximas a vencer <span class="sub-h">(en 7 días o menos)</span> <span class="conteo naranja" id="cnt-riesgo"></span></h2>
+    <p class="nota-vacia" id="vacio-riesgo" hidden>No hay actividades próximas a vencer.</p>
+    <table class="tabla-rep" id="tabla-riesgo">
+      <thead><tr><th>Área</th><th>Partida</th><th>Proveedor</th><th>Compromiso</th><th class="der">Días</th><th class="der">Avance</th></tr></thead>
+      <tbody id="tbody-riesgo"></tbody>
+    </table>
+  </section>
+
+  <section class="bloque-rep">
+    <h2>Avance por giro / contratista</h2>
+    <table class="tabla-rep">
+      <thead><tr><th>Giro</th><th>Actividades</th><th class="der">Avance</th><th class="col-graf">Progreso</th></tr></thead>
+      <tbody id="tbody-giros"></tbody>
+    </table>
+  </section>
+
+  <footer class="rep-pie">
+    <p>Generado por la plataforma de control de obra · Documento interno para dirección</p>
+  </footer>
+</main>
+
+<script src="/static/reporte.js"></script>
+</body>
+</html>

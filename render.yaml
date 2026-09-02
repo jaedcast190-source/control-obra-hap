@@ -1,0 +1,21 @@
+services:
+  - type: web
+    name: control-obra-hap
+    runtime: python
+    plan: starter
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "gunicorn app:app --bind 0.0.0.0:$PORT --workers 1 --threads 4 --timeout 120"
+    healthCheckPath: /login
+    disk:
+      name: datos-hap
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: DATA_DIR
+        value: /var/data
+      - key: EN_INTERNET
+        value: "1"
+      - key: SECRET_KEY
+        generateValue: true
+      - key: PYTHON_VERSION
+        value: 3.12.3
