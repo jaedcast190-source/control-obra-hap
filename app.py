@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 # ==========================================================
-#  VERSION 1.6 FINAL - 2 de septiembre de 2026, 5:30 pm (centro MX)
+#  VERSION 1.7 - 2 de septiembre de 2026, 6:20 pm (centro MX)
 #  v1.1 columnas departamento/mundo/tipo_interno en CREATE TABLE
 #  v1.2 modales faltantes en portal.html
 #  v1.3 auditoria: 4 pantallas muertas por botones inexistentes
@@ -15,6 +15,11 @@
 #  v1.6 LISTA PARA INTERNET: base en disco persistente (DATA_DIR),
 #       puerto y clave desde el servidor, cookies seguras en HTTPS,
 #       arranque compatible con gunicorn. Ver GUIA_PUBLICAR_EN_INTERNET.md
+#  v1.7 SIEMBRA AUTOMATICA: en un servidor nuevo con disco vacio, copia
+#       semilla/obra_inicial.db (955 partidas) la primera vez. Ya no hay
+#       que subir la base a mano.
+#       VISTA DE CELULAR corregida: los botones del encabezado ya no se
+#       salen de la pantalla; tablero, filtros y tabla adaptados.
 # ==========================================================
 """
 PLATAFORMA DE CONTROL DE OBRA — Unidad Quirúrgica HAP
@@ -2586,9 +2591,35 @@ def validacion_page_corta():
     return render_template("validacion.html")
 
 
+
+def _sembrar_si_vacia():
+    """Primera vez en un servidor nuevo: si el disco esta vacio, copia la
+    base semilla con las 955 actividades. Asi no hay que subirla a mano."""
+    semilla = os.path.join(BASE_DIR, "semilla", "obra_inicial.db")
+    if not os.path.exists(semilla):
+        return
+    try:
+        necesita = not os.path.exists(DB_PATH)
+        if not necesita:
+            con = sqlite3.connect(DB_PATH)
+            try:
+                n = con.execute("SELECT COUNT(*) FROM actividades").fetchone()[0]
+                necesita = (n == 0)
+            except sqlite3.Error:
+                necesita = True
+            con.close()
+        if necesita:
+            import shutil
+            shutil.copy(semilla, DB_PATH)
+            print("  Base inicial sembrada desde semilla/obra_inicial.db")
+    except Exception as e:
+        print("  (no se pudo sembrar la base inicial:", e, ")")
+
+
 # --- Arranque cuando corre en internet (gunicorn no ejecuta el bloque de abajo) ---
 _ARRANQUE_MODULO = True
 try:
+    _sembrar_si_vacia()
     init_db()
     _foto_automatica()
 except Exception as _e:
