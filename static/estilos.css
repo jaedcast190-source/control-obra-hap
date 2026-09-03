@@ -324,3 +324,57 @@ body.mundo-interno .logo{background:#7a4fb0}
 .campo-x-wrap > input.tiene-valor + .campo-x-btn{display:flex}
 .campo-x-btn:hover{background:#b4302a;color:#fff}
 
+
+/* ============================================================
+   VISTA DE CELULAR — v1.7
+   Antes los botones del encabezado se salían de la pantalla y
+   había que arrastrar de lado. Ahora se acomodan solos.
+   ============================================================ */
+@media (max-width: 860px){
+  .barra{flex-direction:column;align-items:stretch;gap:10px;padding:12px 14px}
+  .barra-izq{align-items:flex-start;gap:10px}
+  .barra h1{font-size:15px;line-height:1.25}
+  .barra .sub{font-size:11.5px}
+  .logo{font-size:16px;padding:5px 9px}
+
+  /* los botones se acomodan en varias filas en vez de salirse */
+  .barra-der{display:flex;flex-wrap:wrap;gap:8px;align-items:center;width:100%}
+  .barra-der .btn-reporte{flex:1 1 calc(33.333% - 6px);min-width:0;text-align:center;
+    padding:9px 4px;font-size:11.5px;white-space:normal;line-height:1.15}
+  .contador{flex:1 1 100%;flex-direction:row;align-items:baseline;gap:8px;
+    text-align:left;order:-1}
+  .contador-num{font-size:24px}
+  .contador-lbl{font-size:11.5px}
+
+  /* tablero de 2 columnas */
+  .tablero{grid-template-columns:repeat(2,1fr);gap:10px;padding:14px}
+  .kpi{padding:12px}
+  .kpi-val{font-size:22px}
+
+  /* filtros a lo ancho */
+  .controles{padding:10px 14px;gap:8px}
+  .controles input[type=search],.controles select,.controles input[list],
+  .filtro-combo,.filtro-combo input[list]{width:100%;min-width:0}
+  .filtro-combo{flex:1 1 calc(50% - 4px)}
+  #buscar{flex:1 1 100%;min-width:0}
+  .controles .btn-pri,.controles .btn-sec{flex:1 1 calc(50% - 4px);text-align:center}
+
+  /* la tabla se desliza sola de lado, sin romper la página */
+  .tabla-wrap{margin:4px 14px 40px;overflow-x:auto}
+  .tabla-wrap table{min-width:820px}
+
+  /* interruptor de mundo a lo ancho */
+  .switch-mundo{margin:12px 14px 0;width:100%}
+  .sm-op{flex:1;padding:10px 8px;font-size:13px}
+
+  /* paneles a pantalla completa */
+  .panel{width:100%;max-width:100%}
+  .rep-seccion{margin:14px;padding:16px 14px}
+  .h-kpis{grid-template-columns:repeat(2,1fr)}
+}
+
+@media (max-width: 420px){
+  .tablero{grid-template-columns:repeat(2,1fr)}
+  .barra-der .btn-reporte{flex:1 1 calc(50% - 4px);font-size:11px;padding:9px 3px}
+  .h-kpis{grid-template-columns:1fr}
+}
