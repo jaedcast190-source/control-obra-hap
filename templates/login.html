@@ -45,8 +45,8 @@ async function entrar() {
   });
   const d = await r.json();
   if (d.error) { mostrarErr(d.error); return; }
-  // redirige según el rol
-  if (d.rol === "admin") location.href = "/";
+  // redirige según el rol: admin y supervisores van al panel; proveedores al portal
+  if (d.rol === "admin" || d.rol === "supervisor_obra" || d.rol === "supervisor_depto") location.href = "/";
   else location.href = "/portal";
 }
 function mostrarErr(m) { const e = $("#err"); e.textContent = m; e.style.display = "block"; }
