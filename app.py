@@ -51,6 +51,21 @@ FECHA_ENTREGA = "2026-10-31"
 app = Flask(__name__)
 
 
+def _inyectar_diagnostico(html):
+    """TEMPORAL: pinta arriba de la pagina exactamente que sesion ve el servidor,
+    para saber sin duda si el rebote es del servidor o de otra cosa."""
+    u = session.get("usuario")
+    r = session.get("rol")
+    aviso = (
+        '<div style="background:#000;color:#0f0;font-family:monospace;'
+        'padding:10px 16px;font-size:14px;border-bottom:3px solid #0f0">'
+        'DIAGNOSTICO TEMPORAL &mdash; sesion vista por el servidor ahora mismo: '
+        'usuario=<b>%s</b> &nbsp; rol=<b>%s</b> &nbsp; ruta=<b>%s</b>'
+        '</div>'
+    ) % (u, r, request.path)
+    return html.replace("<body>", "<body>" + aviso, 1)
+
+
 @app.after_request
 def _sin_cache_en_paginas(resp):
     """Blindaje contra rebotes: nunca dejar que el navegador ni ningun
@@ -725,7 +740,7 @@ def index():
         return redirect("/login")
     if not es_gestor(session.get("rol")):
         return redirect("/portal")
-    return render_template("index.html")
+    return _inyectar_diagnostico(render_template("index.html"))
 
 
 @app.route("/reporte")
@@ -2009,7 +2024,7 @@ def portal_page():
     # blindaje: si por cualquier motivo un gestor cae aqui, lo regresamos al panel
     if "usuario" in session and es_gestor(session.get("rol")):
         return redirect("/")
-    return render_template("portal.html")
+    return _inyectar_diagnostico(render_template("portal.html"))
 
 
 @app.route("/api/portal/mapa")
