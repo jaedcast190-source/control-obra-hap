@@ -112,6 +112,23 @@ def requiere_admin(fn):
         return fn(*a, **k)
     return envoltura
 
+
+# Roles que pueden GESTIONAR la obra (validar, asignar, editar, dependencias):
+# el admin y los dos supervisores. NO incluye tocar usuarios, respaldos ni borrar.
+ROLES_GESTORES = ("admin", "supervisor_obra", "supervisor_depto")
+
+def es_gestor(rol):
+    return rol in ROLES_GESTORES
+
+def requiere_gestor(fn):
+    """Deja pasar a admin y supervisores. Para validar/asignar/editar/dependencias."""
+    @wraps(fn)
+    def envoltura(*a, **k):
+        if session.get("rol") not in ROLES_GESTORES:
+            return jsonify({"error": "solo_gestores"}), 403
+        return fn(*a, **k)
+    return envoltura
+
 # ----------------------------------------------------------------------------
 # Base de datos
 # ----------------------------------------------------------------------------
@@ -387,6 +404,15 @@ def init_db():
         con.execute("UPDATE usuarios SET mundo='obra' WHERE mundo IS NULL")
     if "clave_cambiada" not in ucols:
         con.execute("ALTER TABLE usuarios ADD COLUMN clave_cambiada INTEGER DEFAULT 0")
+    if "activo" not in ucols:
+        con.execute("ALTER TABLE usuarios ADD COLUMN activo INTEGER DEFAULT 1")
+        con.execute("UPDATE usuarios SET activo=1 WHERE activo IS NULL")
+    if "num_logins" not in ucols:
+        con.execute("ALTER TABLE usuarios ADD COLUMN num_logins INTEGER DEFAULT 0")
+    if "ultimo_login" not in ucols:
+        con.execute("ALTER TABLE usuarios ADD COLUMN ultimo_login TEXT")
+    if "telefono" not in ucols:
+        con.execute("ALTER TABLE usuarios ADD COLUMN telefono TEXT")
 
     # Expediente de proveedores: columnas de contacto
     pcols = [r[1] for r in con.execute("PRAGMA table_info(proveedores)").fetchall()]
@@ -600,7 +626,7 @@ def api_tipos_internos():
 
 
 @app.route("/api/tipos_internos", methods=["POST"])
-@requiere_admin
+@requiere_gestor
 def api_tipos_internos_add():
     db = get_db()
     nombre = (request.get_json().get("nombre") or "").strip()
@@ -617,7 +643,7 @@ def involucrados_page():
 
 
 @app.route("/api/involucrados/catalogo", methods=["GET"])
-@requiere_admin
+@requiere_gestor
 def api_inv_catalogo():
     db = get_db()
     rows = db.execute("SELECT nombre FROM involucrados ORDER BY nombre").fetchall()
@@ -625,7 +651,7 @@ def api_inv_catalogo():
 
 
 @app.route("/api/involucrados/catalogo", methods=["POST"])
-@requiere_admin
+@requiere_gestor
 def api_inv_catalogo_add():
     db = get_db()
     nombre = (request.get_json().get("nombre") or "").strip()
@@ -637,7 +663,7 @@ def api_inv_catalogo_add():
 
 
 @app.route("/api/involucrados/por_area", methods=["GET"])
-@requiere_admin
+@requiere_gestor
 def api_inv_por_area():
     """Devuelve, por cada área, qué involucrados tiene encendidos (y el catálogo completo)."""
     db = get_db()
@@ -656,7 +682,7 @@ def api_inv_por_area():
 
 
 @app.route("/api/involucrados/toggle", methods=["POST"])
-@requiere_admin
+@requiere_gestor
 def api_inv_toggle():
     """Prende o apaga un involucrado en una área."""
     db = get_db()
@@ -685,7 +711,7 @@ def index():
     # si no hay sesión, al login; si es proveedor, a su portal
     if "usuario" not in session:
         return redirect("/login")
-    if session.get("rol") != "admin":
+    if not es_gestor(session.get("rol")):
         return redirect("/portal")
     return render_template("index.html")
 
@@ -783,6 +809,7 @@ def api_actividad_historial(aid):
 
 
 @app.route("/api/actividad/<int:aid>", methods=["PUT"])
+@requiere_gestor
 def api_actualizar(aid):
     db = get_db()
     data = request.get_json()
@@ -826,6 +853,7 @@ def api_actualizar(aid):
 
 
 @app.route("/api/actividad", methods=["POST"])
+@requiere_gestor
 def api_crear():
     db = get_db()
     data = request.get_json()
@@ -854,6 +882,7 @@ def api_crear():
 
 
 @app.route("/api/actividad/<int:aid>", methods=["DELETE"])
+@requiere_admin
 def api_borrar(aid):
     db = get_db()
     db.execute("DELETE FROM actividades WHERE id=?", (aid,))
@@ -862,6 +891,7 @@ def api_borrar(aid):
 
 
 @app.route("/api/actividades/borrar", methods=["POST"])
+@requiere_admin
 def api_borrar_multiple():
     db = get_db()
     data = request.get_json()
@@ -1175,7 +1205,7 @@ def _avance_a_fecha(db, fecha, mundo="obra"):
 
 
 @app.route("/api/historico/fechas")
-@requiere_admin
+@requiere_gestor
 def api_historico_fechas():
     db = get_db()
     fotos = _fotos_disponibles(db)
@@ -1190,7 +1220,7 @@ def api_historico_fechas():
 
 
 @app.route("/api/historico")
-@requiere_admin
+@requiere_gestor
 def api_historico():
     """Cómo estaba la obra en una fecha dada."""
     fecha = request.args.get("fecha") or datetime.date.today().isoformat()
@@ -1241,7 +1271,7 @@ def api_historico():
 
 
 @app.route("/api/historico/comparar")
-@requiere_admin
+@requiere_gestor
 def api_historico_comparar():
     """Cuánto se movió cada responsable entre dos fechas."""
     desde = request.args.get("desde")
@@ -1797,6 +1827,16 @@ def api_login():
     u = db.execute("SELECT * FROM usuarios WHERE usuario=?", (usuario,)).fetchone()
     if not u or u["clave"] != hash_clave(clave):
         return jsonify({"error": "Usuario o contraseña incorrectos"}), 401
+    # candado: usuario desactivado no puede entrar
+    if "activo" in u.keys() and u["activo"] == 0:
+        return jsonify({"error": "Tu acceso está desactivado. Contacta al administrador."}), 403
+    # contar el acceso
+    try:
+        db.execute("UPDATE usuarios SET num_logins=COALESCE(num_logins,0)+1, ultimo_login=? WHERE id=?",
+                   (datetime.datetime.now().isoformat(timespec="seconds"), u["id"]))
+        db.commit()
+    except Exception:
+        pass
     session["usuario"] = u["usuario"]
     session["rol"] = u["rol"]
     session["proveedor"] = u["proveedor"]
@@ -1825,7 +1865,7 @@ def api_quien_soy():
 @requiere_admin
 def api_usuarios():
     db = get_db()
-    rows = db.execute("SELECT id,usuario,proveedor,rol,mundo,clave_cambiada,creado FROM usuarios ORDER BY rol,mundo,usuario").fetchall()
+    rows = db.execute("SELECT id,usuario,proveedor,rol,mundo,clave_cambiada,creado,activo,num_logins,ultimo_login,telefono FROM usuarios ORDER BY rol,mundo,usuario").fetchall()
     return jsonify([dict(r) for r in rows])
 
 
@@ -1838,12 +1878,22 @@ def api_crear_usuario():
     clave = data.get("clave") or ""
     proveedor = data.get("proveedor") or None
     mundo = data.get("mundo", "obra")
+    telefono = (data.get("telefono") or "").strip() or None
+    # rol: por defecto proveedor. El admin puede crear supervisores.
+    rol = data.get("rol", "proveedor")
+    if rol not in ("proveedor", "supervisor_obra", "supervisor_depto"):
+        rol = "proveedor"
+    # el supervisor de obra vive en mundo 'obra'; el de depto en 'interno'
+    if rol == "supervisor_obra":
+        mundo = "obra"
+    elif rol == "supervisor_depto":
+        mundo = "interno"
     if not usuario or not clave:
         return jsonify({"error": "Usuario y contraseña son obligatorios"}), 400
     try:
         db.execute(
-            "INSERT INTO usuarios (usuario,clave,proveedor,rol,mundo,creado) VALUES (?,?,?,?,?,?)",
-            (usuario, hash_clave(clave), proveedor, "proveedor", mundo,
+            "INSERT INTO usuarios (usuario,clave,proveedor,rol,mundo,telefono,activo,num_logins,creado) VALUES (?,?,?,?,?,?,1,0,?)",
+            (usuario, hash_clave(clave), proveedor, rol, mundo, telefono,
              datetime.datetime.now().isoformat(timespec="seconds")))
         db.commit()
     except sqlite3.IntegrityError:
@@ -1874,6 +1924,71 @@ def api_cambiar_clave(uid):
     db.execute("UPDATE usuarios SET clave=? WHERE id=?", (hash_clave(nueva), uid))
     db.commit()
     return jsonify({"ok": True})
+
+
+@app.route("/api/usuario/<int:uid>/activo", methods=["POST"])
+@requiere_admin
+def api_usuario_activo(uid):
+    """Activa o desactiva el acceso de un usuario (sin borrarlo)."""
+    db = get_db()
+    data = request.get_json() or {}
+    activo = 1 if data.get("activo") else 0
+    u = db.execute("SELECT rol FROM usuarios WHERE id=?", (uid,)).fetchone()
+    if u and u["rol"] == "admin":
+        return jsonify({"error": "No se puede desactivar al administrador"}), 400
+    db.execute("UPDATE usuarios SET activo=? WHERE id=?", (activo, uid))
+    db.commit()
+    return jsonify({"ok": True, "activo": activo})
+
+
+@app.route("/api/usuario/<int:uid>/telefono", methods=["POST"])
+@requiere_admin
+def api_usuario_telefono(uid):
+    """Guarda o actualiza el telefono (para el aviso por WhatsApp)."""
+    db = get_db()
+    data = request.get_json() or {}
+    tel = (data.get("telefono") or "").strip() or None
+    db.execute("UPDATE usuarios SET telefono=? WHERE id=?", (tel, uid))
+    db.commit()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/usuario/<int:uid>/whatsapp", methods=["GET"])
+@requiere_admin
+def api_usuario_whatsapp(uid):
+    """Arma el link de WhatsApp con un mensaje listo avisando de nuevas asignaciones.
+    No envia nada: devuelve el link para que el admin le de click."""
+    db = get_db()
+    u = db.execute("SELECT * FROM usuarios WHERE id=?", (uid,)).fetchone()
+    if not u:
+        return jsonify({"error": "Usuario no existe"}), 404
+    tel = (u["telefono"] or "").strip() if "telefono" in u.keys() else ""
+    if not tel:
+        return jsonify({"error": "Este usuario no tiene telefono registrado"}), 400
+    # contar nuevas por reconocer de ese proveedor
+    proveedor = u["proveedor"]
+    mundo = u["mundo"] if "mundo" in u.keys() else "obra"
+    col = "departamento" if mundo == "interno" else "proveedor"
+    n = db.execute(
+        f"SELECT COUNT(*) FROM actividades WHERE {col}=? AND reconocida='NO' "
+        "AND (estado_val IS NULL OR estado_val='validado') "
+        "AND (mundo=? OR (mundo IS NULL AND ?='obra'))",
+        (proveedor, mundo, mundo)).fetchone()[0]
+    # normalizar telefono: solo digitos; si no trae lada pais, anteponer 52 (Mexico)
+    solo_num = "".join(ch for ch in tel if ch.isdigit())
+    if len(solo_num) == 10:
+        solo_num = "52" + solo_num
+    liga = request.host_url.rstrip("/") + "/portal"
+    if n > 0:
+        texto = (f"Hola {proveedor or u['usuario']}, tienes {n} "
+                 f"{'nueva actividad asignada' if n == 1 else 'nuevas actividades asignadas'} "
+                 f"en el Control de Obra HAP. Entra a reconocerlas y reportar tu avance: {liga}")
+    else:
+        texto = (f"Hola {proveedor or u['usuario']}, te recuerdo revisar tus actividades "
+                 f"en el Control de Obra HAP: {liga}")
+    import urllib.parse
+    url = "https://wa.me/" + solo_num + "?text=" + urllib.parse.quote(texto)
+    return jsonify({"ok": True, "url": url, "mensaje": texto, "nuevas": n, "telefono": tel})
 
 
 # --- Portal del proveedor: ve y reporta SOLO lo suyo ---
@@ -1982,12 +2097,13 @@ def api_portal_avance_zona():
 @requiere_login
 def api_portal_mis():
     _, rol, proveedor = usuario_actual()
-    if rol == "admin":
-        return jsonify({"error": "El admin usa el panel principal"}), 400
+    if es_gestor(rol):
+        return jsonify({"error": "Los gestores usan el panel principal"}), 400
     db = get_db()
     col, mundo = col_duenio()
     rows = db.execute(
         f"SELECT * FROM actividades WHERE {col}=? AND (mundo=? OR (mundo IS NULL AND ?='obra')) "
+        "AND (reconocida IS NULL OR reconocida<>'RECHAZADA') "
         "ORDER BY estado_val DESC, area, id",
         (proveedor, mundo, mundo)).fetchall()
     
@@ -2091,7 +2207,7 @@ def api_portal_no_reconozco(aid):
     data = request.get_json() or {}
     nota = (data.get("nota") or "").strip()
     registrar_historial(db, aid, "no reconocida", "", nota or "el proveedor no reconoce esta actividad", usuario)
-    db.execute("UPDATE actividades SET no_reconocida_nota=? WHERE id=?", (nota or "No reconocida", aid))
+    db.execute("UPDATE actividades SET no_reconocida_nota=?, reconocida='RECHAZADA' WHERE id=?", (nota or "No reconocida", aid))
     db.execute("INSERT INTO avisos (fecha,proveedor,usuario,tipo,detalle,visto) VALUES (?,?,?,?,?,0)",
                (datetime.datetime.now().isoformat(timespec="seconds"), proveedor, usuario,
                 "no_reconocida", f"No reconoce {a['codigo']}: {(a['partida'] or '')[:50]}"))
@@ -2167,7 +2283,7 @@ def api_portal_nueva():
 
 
 @app.route("/api/validacion/atencion")
-@requiere_admin
+@requiere_gestor
 def api_val_atencion():
     """Actividades que necesitan tu atención: rechazadas y las que un proveedor no reconoce."""
     db = get_db()
@@ -2183,7 +2299,7 @@ def api_val_atencion():
 
 
 @app.route("/api/validacion/reactivar/<int:aid>", methods=["POST"])
-@requiere_admin
+@requiere_gestor
 def api_val_reactivar(aid):
     """Reactiva una actividad rechazada: vuelve a propuesta para revisarla de nuevo."""
     db = get_db()
@@ -2196,18 +2312,18 @@ def api_val_reactivar(aid):
 
 
 @app.route("/api/validacion/limpiar_no_reconocida/<int:aid>", methods=["POST"])
-@requiere_admin
+@requiere_gestor
 def api_val_limpiar_noreco(aid):
     """Después de corregir una actividad que el proveedor no reconocía, limpias la marca."""
     db = get_db()
-    db.execute("UPDATE actividades SET no_reconocida_nota=NULL WHERE id=?", (aid,))
+    db.execute("UPDATE actividades SET no_reconocida_nota=NULL, reconocida='NO', reconocida_por=NULL, reconocida_fecha=NULL WHERE id=?", (aid,))
     db.commit()
     return jsonify({"ok": True})
 
 
 # --- Validación (admin) ---
 @app.route("/api/validacion/pendientes")
-@requiere_admin
+@requiere_gestor
 def api_val_pendientes():
     db = get_db()
     props = db.execute(
@@ -2223,7 +2339,7 @@ def api_val_pendientes():
 
 
 @app.route("/api/validacion/aviso_conteo")
-@requiere_admin
+@requiere_gestor
 def api_val_conteo():
     db = get_db()
     p = db.execute("SELECT COUNT(*) FROM actividades WHERE estado_val='propuesta'").fetchone()[0]
@@ -2233,7 +2349,7 @@ def api_val_conteo():
 
 
 @app.route("/api/validacion/aprobar/<int:aid>", methods=["POST"])
-@requiere_admin
+@requiere_gestor
 def api_val_aprobar(aid):
     db = get_db()
     a = db.execute("SELECT * FROM actividades WHERE id=?", (aid,)).fetchone()
@@ -2261,7 +2377,7 @@ def api_val_aprobar(aid):
 
 
 @app.route("/api/validacion/rechazar/<int:aid>", methods=["POST"])
-@requiere_admin
+@requiere_gestor
 def api_val_rechazar(aid):
     db = get_db()
     a = db.execute("SELECT * FROM actividades WHERE id=?", (aid,)).fetchone()
@@ -2290,7 +2406,7 @@ def api_val_rechazar(aid):
 
 
 @app.route("/api/validacion/aprobar_todas", methods=["POST"])
-@requiere_admin
+@requiere_gestor
 def api_val_aprobar_todas():
     db = get_db()
     data = request.get_json() or {}
@@ -2345,7 +2461,7 @@ def api_dependencias_list():
 
 
 @app.route("/api/dependencias", methods=["POST"])
-@requiere_admin
+@requiere_gestor
 def api_dependencias_crear():
     db = get_db()
     data = request.get_json() or {}
@@ -2368,7 +2484,7 @@ def api_dependencias_crear():
 
 
 @app.route("/api/dependencias/<int:did>", methods=["DELETE"])
-@requiere_admin
+@requiere_gestor
 def api_dependencias_borrar(did):
     db = get_db()
     db.execute("DELETE FROM dependencias WHERE id=?", (did,))
@@ -2377,7 +2493,7 @@ def api_dependencias_borrar(did):
 
 
 @app.route("/api/dependencias/<int:did>/forzar_liberacion", methods=["POST"])
-@requiere_admin
+@requiere_gestor
 def api_dependencias_forzar(did):
     db = get_db()
     data = request.get_json() or {}
@@ -2406,7 +2522,7 @@ def api_dependencias_forzar(did):
 
 
 @app.route("/api/dependencias/<int:did>/deshacer_forzar", methods=["POST"])
-@requiere_admin
+@requiere_gestor
 def api_dependencias_deshacer_forzar(did):
     db = get_db()
     db.execute("UPDATE dependencias SET liberacion_forzada=0, forzada_por=NULL, forzada_fecha=NULL, forzada_nota=NULL WHERE id=?", (did,))
@@ -2635,4 +2751,3 @@ if __name__ == "__main__":
     puerto = int(os.environ.get("PORT", 5000))
     host = "0.0.0.0" if os.environ.get("EN_INTERNET") else "127.0.0.1"
     app.run(host=host, port=puerto, debug=False)
-
