@@ -78,9 +78,18 @@ function render() {
   if (SOLO_NUEVAS) {
     lista = lista.filter(a => a.reconocida !== "SÍ" && a.estado_val !== "propuesta" && a.estado_val !== "rechazada");
   }
-  // barra de reconocer en lote: solo en modo nuevas y si hay pendientes
+  // barra en modo nuevas: SIEMPRE visible mientras se esté en ese modo,
+  // para que el proveedor pueda regresar aunque ya no queden nuevas por reconocer.
   const barraReco = $("#barra-reconocer");
-  if (barraReco) barraReco.hidden = !(SOLO_NUEVAS && lista.length > 0);
+  if (barraReco) barraReco.hidden = !SOLO_NUEVAS;
+  // el botón de "reconocer todo" solo tiene sentido si hay algo que reconocer
+  const btnRecoLoteEl = $("#btn-reconocer-lote");
+  if (btnRecoLoteEl) btnRecoLoteEl.hidden = !(SOLO_NUEVAS && lista.length > 0);
+  // texto guía cuando ya no quedan nuevas
+  const brTextoEl = document.querySelector(".br-texto");
+  if (brTextoEl) brTextoEl.textContent = (SOLO_NUEVAS && lista.length === 0)
+    ? "Ya reconociste todo. Puedes volver a ver todas tus actividades."
+    : "Estas son las actividades que te asignaron y aún no reconoces. Confirma que son tu trabajo para poder reportar avance.";
   $("#p-contador").textContent = lista.length + " actividades";
   const cont = $("#p-lista");
   if (!lista.length) { cont.innerHTML = `<p class="vacio">No hay actividades.</p>`; return; }
@@ -480,6 +489,3 @@ ponerBotonX("#new-bloque", () => {
 ponerBotonX("#new-area");
 
 inicio();
-
-
-
