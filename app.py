@@ -49,6 +49,18 @@ DB_PATH = os.path.join(DATA_DIR, "obra.db")
 FECHA_ENTREGA = "2026-10-31"
 
 app = Flask(__name__)
+
+
+@app.after_request
+def _sin_cache_en_paginas(resp):
+    """Blindaje contra rebotes: nunca dejar que el navegador ni ningun
+    proxy/CDN guarde en cache las paginas HTML. Asi jamas se puede quedar
+    pegada una version vieja del panel o del portal."""
+    if resp.mimetype == "text/html":
+        resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        resp.headers["Pragma"] = "no-cache"
+    return resp
+
 # clave para las sesiones; se guarda en data/ para que no cambie entre reinicios
 _secret_file = os.path.join(DATA_DIR, ".secret")
 def _cargar_secret():
@@ -1994,6 +2006,9 @@ def api_usuario_whatsapp(uid):
 # --- Portal del proveedor: ve y reporta SOLO lo suyo ---
 @app.route("/portal")
 def portal_page():
+    # blindaje: si por cualquier motivo un gestor cae aqui, lo regresamos al panel
+    if "usuario" in session and es_gestor(session.get("rol")):
+        return redirect("/")
     return render_template("portal.html")
 
 
