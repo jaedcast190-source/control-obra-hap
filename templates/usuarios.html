@@ -13,6 +13,18 @@
 .u-form input,.u-form select{width:100%;padding:9px 11px;border:1px solid #cbd2da;border-radius:8px;font-size:14px;box-sizing:border-box}
 .u-hint{color:#6b7280;font-size:13px;margin:0 0 14px}
 @media(max-width:800px){.u-form{grid-template-columns:1fr}}
+.u-estado{display:inline-block;padding:3px 9px;border-radius:20px;font-size:12px;font-weight:600}
+.u-activo{background:#dcfce7;color:#166534}
+.u-inactivo{background:#fee2e2;color:#991b1b}
+.u-logins{font-size:12px;color:#6b7280}
+.u-roltag{display:inline-block;padding:2px 8px;border-radius:6px;font-size:12px;font-weight:600}
+.u-rol-admin{background:#fef3c7;color:#92400e}
+.u-rol-super{background:#e0e7ff;color:#3730a3}
+.u-rol-prov{background:#f1f5f9;color:#475569}
+.u-btnwa{background:#25D366;color:#fff;border:none;padding:6px 10px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer}
+.u-btn-mini{padding:6px 10px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid #cbd2da;background:#fff;color:#334155}
+.u-btn-mini:hover{background:#f1f5f9}
+.v-btns{display:flex;gap:6px;flex-wrap:wrap}
 </style>
 </head>
 <body>
@@ -41,83 +53,239 @@
     <div class="campo"><label>Contraseña</label>
       <input id="u-clave" placeholder="la que tú decidas" autocomplete="off"></div>
     <div class="campo"><label>Tipo de acceso</label>
+      <select id="u-rol">
+        <option value="proveedor">Proveedor / Departamento (reporta lo suyo)</option>
+        <option value="supervisor_obra">Supervisor de Obra (apoya en externos)</option>
+        <option value="supervisor_depto">Supervisor de Departamento (apoya en internos)</option>
+      </select></div>
+    <div class="campo" id="campo-mundo"><label>Mundo</label>
       <select id="u-mundo">
         <option value="obra">Proveedor externo (contratista)</option>
         <option value="interno">Departamento interno (HAP)</option>
       </select></div>
-    <div class="campo"><label id="u-lbl-prov">Proveedor (ve solo lo suyo)</label>
+    <div class="campo" id="campo-prov"><label id="u-lbl-prov">Proveedor (ve solo lo suyo)</label>
       <input list="dl-u-prov" id="u-proveedor" placeholder="Elige el proveedor" autocomplete="off">
       <datalist id="dl-u-prov"></datalist>
       <p class="ayuda" id="u-ayuda" style="font-size:11.5px;color:#6b7280;margin-top:4px">
         Debe coincidir <b>letra por letra</b> con el nombre que traen las actividades.</p></div>
+    <div class="campo"><label>Teléfono (para avisar por WhatsApp)</label>
+      <input id="u-telefono" placeholder="ej. 477 123 4567" autocomplete="off"></div>
     <button class="btn-pri" id="u-crear">Crear acceso</button>
   </div>
 
   <div class="v-tabla-wrap">
     <table class="v-tabla" id="tabla-u">
-      <thead><tr><th>Usuario</th><th>Proveedor / Departamento</th><th>Tipo</th><th>Rol</th><th></th></tr></thead>
+      <thead><tr>
+        <th>Usuario</th><th>Proveedor / Departamento</th><th>Tipo</th><th>Rol</th>
+        <th>Accesos</th><th>Estado</th><th></th>
+      </tr></thead>
       <tbody id="tbody-u"></tbody>
     </table>
   </div>
 </div>
 
 <div id="toast" class="toast" hidden></div>
+
+<!-- ===== Modal: restablecer contraseña ===== -->
+<div id="modal-reset" class="modal-overlay" hidden>
+  <div class="modal-caja">
+    <div class="modal-cab"><h3>Restablecer contraseña</h3>
+      <button class="cerrar" id="btn-cerrar-reset">✕</button></div>
+    <div class="modal-cuerpo">
+      <input type="hidden" id="reset-id">
+      <p class="v-desc">No se puede <b>ver</b> la contraseña de nadie (se guarda cifrada). Aquí le pones una
+        <b>nueva</b> y se la comunicas tú.</p>
+      <div class="campo"><label>Nueva contraseña para <b id="reset-nombre"></b></label>
+        <input type="text" id="reset-clave" placeholder="la que tú decidas" autocomplete="off"></div>
+    </div>
+    <div class="modal-pie">
+      <button class="btn-sec" id="btn-cancelar-reset">Cancelar</button>
+      <button class="btn-pri" id="btn-guardar-reset">Guardar contraseña nueva</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Modal: teléfono ===== -->
+<div id="modal-tel" class="modal-overlay" hidden>
+  <div class="modal-caja">
+    <div class="modal-cab"><h3>Teléfono para WhatsApp</h3>
+      <button class="cerrar" id="btn-cerrar-tel">✕</button></div>
+    <div class="modal-cuerpo">
+      <input type="hidden" id="tel-id">
+      <div class="campo"><label>Teléfono de <b id="tel-nombre"></b></label>
+        <input type="text" id="tel-num" placeholder="ej. 477 123 4567" autocomplete="off">
+        <p class="ayuda" style="font-size:11.5px;color:#6b7280;margin-top:4px">
+          10 dígitos. Se le antepone 52 (México) solo.</p></div>
+    </div>
+    <div class="modal-pie">
+      <button class="btn-sec" id="btn-cancelar-tel">Cancelar</button>
+      <button class="btn-pri" id="btn-guardar-tel">Guardar teléfono</button>
+    </div>
+  </div>
+</div>
+
 <script>
-const $ = (s) => document.querySelector(s);
+const $ = (s) => document.querySelector(s) || document.createElement("span");
+const $$ = (s) => document.querySelectorAll(s);
 let CAT = {};
+function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
+function toast(m){const t=$("#toast");t.textContent=m;t.hidden=false;setTimeout(()=>t.hidden=true,2200);}
+
+function esSupervisor(){ return $("#u-rol").value !== "proveedor"; }
+
 function llenarLista(){
   const interno = $("#u-mundo").value === "interno";
   const lista = interno ? (CAT.departamentos||[]) : (CAT.proveedores||[]);
   $("#dl-u-prov").innerHTML = lista.map(p=>`<option value="${esc(p)}">`).join("");
   $("#u-lbl-prov").textContent = interno ? "Departamento (ve solo lo suyo)" : "Proveedor (ve solo lo suyo)";
   $("#u-proveedor").placeholder = interno ? "Elige el departamento" : "Elige el proveedor";
-  $("#u-proveedor").value = "";
 }
-const $$ = (s) => document.querySelectorAll(s);
-function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
-function toast(m){const t=$("#toast");t.textContent=m;t.hidden=false;setTimeout(()=>t.hidden=true,2200);}
+
+function ajustarFormPorRol(){
+  // el supervisor NO se liga a un proveedor concreto; ve todo su mundo.
+  const sup = esSupervisor();
+  $("#campo-prov").style.display = sup ? "none" : "";
+  // el mundo del supervisor lo fija el rol; se oculta el selector
+  if ($("#u-rol").value === "supervisor_obra") { $("#u-mundo").value = "obra"; $("#campo-mundo").style.display = "none"; }
+  else if ($("#u-rol").value === "supervisor_depto") { $("#u-mundo").value = "interno"; $("#campo-mundo").style.display = "none"; }
+  else { $("#campo-mundo").style.display = ""; }
+  llenarLista();
+}
+
+function rolTag(u){
+  if (u.rol === "admin") return '<span class="u-roltag u-rol-admin">Administrador</span>';
+  if (u.rol === "supervisor_obra") return '<span class="u-roltag u-rol-super">Superv. Obra</span>';
+  if (u.rol === "supervisor_depto") return '<span class="u-roltag u-rol-super">Superv. Depto</span>';
+  return '<span class="u-roltag u-rol-prov">Proveedor</span>';
+}
 
 async function cargar() {
   const q = await (await fetch("/api/quien_soy")).json();
   if (!q.login) { location.href = "/login"; return; }
   if (q.rol !== "admin") { location.href = "/portal"; return; }
   CAT = await (await fetch("/api/catalogos")).json();
-  llenarLista();
+  ajustarFormPorRol();
   const us = await (await fetch("/api/usuarios")).json();
-  $("#tbody-u").innerHTML = us.map(u => `
+  $("#tbody-u").innerHTML = us.map(u => {
+    const activo = (u.activo === undefined || u.activo === null) ? 1 : u.activo;
+    const esAdmin = u.rol === "admin";
+    const puedeWa = u.rol === "proveedor";
+    const ult = u.ultimo_login ? (" · último " + esc(String(u.ultimo_login).slice(0,10))) : "";
+    return `
     <tr>
       <td class="mono">${esc(u.usuario)}</td>
       <td>${esc(u.proveedor||"—")}</td>
       <td>${u.mundo==="interno"?'<span class="exp-tipo ti">Interno HAP</span>':'<span class="exp-tipo te">Externo</span>'}</td>
-      <td>${u.rol==="admin"?"<b>Administrador</b>":"Proveedor"}</td>
+      <td>${rolTag(u)}</td>
+      <td class="u-logins">${(u.num_logins||0)} ${(u.num_logins===1?'vez':'veces')}${ult}</td>
+      <td>${esAdmin ? '<span class="u-estado u-activo">Activo</span>'
+                    : `<span class="u-estado ${activo?'u-activo':'u-inactivo'}">${activo?'Activo':'Inactivo'}</span>`}</td>
       <td class="v-btns">
-        ${u.rol==="admin"?"":`<button class="v-no" data-id="${u.id}">Quitar</button>`}
+        ${esAdmin ? "" : `
+          <button class="u-btn-mini" data-acc="reset" data-id="${u.id}" data-nom="${esc(u.usuario)}">🔑 Contraseña</button>
+          <button class="u-btn-mini" data-acc="tel" data-id="${u.id}" data-nom="${esc(u.usuario)}" data-tel="${esc(u.telefono||'')}">📞 Tel</button>
+          ${puedeWa ? `<button class="u-btnwa" data-acc="wa" data-id="${u.id}">WhatsApp</button>` : ""}
+          <button class="u-btn-mini" data-acc="toggle" data-id="${u.id}" data-activo="${activo}">${activo?'Desactivar':'Activar'}</button>
+          <button class="v-no" data-acc="del" data-id="${u.id}">Quitar</button>
+        `}
       </td>
-    </tr>`).join("");
-  $$("#tbody-u .v-no").forEach(b => b.onclick = async () => {
-    if (!confirm("¿Quitar este acceso?")) return;
-    await fetch("/api/usuario/" + b.dataset.id, { method: "DELETE" });
-    toast("Acceso eliminado"); cargar();
+    </tr>`;
+  }).join("");
+  enlazarAcciones();
+}
+
+function enlazarAcciones(){
+  $$("#tbody-u [data-acc]").forEach(b => {
+    const acc = b.dataset.acc, id = b.dataset.id;
+    b.onclick = async () => {
+      if (acc === "del") {
+        if (!confirm("¿Quitar este acceso?")) return;
+        await fetch("/api/usuario/" + id, { method: "DELETE" });
+        toast("Acceso eliminado"); cargar();
+      }
+      else if (acc === "toggle") {
+        const activo = b.dataset.activo === "1";
+        await fetch("/api/usuario/" + id + "/activo", {
+          method: "POST", headers: {"Content-Type":"application/json"},
+          body: JSON.stringify({ activo: !activo }) });
+        toast(activo ? "Acceso desactivado" : "Acceso activado"); cargar();
+      }
+      else if (acc === "reset") {
+        $("#reset-id").value = id; $("#reset-nombre").textContent = b.dataset.nom;
+        $("#reset-clave").value = ""; $("#modal-reset").hidden = false;
+        setTimeout(()=>$("#reset-clave").focus(), 50);
+      }
+      else if (acc === "tel") {
+        $("#tel-id").value = id; $("#tel-nombre").textContent = b.dataset.nom;
+        $("#tel-num").value = b.dataset.tel || ""; $("#modal-tel").hidden = false;
+        setTimeout(()=>$("#tel-num").focus(), 50);
+      }
+      else if (acc === "wa") {
+        const r = await (await fetch("/api/usuario/" + id + "/whatsapp")).json();
+        if (r.error) { toast(r.error); return; }
+        window.open(r.url, "_blank");
+      }
+    };
   });
 }
 
+// crear
 $("#u-crear").addEventListener("click", async () => {
   const usuario = $("#u-usuario").value.trim();
   const clave = $("#u-clave").value.trim();
-  const proveedor = $("#u-proveedor").value.trim();
+  const rol = $("#u-rol").value;
   const mundo = $("#u-mundo").value;
-  if (!usuario || !clave || !proveedor) { toast("Llena usuario, contraseña y a quién pertenece"); return; }
+  const telefono = $("#u-telefono").value.trim();
+  const proveedor = $("#u-proveedor").value.trim();
+  if (!usuario || !clave) { toast("Llena usuario y contraseña"); return; }
+  // proveedor obligatorio solo si NO es supervisor
+  if (rol === "proveedor" && !proveedor) { toast("Indica a qué proveedor/departamento pertenece"); return; }
+  const cuerpo = { usuario, clave, rol, mundo, telefono };
+  if (rol === "proveedor") cuerpo.proveedor = proveedor;
   const r = await (await fetch("/api/usuarios", {
     method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ usuario, clave, proveedor, mundo }),
+    body: JSON.stringify(cuerpo),
   })).json();
   if (r.error) { toast(r.error); return; }
-  ["#u-usuario","#u-clave","#u-proveedor"].forEach(s=>$(s).value="");
-  toast("Acceso creado para " + proveedor);
+  ["#u-usuario","#u-clave","#u-proveedor","#u-telefono"].forEach(s=>$(s).value="");
+  toast("Acceso creado");
   cargar();
 });
 
+$("#u-rol").addEventListener("change", ajustarFormPorRol);
 $("#u-mundo").addEventListener("change", llenarLista);
+
+// modal reset
+function cerrarReset(){ $("#modal-reset").hidden = true; }
+$("#btn-cerrar-reset").onclick = cerrarReset;
+$("#btn-cancelar-reset").onclick = cerrarReset;
+$("#modal-reset").onclick = (e)=>{ if(e.target.id==="modal-reset") cerrarReset(); };
+$("#btn-guardar-reset").onclick = async () => {
+  const id = $("#reset-id").value;
+  const clave = $("#reset-clave").value.trim();
+  if (!clave) { toast("Escribe la contraseña nueva"); return; }
+  const r = await (await fetch("/api/usuario/" + id + "/clave", {
+    method: "POST", headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({ clave }) })).json();
+  if (r.error) { toast(r.error); return; }
+  cerrarReset(); toast("Contraseña actualizada");
+};
+
+// modal telefono
+function cerrarTel(){ $("#modal-tel").hidden = true; }
+$("#btn-cerrar-tel").onclick = cerrarTel;
+$("#btn-cancelar-tel").onclick = cerrarTel;
+$("#modal-tel").onclick = (e)=>{ if(e.target.id==="modal-tel") cerrarTel(); };
+$("#btn-guardar-tel").onclick = async () => {
+  const id = $("#tel-id").value;
+  const telefono = $("#tel-num").value.trim();
+  const r = await (await fetch("/api/usuario/" + id + "/telefono", {
+    method: "POST", headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({ telefono }) })).json();
+  if (r.error) { toast(r.error); return; }
+  cerrarTel(); toast("Teléfono guardado"); cargar();
+};
+
 cargar();
 </script>
 </body>
