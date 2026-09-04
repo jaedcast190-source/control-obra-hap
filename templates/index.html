@@ -3,8 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Control de Obra — Unidad Quirúrgica HAP</title>
+<title>Mi avance — Control de Obra HAP</title>
 <link rel="stylesheet" href="/static/estilos.css">
+<link rel="stylesheet" href="/static/portal.css">
 </head>
 <body>
 
@@ -12,299 +13,178 @@
   <div class="barra-izq">
     <span class="logo">HAP</span>
     <div>
-      <h1>Control de Obra — Unidad Quirúrgica</h1>
-      <p class="sub">Quirófanos Piso 1 Torre B · Captura y seguimiento de actividades</p>
+      <h1 id="titulo-prov">Mi avance</h1>
+      <p class="sub">Reporta cómo van tus actividades</p>
     </div>
   </div>
   <div class="barra-der">
-    <div class="contador" id="contador">
-      <span class="contador-num" id="dias-num">—</span>
-      <span class="contador-lbl">días para el 31&nbsp;oct</span>
-    </div>
-    <a href="/validacion" class="btn-reporte btn-reportes-sec" id="btn-validacion">Validación <span id="badge-val" class="badge-val" hidden>0</span></a>
-    <a href="/expediente" class="btn-reporte btn-reportes-sec">Expediente proveedores</a>
-    <a href="/historico" class="btn-reporte btn-reportes-sec">📅 Días pasados</a>
-    <a href="/reportes" class="btn-reporte btn-reportes-sec">Reportes y hojas</a>
-    <a href="/reporte" class="btn-reporte">Reporte para dirección →</a>
-    <button id="btn-dep-mgr" class="btn-reporte btn-reportes-sec">🔗 Dependencias</button>
-    <button id="btn-respaldo-rapido" class="btn-reporte btn-reportes-sec" title="Guarda una copia de seguridad de la base">💾 Respaldo</button>
-    <button id="btn-cambiar-clave-admin" class="btn-reporte btn-reportes-sec">🔑 Mi contraseña</button>
-    <button id="btn-salir-admin" class="btn-reporte btn-reportes-sec">Salir</button>
+    <button id="btn-nuevas" class="btn-reporte">Sin nuevas</button>
+    <button id="btn-zona" class="btn-reporte btn-reportes-sec">👁 Avance de mi zona</button>
+    <button id="btn-nueva-p" class="btn-reporte btn-reportes-sec">+ Agregar actividad</button>
+    <button id="btn-cambiar-clave" class="btn-reporte btn-reportes-sec">🔑 Mi contraseña</button>
+    <button id="btn-salir" class="btn-reporte">Salir</button>
   </div>
 </header>
 
-<section class="tablero" id="tablero">
-  <div class="kpi">
-    <span class="kpi-lbl">Avance global</span>
-    <span class="kpi-val" id="kpi-global">—</span>
-    <div class="barra-avance"><div class="barra-avance-fill" id="kpi-global-bar"></div></div>
-  </div>
-  <div class="kpi"><span class="kpi-lbl">Actividades</span><span class="kpi-val" id="kpi-total">—</span></div>
-  <div class="kpi"><span class="kpi-lbl">En proceso</span><span class="kpi-val azul" id="kpi-proceso">—</span></div>
-  <div class="kpi"><span class="kpi-lbl">Listas</span><span class="kpi-val verde" id="kpi-listas">—</span></div>
-  <div class="kpi alerta"><span class="kpi-lbl">Retrasadas</span><span class="kpi-val rojo" id="kpi-retraso">—</span></div>
-  <div class="kpi alerta"><span class="kpi-lbl">En riesgo (≤7 días)</span><span class="kpi-val naranja" id="kpi-riesgo">—</span></div>
+<section class="p-aviso">
+  <p>Aquí ves las actividades que te asignó la dirección. Escribe tu avance y guárdalo.
+     Lo que reportes le llega al ingeniero para su revisión. Si te falta alguna actividad, usa <b>+ Agregar actividad</b>.</p>
 </section>
 
-
-<div class="switch-mundo">
-  <button class="sm-op activo" id="sm-obra">🏗️ Trabajos Obra</button>
-  <button class="sm-op" id="sm-interno">🏥 Adecuaciones internas</button>
-</div>
-
-<section class="controles">
-  <input type="search" id="buscar" placeholder="Buscar partida, área o proveedor…">
-  <div class="filtro-combo">
-    <input list="dl-bloque" id="f-bloque" placeholder="Bloque" autocomplete="off">
-    <datalist id="dl-bloque"></datalist>
-  </div>
-  <div class="filtro-combo">
-    <input list="dl-area" id="f-area" placeholder="Área" autocomplete="off">
-    <datalist id="dl-area"></datalist>
-  </div>
-  <div class="filtro-combo">
-    <input list="dl-giro" id="f-giro" placeholder="Giro" autocomplete="off">
-    <datalist id="dl-giro"></datalist>
-  </div>
-  <div class="filtro-combo">
-    <input list="dl-proveedor" id="f-proveedor" placeholder="Proveedor" autocomplete="off">
-    <datalist id="dl-proveedor"></datalist>
-  </div>
-  <div class="filtro-combo">
-    <input list="dl-tipo" id="f-tipo-partida" placeholder="Tipo" autocomplete="off">
-    <datalist id="dl-tipo"></datalist>
-  </div>
-  <div class="filtro-combo">
-    <input list="dl-estatus" id="f-estatus" placeholder="Estatus" autocomplete="off">
-    <datalist id="dl-estatus"></datalist>
-  </div>
-  <datalist id="dl-causa-global"></datalist>
-  <button id="btn-limpiar" class="btn-sec">Limpiar</button>
+<section class="p-controles">
+  <select id="p-bloque" class="p-filtro"><option value="">Todos los bloques</option></select>
+  <select id="p-area" class="p-filtro"><option value="">Todas las áreas</option></select>
+  <input type="search" id="p-buscar" placeholder="Buscar…">
   <span class="flex"></span>
-  <button id="btn-nueva" class="btn-pri">+ Nueva actividad</button>
-  <button id="btn-foto" class="btn-sec" title="Guarda una foto del avance de hoy para comparar la próxima semana">📸 Guardar foto semanal</button>
-  <a href="/api/exportar" class="btn-sec">Exportar a Excel</a>
+  <span class="p-contador" id="p-contador"></span>
 </section>
 
-<div class="barra-seleccion" id="barra-seleccion" hidden>
-  <span id="sel-conteo">0 seleccionadas</span>
-  <button id="btn-borrar-sel" class="btn-borrar-sel">🗑 Eliminar seleccionadas</button>
-  <button id="btn-deseleccionar" class="btn-sec">Quitar selección</button>
+<div class="barra-reconocer" id="barra-reconocer" hidden>
+  <span class="br-texto">Estas son las actividades que te asignaron y aún no reconoces. Confirma que son tu trabajo para poder reportar avance.</span>
+  <button id="btn-reconocer-lote" class="br-boton">✓ Reconocer todo lo que se ve</button>
+  <button id="btn-ver-todo" class="br-boton-sec">Ver todas mis actividades</button>
 </div>
 
-<div class="tabla-wrap">
-  <table id="tabla">
-    <thead>
-      <tr>
-        <th class="col-check"><input type="checkbox" id="check-todos" title="Seleccionar todos"></th>
-        <th>Código</th><th>Área</th><th>Giro</th><th id="th-proveedor">Proveedor</th>
-        <th>Partida</th><th>Tipo</th><th class="col-av">Avance</th>
-        <th>Def.</th><th>Fin</th><th>Estatus</th><th></th>
-      </tr>
-    </thead>
-    <tbody id="cuerpo"></tbody>
-  </table>
-  <p id="vacio" class="vacio" hidden>No hay actividades que coincidan con el filtro.</p>
-</div>
+<div class="p-lista" id="p-lista"></div>
 
-<!-- Panel de edición -->
-<div class="overlay" id="overlay" hidden></div>
-<aside class="panel" id="panel" hidden>
+<!-- Panel para reportar avance de una partida existente -->
+<div class="overlay" id="ov-rep" hidden></div>
+<aside class="panel" id="panel-rep" hidden>
   <div class="panel-cab">
-    <h2 id="panel-titulo">Editar actividad</h2>
-    <button class="cerrar" id="cerrar-panel">✕</button>
+    <h2 id="rep-titulo">Reportar avance</h2>
+    <button class="cerrar" id="rep-cerrar">✕</button>
   </div>
   <div class="panel-cuerpo">
-    <input type="hidden" id="e-id">
-    <div class="campo"><label>Bloque</label>
-      <input list="dl-bloque-e" id="e-bloque" autocomplete="off">
-      <datalist id="dl-bloque-e"></datalist>
-      <button type="button" class="mini-add" data-add="bloque">+ Agregar bloque</button>
+    <input type="hidden" id="rep-id">
+    <div class="p-ficha">
+      <div><span class="p-lbl">Bloque</span><b id="rep-bloque"></b></div>
+      <div><span class="p-lbl">Área</span><b id="rep-area"></b></div>
+      <div><span class="p-lbl">Partida</span><b id="rep-partida"></b></div>
     </div>
-    <div class="fila-2">
-      <div class="campo"><label>Área</label>
-        <input list="dl-area-e" id="e-area" autocomplete="off">
-        <datalist id="dl-area-e"></datalist>
-        <button type="button" class="mini-add" data-add="area">+ Agregar área nueva</button>
+    <div class="campo"><label>¿Cuánto llevas? (tu avance declarado)</label>
+      <div class="p-avance-botones" id="rep-botones">
+        <button type="button" data-v="0">0%</button>
+        <button type="button" data-v="25">25%</button>
+        <button type="button" data-v="50">50%</button>
+        <button type="button" data-v="75">75%</button>
+        <button type="button" data-v="100">100%</button>
       </div>
-      <div class="campo"><label>Giro</label>
-        <input list="dl-giro-e" id="e-giro" autocomplete="off">
-        <datalist id="dl-giro-e"></datalist>
-        <button type="button" class="mini-add" data-add="giro">+ Agregar giro</button>
-      </div>
-    </div>
-    <div class="campo"><label id="lbl-proveedor">Proveedor</label>
-      <input list="dl-proveedor-e" id="e-proveedor" autocomplete="off">
-      <datalist id="dl-proveedor-e"></datalist>
-      <button type="button" class="mini-add" id="btn-add-prov" data-add="proveedor">+ Agregar proveedor nuevo</button>
-    </div>
-    <div class="campo"><label>Partida / Actividad</label><textarea id="e-partida" rows="2"></textarea></div>
-    <div class="fila-2">
-      <div class="campo"><label id="lbl-tipo-partida">Tipo de partida</label>
-        <select id="e-tipo-partida">
-          <option>Construcción</option><option>Mobiliario y equipo</option>
-          <option>Puesta en marcha</option><option>Detalles finales</option>
-        </select></div>
-      <div class="campo"><label>¿Definido / tiene plano?</label>
-        <select id="e-definido"><option value="NO">No</option><option value="SÍ">Sí</option></select></div>
+      <input type="hidden" id="rep-avance">
     </div>
     <div class="fila-2">
-      <div class="campo"><label>¿Aplica?</label>
-        <select id="e-aplica"><option>SÍ</option><option>NO</option></select></div>
-      <div class="campo"><label>% Avance</label>
-        <input type="number" id="e-avance" min="0" max="100" step="5"></div>
+      <div class="campo"><label>Fecha inicio</label><input type="date" id="rep-inicio"></div>
+      <div class="campo"><label>Fecha fin (compromiso)</label><input type="date" id="rep-fin"></div>
     </div>
-    <div class="fila-2">
-      <div class="campo"><label>Fecha inicio</label><input type="date" id="e-inicio"></div>
-      <div class="campo"><label>Fecha fin (compromiso)</label><input type="date" id="e-fin"></div>
+    <div class="campo"><label>¿De dónde salió este trabajo?</label>
+      <select id="rep-definido-por">
+        <option value="">— Selecciona —</option>
+        <option value="plano">Venía en plano</option>
+        <option value="adicional">Fue un adicional en obra</option>
+        <option value="comentario">Fue un comentario / indicación</option>
+      </select>
+      <p class="ayuda">Esto te protege: queda registrado si era plano o fue un extra que te pidieron.</p>
     </div>
-    <div class="fila-2">
-      <div class="campo"><label>Duración (días)</label><input type="number" id="e-duracion" min="0"></div>
-      <div class="campo"><label>Estatus</label>
-        <select id="e-estatus">
-          <option>Pendiente</option><option>En proceso</option>
-          <option>Listo</option><option>Post-apertura</option>
-        </select></div>
-    </div>
-    <div class="campo"><label>Depende de (esta actividad no empieza hasta que la otra acabe)</label>
-      <select id="e-depende"><option value="">— Ninguna —</option></select>
-    </div>
-    <div class="bloque-causa">
-      <div class="campo"><label>Causa de retraso <span class="op">(si va atrasada)</span></label>
-        <input list="dl-causa" id="e-causa" autocomplete="off" placeholder="— Sin causa —">
-        <datalist id="dl-causa"></datalist>
-        <button type="button" class="mini-add" data-add="causa">+ Agregar causa nueva</button>
-      </div>
-      <div class="campo"><label>Lo que sostiene el proveedor <span class="op">(su versión)</span></label>
-        <textarea id="e-nota-prov" rows="2" placeholder="Aquí se anota lo que el proveedor explica sobre el retraso"></textarea>
-      </div>
-      <p class="causa-sello" id="causa-sello" hidden></p>
-    </div>
-    <div class="campo"><label>Notas</label><textarea id="e-notas" rows="3"></textarea></div>
+    <div class="campo"><label>Comentario (opcional)</label>
+      <textarea id="rep-nota" rows="3" placeholder="Lo que quieras dejar asentado"></textarea></div>
   </div>
   <div class="panel-pie">
-    <button id="borrar-act" class="btn-borrar">Eliminar</button>
     <span class="flex"></span>
-    <button id="cancelar" class="btn-sec">Cancelar</button>
-    <button id="guardar" class="btn-pri">Guardar</button>
+    <button id="rep-cancelar" class="btn-sec">Cancelar</button>
+    <button id="rep-guardar" class="btn-pri">Guardar mi avance</button>
   </div>
 </aside>
 
-<!-- Modal para agregar proveedor / bloque / área / giro -->
-<div class="overlay" id="overlay-add" hidden></div>
-<div class="modal-add" id="modal-add" hidden>
-  <div class="modal-cab">
-    <h3 id="add-titulo">Agregar</h3>
-    <button class="cerrar" id="add-cerrar">✕</button>
-  </div>
-  <div class="modal-cuerpo">
-    <div class="campo"><label id="add-lbl-nombre">Nombre</label>
-      <input id="add-nombre" placeholder="Escribe el nombre"></div>
-    <div class="campo" id="add-tipo-wrap">
-      <label>Tipo</label>
-      <select id="add-tipo"><option>Externo</option><option>Interno</option></select>
-      <p class="ayuda">Interno = personal o áreas del hospital (Sistemas, Intendencia, Compras…). Externo = contratista o proveedor de fuera.</p>
-    </div>
-    <div class="campo"><label id="add-lbl-func">¿De qué se encarga / para qué es?</label>
-      <textarea id="add-funcion" rows="2" placeholder="Breve descripción"></textarea></div>
-  </div>
-  <div class="modal-pie">
-    <button class="btn-sec" id="add-cancelar">Cancelar</button>
-    <button class="btn-pri" id="add-guardar">Guardar</button>
-  </div>
-</div>
-
-<!-- Modal de confirmación de borrado -->
-<div class="overlay" id="overlay-del" hidden></div>
-<div class="modal-add modal-del" id="modal-del" hidden>
-  <div class="modal-cab">
-    <h3 id="del-titulo">Confirmar eliminación</h3>
-    <button class="cerrar" id="del-cerrar">✕</button>
-  </div>
-  <div class="modal-cuerpo">
-    <p class="del-aviso">Vas a eliminar las siguientes partidas. Esta acción no se puede deshacer.</p>
-    <div class="del-lista" id="del-lista"></div>
-  </div>
-  <div class="modal-pie">
-    <button class="btn-sec" id="del-cancelar">Cancelar</button>
-    <button class="btn-borrar-sel" id="del-confirmar">Sí, eliminar</button>
-  </div>
-</div>
-
-<!-- Panel de historial de una actividad -->
-<div class="overlay" id="ov-hist" hidden></div>
-<aside class="panel panel-hist" id="panel-hist" hidden>
+<!-- Panel para proponer actividad nueva -->
+<div class="overlay" id="ov-new" hidden></div>
+<aside class="panel" id="panel-new" hidden>
   <div class="panel-cab">
-    <div>
-      <h2 id="hist-titulo">Historial</h2>
-      <p class="sub" id="hist-sub"></p>
-    </div>
-    <button class="cerrar" id="hist-cerrar">✕</button>
+    <h2>Agregar actividad nueva</h2>
+    <button class="cerrar" id="new-cerrar">✕</button>
   </div>
-  <div class="panel-cuerpo" id="hist-cuerpo"></div>
+  <div class="panel-cuerpo">
+    <p class="p-aviso-mini">Esta actividad le llegará al ingeniero para que la revise.
+       No entra al control hasta que él la valide. El giro, tu nombre y el tipo se ponen solos.</p>
+    <div class="fila-2">
+      <div class="campo"><label>Bloque</label>
+        <input list="dl-p-bloque" id="new-bloque" autocomplete="off"><datalist id="dl-p-bloque"></datalist></div>
+      <div class="campo"><label>Área</label>
+        <input list="dl-p-area" id="new-area" autocomplete="off"><datalist id="dl-p-area"></datalist></div>
+    </div>
+    <div class="campo"><label>¿Qué actividad es?</label>
+      <textarea id="new-partida" rows="2" placeholder="Describe el trabajo"></textarea></div>
+    <div class="campo"><label>¿Cuánto llevas?</label>
+      <div class="p-avance-botones" id="new-botones">
+        <button type="button" data-v="0">0%</button>
+        <button type="button" data-v="25">25%</button>
+        <button type="button" data-v="50">50%</button>
+        <button type="button" data-v="75">75%</button>
+        <button type="button" data-v="100">100%</button>
+      </div>
+      <input type="hidden" id="new-avance" value="0"></div>
+    <div class="campo"><label>¿De dónde salió este trabajo?</label>
+      <select id="new-definido-por">
+        <option value="">— Selecciona —</option>
+        <option value="plano">Venía en plano</option>
+        <option value="adicional">Fue un adicional en obra</option>
+        <option value="comentario">Fue un comentario / indicación</option>
+      </select></div>
+    <div class="campo"><label>Comentario (opcional)</label>
+      <textarea id="new-nota" rows="2"></textarea></div>
+  </div>
+  <div class="panel-pie">
+    <span class="flex"></span>
+    <button id="new-cancelar" class="btn-sec">Cancelar</button>
+    <button id="new-enviar" class="btn-pri">Enviar para revisión</button>
+  </div>
 </aside>
 
 <div id="toast" class="toast" hidden></div>
 
-<script src="/static/limpiar_campos.js"></script>
-<script src="/static/app.js"></script>
-
-<!-- ===== Administrador de dependencias ===== -->
-<div class="overlay" id="overlay-dep" hidden></div>
-<aside class="panel panel-dep" id="modal-dep" hidden style="width:640px">
-  <div class="panel-cab">
-    <div>
-      <h2>Dependencias entre trabajos</h2>
-      <p class="sub">Qué debe estar listo antes de que otro entre. Solo declara las reales.</p>
+<!-- ===== Avance de mi zona (SOLO LECTURA) ===== -->
+<div id="modal-zona" class="modal-overlay" hidden>
+  <div class="modal-zona-caja">
+    <div class="modal-zona-cab">
+      <h2>Avance de mi zona <span class="badge-solo-lectura">SOLO LECTURA</span></h2>
+      <button class="cerrar" id="btn-cerrar-zona">✕</button>
     </div>
-    <button class="cerrar" id="dep-cerrar">✕</button>
-  </div>
-  <div class="panel-cuerpo">
-    <p class="p-aviso-mini" style="background:#FDF6EC;border:1px solid #F0D9A8;border-radius:8px;padding:10px 12px;color:#8a6d3b;font-size:13px;margin-bottom:14px">
-      Si dos trabajos no se estorban (lámparas y mobiliario), <b>no declares dependencia</b>.
-      Al llegar al umbral, la sucesora se libera sola, sin que tú intervengas.
-    </p>
-    <div class="campo"><label>Área</label>
-      <input list="dl-area-e" id="dep-new-area" autocomplete="off" placeholder="Deja vacío para aplicar a todas"></div>
-    <div class="campo"><label>Trabajo que ENTRA (sucesor)</label>
-      <input list="dl-giro-e" id="dep-new-sucesor" autocomplete="off" placeholder="ej. Mobiliario"></div>
-    <div class="campo"><label>Debe estar listo antes (predecesores)</label>
-      <input id="dep-new-predecesores" placeholder="ej. Obra civil, Instalaciones, Acabados">
-      <p class="ayuda">Sepáralos con comas.</p></div>
-    <div class="campo"><label>Umbral que libera (%)</label>
-      <input type="number" id="dep-new-umbral" min="1" max="100" step="5" value="100">
-      <p class="ayuda">No siempre hace falta el 100%. Con 80% puede bastar.</p></div>
-    <button class="btn-pri" id="btn-crear-dep">Agregar dependencia</button>
-    <h3 class="v-sub" style="margin-top:22px">Dependencias declaradas</h3>
-    <table class="tabla-rep" style="width:100%">
-      <thead><tr><th>Área</th><th>Entra</th><th>Después de</th><th>Umbral</th><th></th></tr></thead>
-      <tbody id="tbody-dep-lista"></tbody>
-    </table>
-    <p class="v-vacio" id="vacio-dep-lista" hidden>Todavía no has declarado ninguna dependencia.</p>
-  </div>
-  <div class="panel-pie"><span class="flex"></span>
-    <button class="btn-sec" id="dep-cerrar-btn">Cerrar</button></div>
-</aside>
-
-<!-- ===== Cambiar mi contraseña (admin) ===== -->
-<div id="modal-clave-admin" class="modal-overlay" hidden>
-  <div class="modal-caja" style="background:#fff;border-radius:12px;width:420px;max-width:92vw;overflow:hidden">
-    <div class="modal-cab"><h3>Cambiar mi contraseña</h3>
-      <button class="cerrar" id="btn-cerrar-clave-admin">✕</button></div>
-    <div class="modal-cuerpo">
-      <div class="campo"><label>Contraseña actual</label>
-        <input type="password" id="admin-clave-actual" autocomplete="current-password"></div>
-      <div class="campo"><label>Nueva contraseña</label>
-        <input type="password" id="admin-clave-nueva" autocomplete="new-password"></div>
-      <div class="campo"><label>Repite la nueva</label>
-        <input type="password" id="admin-clave-confirmar" autocomplete="new-password"></div>
-      <p class="ayuda">Mínimo 4 caracteres. Cambia la temporal HAP2026.</p>
+    <div class="modal-zona-cuerpo">
+      <p class="p-aviso-mini">Así van los demás en tus mismas áreas, para que sepas si ya puedes entrar. Aquí no puedes modificar nada de otros.</p>
+      <div class="p-controles" style="padding:0 0 12px">
+        <select id="zona-filtro-bloque" class="p-filtro"></select>
+        <input type="search" id="zona-buscar" placeholder="Buscar partida o responsable…">
+      </div>
+      <table class="tabla-zona">
+        <thead><tr><th>Responsable</th><th>Bloque</th><th>Área</th><th>Partida</th><th>Avance</th><th>Estatus</th></tr></thead>
+        <tbody id="tbody-zona"></tbody>
+      </table>
+      <p id="vacio-zona" class="v-vacio" hidden>No hay actividades en tu zona.</p>
     </div>
-    <div class="modal-pie">
-      <button class="btn-sec" id="btn-cancelar-clave-admin">Cancelar</button>
-      <button class="btn-pri" id="btn-guardar-clave-admin">Guardar</button></div>
   </div>
 </div>
+
+<!-- ===== Cambiar mi contraseña ===== -->
+<div id="modal-clave" class="modal-overlay" hidden>
+  <div class="modal-caja">
+    <div class="modal-cab"><h3>Cambiar mi contraseña</h3>
+      <button class="cerrar" id="btn-cerrar-clave">✕</button></div>
+    <div class="modal-cuerpo">
+      <div class="campo"><label>Contraseña actual</label>
+        <input type="password" id="clave-actual" autocomplete="current-password"></div>
+      <div class="campo"><label>Nueva contraseña</label>
+        <input type="password" id="clave-nueva" autocomplete="new-password"></div>
+      <div class="campo"><label>Repite la nueva</label>
+        <input type="password" id="clave-confirmar" autocomplete="new-password"></div>
+      <p class="ayuda">Mínimo 4 caracteres.</p>
+    </div>
+    <div class="modal-pie">
+      <button class="btn-sec" id="btn-cancelar-clave">Cancelar</button>
+      <button class="btn-pri" id="btn-guardar-clave">Guardar</button></div>
+  </div>
+</div>
+
+<!-- Scripts al final: así ya existen TODOS los modales cuando el JS engancha los botones -->
+<script src="/static/limpiar_campos.js"></script>
+<script src="/static/portal.js"></script>
 
 </body>
 </html>
