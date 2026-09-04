@@ -16,7 +16,7 @@ function toast(m){const t=$("#toast");t.textContent=m;t.hidden=false;setTimeout(
 async function inicio() {
   const q = await (await fetch("/api/quien_soy")).json();
   if (!q.login) { location.href = "/login"; return; }
-  if (q.rol === "admin") { location.href = "/"; return; }
+  // (se quitó la redirección automática del admin: causaba un bucle de recargas)
   $("#titulo-prov").textContent = q.proveedor || "Mi avance";
   await cargar();
 }
