@@ -9,7 +9,7 @@ function toast(m){const t=$("#toast");t.textContent=m;t.hidden=false;setTimeout(
 
 const DEDONDE = { plano:"Venía en plano", adicional:"Adicional en obra", comentario:"Comentario/indicación" };
 
-let AVANCES = [], PROPUESTAS = [];
+let AVANCES = [], PROPUESTAS = [], NORECO = [], RECHAZADAS = [];
 
 function getResponsable(a) {
   if (a.mundo === "interno") {
@@ -32,13 +32,13 @@ async function cargar() {
 
 async function cargarAtencion() {
   const d = await (await fetch("/api/validacion/atencion")).json();
-  const nr = d.no_reconocidas || [];
-  const re = d.rechazadas || [];
-  $("#cont-aten").textContent = nr.length + re.length;
-  
+  NORECO = d.no_reconocidas || [];
+  RECHAZADAS = d.rechazadas || [];
+  $("#cont-aten").textContent = NORECO.length + RECHAZADAS.length;
+
   // no reconocidas
-  $("#vacio-noreco").hidden = nr.length > 0;
-  $("#tbody-noreco").innerHTML = nr.map(a => `
+  $("#vacio-noreco").hidden = NORECO.length > 0;
+  $("#tbody-noreco").innerHTML = NORECO.map(a => `
     <tr>
       <td>${esc(getResponsable(a))}</td>
       <td class="mono">${esc(a.codigo||"")}</td>
@@ -46,16 +46,20 @@ async function cargarAtencion() {
       <td>${esc(a.area||"—")}</td>
       <td class="v-part">${esc(a.partida||"")}</td>
       <td class="v-coment">${esc(a.no_reconocida_nota||"")}</td>
-      <td class="v-btns"><button class="v-ok2" data-id="${a.id}">Ya lo corregí</button></td>
+      <td class="v-btns">
+        <button class="v-editar" data-acc="editar" data-ctx="noreco" data-id="${a.id}">✎ Editar</button>
+        <button class="v-ok2" data-id="${a.id}">Ya lo corregí</button>
+      </td>
     </tr>`).join("");
   $$("#tbody-noreco .v-ok2").forEach(b => b.onclick = async () => {
     await fetch("/api/validacion/limpiar_no_reconocida/" + b.dataset.id, {method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
     toast("Marca quitada"); await cargar();
   });
-  
+  $$('#tbody-noreco [data-acc="editar"]').forEach(b => b.onclick = () => abrirEditar(b.dataset.id, "noreco", NORECO));
+
   // rechazadas
-  $("#vacio-rech").hidden = re.length > 0;
-  $("#tbody-rech").innerHTML = re.map(a => `
+  $("#vacio-rech").hidden = RECHAZADAS.length > 0;
+  $("#tbody-rech").innerHTML = RECHAZADAS.map(a => `
     <tr>
       <td>${esc(getResponsable(a))}</td>
       <td class="mono">${esc(a.codigo||"")}</td>
@@ -63,13 +67,64 @@ async function cargarAtencion() {
       <td>${esc(a.area||"—")}</td>
       <td class="v-part">${esc(a.partida||"")}</td>
       <td class="v-coment">${esc(a.rechazo_motivo||"Rechazado por administración")}</td>
-      <td class="v-btns"><button class="v-ok2" data-id="${a.id}">Reactivar</button></td>
+      <td class="v-btns">
+        <button class="v-editar" data-acc="editar" data-ctx="rechazada" data-id="${a.id}">✎ Editar</button>
+        <button class="v-ok2" data-id="${a.id}">Reactivar</button>
+      </td>
     </tr>`).join("");
   $$("#tbody-rech .v-ok2").forEach(b => b.onclick = async () => {
     await fetch("/api/validacion/reactivar/" + b.dataset.id, {method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
     toast("Reactivada — vuelve a propuestas"); await cargar();
   });
+  $$('#tbody-rech [data-acc="editar"]').forEach(b => b.onclick = () => abrirEditar(b.dataset.id, "rechazada", RECHAZADAS));
 }
+
+/* ---------- editar y corregir (proveedor / ubicación / partida) ---------- */
+function abrirEditar(id, contexto, lista) {
+  const a = lista.find(x => String(x.id) === String(id));
+  if (!a) return;
+  $("#ed-id").value = id;
+  $("#ed-contexto").value = contexto;
+  $("#ed-codigo").textContent = a.codigo || "";
+  $("#ed-lbl-prov").textContent = a.mundo === "interno" ? "Departamento" : "Proveedor";
+  $("#ed-proveedor").value = (a.mundo === "interno" ? a.departamento : a.proveedor) || "";
+  $("#ed-bloque").value = a.bloque || "";
+  $("#ed-area").value = a.area || "";
+  $("#ed-partida").value = a.partida || "";
+  $("#ed-titulo").textContent = contexto === "noreco" ? "Corregir y quitar marca" : "Corregir y reactivar";
+  $("#btn-guardar-editar").textContent = contexto === "noreco" ? "Guardar y quitar marca" : "Guardar y reactivar";
+  $("#modal-editar").hidden = false;
+  setTimeout(() => $("#ed-proveedor").focus(), 50);
+}
+function cerrarEditar() { $("#modal-editar").hidden = true; }
+$("#btn-cerrar-editar").onclick = cerrarEditar;
+$("#btn-cancelar-editar").onclick = cerrarEditar;
+$("#modal-editar").onclick = (e) => { if (e.target.id === "modal-editar") cerrarEditar(); };
+$("#btn-guardar-editar").onclick = async () => {
+  const id = $("#ed-id").value;
+  const contexto = $("#ed-contexto").value;
+  const lista = contexto === "noreco" ? NORECO : RECHAZADAS;
+  const a = lista.find(x => String(x.id) === String(id));
+  const nombreCampo = (a && a.mundo === "interno") ? "departamento" : "proveedor";
+  const cuerpo = {
+    [nombreCampo]: $("#ed-proveedor").value.trim(),
+    bloque: $("#ed-bloque").value.trim(),
+    area: $("#ed-area").value.trim(),
+    partida: $("#ed-partida").value.trim(),
+  };
+  const r = await (await fetch("/api/actividad/" + id, {
+    method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cuerpo) })).json();
+  if (r.error) { toast(r.error); return; }
+  cerrarEditar();
+  if (contexto === "noreco") {
+    await fetch("/api/validacion/limpiar_no_reconocida/" + id, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    toast("Corregida — vuelve como nueva para reconocer");
+  } else {
+    await fetch("/api/validacion/reactivar/" + id, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
+    toast("Corregida y reactivada");
+  }
+  await cargar();
+};
 
 function renderAvances() {
   $("#cont-av").textContent = AVANCES.length;
@@ -166,5 +221,9 @@ $("#btn-todos-av").addEventListener("click", async () => {
   await cargar();
 });
 
-cargar();
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  cerrarModalRechazo(); cerrarEditar();
+});
 
+cargar();
