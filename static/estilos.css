@@ -92,6 +92,23 @@ body{
 .btn-sec:hover{background:var(--acero-claro)}
 
 /* ---- Tabla ---- */
+.check-todos-fila{margin:4px 24px 8px;font-size:13px;color:var(--gris-texto);display:flex;align-items:center;gap:6px}
+.check-todos-fila label{display:flex;align-items:center;gap:6px;cursor:pointer}
+#grupos-bloque{margin:4px 24px 40px}
+.grupo-bloque{background:#fff;border:1px solid var(--linea);border-radius:8px;
+  box-shadow:var(--sombra);margin-bottom:10px;overflow:hidden}
+.grupo-resumen{list-style:none;cursor:pointer;padding:12px 16px;display:flex;
+  align-items:center;gap:14px;background:var(--acero-claro);user-select:none}
+.grupo-resumen::-webkit-details-marker{display:none}
+.grupo-resumen::before{content:"▶";font-size:11px;color:var(--acero);transition:transform .15s}
+.grupo-bloque[open] .grupo-resumen::before{transform:rotate(90deg)}
+.grupo-nombre{font-weight:700;font-size:14px;color:var(--tinta)}
+.grupo-cant{font-size:12.5px;color:var(--gris-texto)}
+.grupo-avance-barra{flex:1;max-width:160px;height:8px;background:var(--linea);
+  border-radius:5px;overflow:hidden}
+.grupo-avance-fill{display:block;height:100%;background:var(--verde)}
+.grupo-avance-pct{font-size:12.5px;font-weight:700;color:var(--verde);min-width:38px;text-align:right}
+.grupo-bloque table{margin:0}
 .tabla-wrap{margin:4px 24px 40px;background:#fff;border:1px solid var(--linea);
   border-radius:8px;overflow:hidden;box-shadow:var(--sombra)}
 table{width:100%;border-collapse:collapse}
