@@ -86,6 +86,33 @@
   </div>
 </section>
 
+<!-- ===== Modal: editar y corregir (proveedor / ubicación / partida) ===== -->
+<div id="modal-editar" class="modal-overlay" hidden>
+  <div class="modal-caja">
+    <div class="modal-cab"><h3 id="ed-titulo">Corregir actividad</h3>
+      <button class="cerrar" id="btn-cerrar-editar">✕</button></div>
+    <div class="modal-cuerpo">
+      <input type="hidden" id="ed-id">
+      <input type="hidden" id="ed-contexto">
+      <p class="v-desc" id="ed-codigo" style="font-weight:600"></p>
+      <div class="campo"><label id="ed-lbl-prov">Proveedor</label>
+        <input id="ed-proveedor" placeholder="Nombre exacto del proveedor/departamento"></div>
+      <div class="fila-2">
+        <div class="campo"><label>Bloque</label>
+          <input id="ed-bloque" placeholder="ej. Q1"></div>
+        <div class="campo"><label>Área</label>
+          <input id="ed-area" placeholder="ej. Recuperación pre anestésica"></div>
+      </div>
+      <div class="campo"><label>Partida</label>
+        <textarea id="ed-partida" rows="2"></textarea></div>
+    </div>
+    <div class="modal-pie">
+      <button class="btn-sec" id="btn-cancelar-editar">Cancelar</button>
+      <button class="btn-pri" id="btn-guardar-editar">Guardar corrección</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast" class="toast" hidden></div>
 
 <!-- ===== Modal: motivo del rechazo ===== -->
