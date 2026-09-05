@@ -23,6 +23,8 @@
 .v-sub{font-size:14px;color:#6b7280;margin:16px 0 8px;text-transform:uppercase;letter-spacing:.3px;font-weight:700}
 .v-ok2{background:#1F4E78;color:#fff}
 .v-ok2:hover{background:#163a5c}
+.v-editar{background:#fff;color:#334155;border:1px solid #cbd2da !important}
+.v-editar:hover{background:#f1f5f9}
 
 /* Fuera de zona */
 .badge-fuera-zona{display:inline-flex;align-items:center;gap:4px;background:#FDF0D5;color:#935800;border:1px solid #E6C280;padding:3px 8px;border-radius:12px;font-size:11px;font-weight:800;letter-spacing:.3px;white-space:nowrap;margin-left:6px}
@@ -38,4 +40,3 @@
 .modal-caja .modal-cuerpo{padding:18px 20px}
 .modal-caja .modal-pie{padding:14px 20px;border-top:1px solid #eef1f4;display:flex;justify-content:flex-end;gap:10px}
 .modal-caja textarea{width:100%;box-sizing:border-box;padding:10px;border:1px solid #d4ddd9;border-radius:6px;font-family:inherit;font-size:13.5px}
-
