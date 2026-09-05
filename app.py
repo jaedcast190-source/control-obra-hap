@@ -743,7 +743,9 @@ def reportes():
 
 @app.route("/expediente")
 def expediente_page():
-    return render_template("expediente.html")
+    # esta pantalla se unificó con Usuarios: la ficha del proveedor y su
+    # acceso a la plataforma ahora viven juntos en /usuarios
+    return redirect("/usuarios")
 
 
 # ----------------------------------------------------------------------------
