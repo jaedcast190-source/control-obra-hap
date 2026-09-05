@@ -51,21 +51,6 @@ FECHA_ENTREGA = "2026-10-31"
 app = Flask(__name__)
 
 
-def _inyectar_diagnostico(html):
-    """TEMPORAL: pinta arriba de la pagina exactamente que sesion ve el servidor,
-    para saber sin duda si el rebote es del servidor o de otra cosa."""
-    u = session.get("usuario")
-    r = session.get("rol")
-    aviso = (
-        '<div style="background:#000;color:#0f0;font-family:monospace;'
-        'padding:10px 16px;font-size:14px;border-bottom:3px solid #0f0">'
-        'DIAGNOSTICO TEMPORAL &mdash; sesion vista por el servidor ahora mismo: '
-        'usuario=<b>%s</b> &nbsp; rol=<b>%s</b> &nbsp; ruta=<b>%s</b>'
-        '</div>'
-    ) % (u, r, request.path)
-    return html.replace("<body>", "<body>" + aviso, 1)
-
-
 @app.after_request
 def _sin_cache_en_paginas(resp):
     """Blindaje contra rebotes: nunca dejar que el navegador ni ningun
@@ -446,6 +431,9 @@ def init_db():
     for c in ("empresa", "contacto", "telefono", "correo", "notas"):
         if c not in pcols:
             con.execute(f"ALTER TABLE proveedores ADD COLUMN {c} TEXT")
+    if "activo" not in pcols:
+        con.execute("ALTER TABLE proveedores ADD COLUMN activo INTEGER DEFAULT 1")
+        con.execute("UPDATE proveedores SET activo=1 WHERE activo IS NULL")
 
     # Sembrar las 7 causas base (solo si la tabla está vacía)
     n_causas = con.execute("SELECT COUNT(*) FROM causas").fetchone()[0]
@@ -740,7 +728,7 @@ def index():
         return redirect("/login")
     if not es_gestor(session.get("rol")):
         return redirect("/portal")
-    return _inyectar_diagnostico(render_template("index.html"))
+    return render_template("index.html")
 
 
 @app.route("/reporte")
@@ -1002,6 +990,24 @@ def api_crear_proveedor():
 # ----------------------------------------------------------------------------
 # API — Catálogo genérico (bloque / area / giro) con nota
 # ----------------------------------------------------------------------------
+@app.route("/api/proveedores/<nombre>/activo", methods=["POST"])
+@requiere_admin
+def api_proveedor_activo(nombre):
+    """Activa o desactiva un proveedor del catalogo (nunca se borra, para
+    conservar el historial de sus actividades y reportes)."""
+    db = get_db()
+    data = request.get_json() or {}
+    activo = 1 if data.get("activo") else 0
+    existe = db.execute("SELECT id FROM proveedores WHERE nombre=?", (nombre,)).fetchone()
+    if not existe:
+        db.execute("INSERT INTO proveedores (nombre, tipo, activo) VALUES (?,?,?)",
+                   (nombre, "Externo", activo))
+    else:
+        db.execute("UPDATE proveedores SET activo=? WHERE nombre=?", (activo, nombre))
+    db.commit()
+    return jsonify({"ok": True, "nombre": nombre, "activo": activo})
+
+
 @app.route("/api/catalogo/<clase>", methods=["POST"])
 def api_crear_catalogo(clase):
     if clase not in ("bloque", "area", "giro"):
@@ -1078,6 +1084,51 @@ def api_resumen_causas():
 # ----------------------------------------------------------------------------
 # API — Expediente de proveedores (datos de empresa y contacto)
 # ----------------------------------------------------------------------------
+@app.route("/api/proveedores_usuarios")
+@requiere_admin
+def api_proveedores_usuarios():
+    """Vista unificada: cada proveedor/departamento con su ficha (expediente)
+    y su(s) acceso(s) a la plataforma, si ya tiene. No incluye admin/supervisores
+    (esos son 'accesos generales', no estan ligados a un proveedor concreto)."""
+    db = get_db()
+    nombres = set()
+    for r in db.execute("SELECT DISTINCT proveedor FROM actividades WHERE proveedor IS NOT NULL AND proveedor<>''"):
+        nombres.add(r[0])
+    for r in db.execute("SELECT DISTINCT departamento FROM actividades WHERE departamento IS NOT NULL AND departamento<>''"):
+        nombres.add(r[0])
+    fichas = {r["nombre"]: dict(r) for r in db.execute("SELECT * FROM proveedores").fetchall()}
+    nombres |= set(fichas.keys())
+    usuarios_por_prov = {}
+    for r in db.execute("SELECT * FROM usuarios WHERE rol='proveedor' AND proveedor IS NOT NULL AND proveedor<>''"):
+        usuarios_por_prov.setdefault(r["proveedor"], []).append(dict(r))
+    nombres |= set(usuarios_por_prov.keys())
+
+    salida = []
+    for nombre in sorted(nombres, key=lambda x: x.lower()):
+        f = fichas.get(nombre, {})
+        stats = db.execute(
+            "SELECT COUNT(*) n, ROUND(AVG(avance),1) av FROM actividades WHERE proveedor=? OR departamento=?",
+            (nombre, nombre)).fetchone()
+        usus = usuarios_por_prov.get(nombre, [])
+        salida.append({
+            "nombre": nombre,
+            "activo": 1 if f.get("activo") is None else f.get("activo"),
+            "empresa": f.get("empresa") or "", "tipo": f.get("tipo") or "Externo",
+            "funcion": f.get("funcion") or "", "contacto": f.get("contacto") or "",
+            "telefono": f.get("telefono") or "", "correo": f.get("correo") or "",
+            "notas": f.get("notas") or "",
+            "partidas": stats["n"] or 0, "avance": stats["av"] or 0,
+            "usuarios": [{
+                "id": u["id"], "usuario": u["usuario"],
+                "activo": 1 if u.get("activo") is None else u.get("activo"),
+                "num_logins": u.get("num_logins") or 0,
+                "ultimo_login": u.get("ultimo_login"),
+                "telefono": u.get("telefono"), "mundo": u.get("mundo") or "obra",
+            } for u in usus],
+        })
+    return jsonify(salida)
+
+
 @app.route("/api/expediente")
 def api_expediente():
     """Lista proveedores usados en actividades + su ficha (si existe)."""
@@ -2024,7 +2075,7 @@ def portal_page():
     # blindaje: si por cualquier motivo un gestor cae aqui, lo regresamos al panel
     if "usuario" in session and es_gestor(session.get("rol")):
         return redirect("/")
-    return _inyectar_diagnostico(render_template("portal.html"))
+    return render_template("portal.html")
 
 
 @app.route("/api/portal/mapa")
