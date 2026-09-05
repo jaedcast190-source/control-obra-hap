@@ -106,39 +106,74 @@ async function cargarActividades() {
   render();
 }
 
-// ====== Render de la tabla ======
+// ====== Render de la tabla, agrupada por bloque (desplegable) ======
 function render() {
-  const cuerpo = $("#cuerpo");
+  const cont = $("#grupos-bloque");
   const hoy = new Date().toISOString().slice(0, 10);
   if (!TODAS.length) {
-    cuerpo.innerHTML = "";
+    cont.innerHTML = "";
     $("#vacio").hidden = false;
     return;
   }
   $("#vacio").hidden = true;
-  cuerpo.innerHTML = TODAS.map((a) => {
-    const av = a.avance || 0;
-    const full = av >= 100 ? "full" : "";
-    const dep = a.depende_de ? nombreDep(a.depende_de) : "";
-    let finCls = "";
-    if (a.f_fin && av < 100) {
-      if (a.f_fin < hoy) finCls = "fecha-tarde";
-      else {
-        const d = (new Date(a.f_fin) - new Date(hoy)) / 86400000;
-        if (d <= 7) finCls = "fecha-cerca";
-      }
+
+  // agrupar por bloque, respetando el orden en que aparecen
+  const grupos = new Map();
+  TODAS.forEach((a) => {
+    const b = a.bloque || "— Sin bloque —";
+    if (!grupos.has(b)) grupos.set(b, []);
+    grupos.get(b).push(a);
+  });
+
+  cont.innerHTML = [...grupos.entries()].map(([bloque, acts]) => {
+    const n = acts.length;
+    const avgAv = Math.round(acts.reduce((s, a) => s + (a.avance || 0), 0) / n);
+    const filas = acts.map((a) => filaHtml(a, hoy)).join("");
+    return `<details class="grupo-bloque" data-bloque="${escapa(bloque)}">
+      <summary class="grupo-resumen">
+        <span class="grupo-nombre">${escapa(bloque)}</span>
+        <span class="grupo-cant">${n} ${n === 1 ? "actividad" : "actividades"}</span>
+        <span class="grupo-avance-barra"><span class="grupo-avance-fill" style="width:${avgAv}%"></span></span>
+        <span class="grupo-avance-pct">${avgAv}%</span>
+      </summary>
+      <table>
+        <thead><tr>
+          <th class="col-check"></th>
+          <th>Código</th><th>Área</th><th>Giro</th><th class="th-proveedor">Proveedor</th>
+          <th>Partida</th><th>Tipo</th><th class="col-av">Avance</th>
+          <th>Def.</th><th>Fin</th><th>Estatus</th><th></th>
+        </tr></thead>
+        <tbody>${filas}</tbody>
+      </table>
+    </details>`;
+  }).join("");
+
+  enlazarFilas();
+}
+
+function filaHtml(a, hoy) {
+  const av = a.avance || 0;
+  const full = av >= 100 ? "full" : "";
+  const dep = a.depende_de ? nombreDep(a.depende_de) : "";
+  let finCls = "";
+  if (a.f_fin && av < 100) {
+    if (a.f_fin < hoy) finCls = "fecha-tarde";
+    else {
+      const d = (new Date(a.f_fin) - new Date(hoy)) / 86400000;
+      if (d <= 7) finCls = "fecha-cerca";
     }
-    const tp = a.tipo_partida || "Construcción";
-    const tpCls = {"Construcción":"tp-con","Mobiliario y equipo":"tp-mob","Puesta en marcha":"tp-pm","Detalles finales":"tp-det"}[tp] || "tp-con";
-    const def = (a.definido === "SÍ");
-    const sel = SELECCION.has(a.id) ? "checked" : "";
-    let depBadge = `<span style="color:#a0aec0;">—</span>`;
-    if (a.dep_bloqueada) {
-      depBadge = `<span title="${escapa(a.dep_detalle || '')}" style="cursor:help; background:#FEF3C7; color:#92400E; padding:2px 6px; border-radius:4px; font-size:11px; font-weight:700;">🔒 ${escapa(a.dep_estado || 'Bloqueada')}</span>`;
-    } else if (a.dep_estado && a.dep_estado !== "Sin dependencias") {
-      depBadge = `<span title="${escapa(a.dep_detalle || '')}" style="cursor:help; background:#D1FAE5; color:#065F46; padding:2px 6px; border-radius:4px; font-size:11px; font-weight:700;">🔓 ${escapa(a.dep_estado || 'Liberada')}</span>`;
-    }
-    return `<tr data-id="${a.id}">
+  }
+  const tp = a.tipo_partida || "Construcción";
+  const tpCls = {"Construcción":"tp-con","Mobiliario y equipo":"tp-mob","Puesta en marcha":"tp-pm","Detalles finales":"tp-det"}[tp] || "tp-con";
+  const def = (a.definido === "SÍ");
+  const sel = SELECCION.has(a.id) ? "checked" : "";
+  let depBadge = `<span style="color:#a0aec0;">—</span>`;
+  if (a.dep_bloqueada) {
+    depBadge = `<span title="${escapa(a.dep_detalle || '')}" style="cursor:help; background:#FEF3C7; color:#92400E; padding:2px 6px; border-radius:4px; font-size:11px; font-weight:700;">🔒 ${escapa(a.dep_estado || 'Bloqueada')}</span>`;
+  } else if (a.dep_estado && a.dep_estado !== "Sin dependencias") {
+    depBadge = `<span title="${escapa(a.dep_detalle || '')}" style="cursor:help; background:#D1FAE5; color:#065F46; padding:2px 6px; border-radius:4px; font-size:11px; font-weight:700;">🔓 ${escapa(a.dep_estado || 'Liberada')}</span>`;
+  }
+  return `<tr data-id="${a.id}">
       <td class="col-check"><input type="checkbox" class="chk-fila" data-id="${a.id}" ${sel}></td>
       <td class="cod">${escapa(a.codigo || "")}</td>
       <td>${escapa(a.area || "")}</td>
@@ -164,9 +199,11 @@ function render() {
         <span class="borrar-ico" data-id="${a.id}" title="Eliminar">🗑</span>
       </td>
     </tr>`;
-  }).join("");
+}
+
+function enlazarFilas() {
   // clic en el renglón abre el panel, EXCEPTO sobre avance, definido, casilla o basura
-  $$("#cuerpo tr").forEach((tr) =>
+  $$("#grupos-bloque tr[data-id]").forEach((tr) =>
     tr.addEventListener("click", (e) => {
       if (e.target.closest(".celda-avance")) return;
       if (e.target.closest(".col-def")) return;
@@ -434,7 +471,7 @@ async function adaptarInterfazMundo() {
   const interno = MUNDO === "interno";
   const palabra = interno ? "Departamento" : "Proveedor";
   // encabezado de la tabla
-  if ($("#th-proveedor")) $("#th-proveedor").textContent = palabra;
+  $$(".th-proveedor").forEach((th) => (th.textContent = palabra));
   // label y filtro
   if ($("#lbl-proveedor")) $("#lbl-proveedor").textContent = palabra;
   if ($("#f-proveedor")) $("#f-proveedor").placeholder = palabra;
@@ -894,4 +931,3 @@ $("#btn-guardar-clave-admin").onclick = async () => {
     toast(r.error || "Error al actualizar contraseña");
   }
 };
-
