@@ -92,17 +92,10 @@
 </div>
 
 <div class="tabla-wrap">
-  <table id="tabla">
-    <thead>
-      <tr>
-        <th class="col-check"><input type="checkbox" id="check-todos" title="Seleccionar todos"></th>
-        <th>Código</th><th>Área</th><th>Giro</th><th id="th-proveedor">Proveedor</th>
-        <th>Partida</th><th>Tipo</th><th class="col-av">Avance</th>
-        <th>Def.</th><th>Fin</th><th>Estatus</th><th></th>
-      </tr>
-    </thead>
-    <tbody id="cuerpo"></tbody>
-  </table>
+  <div class="check-todos-fila">
+    <label><input type="checkbox" id="check-todos" title="Seleccionar todos"> Seleccionar todo (todos los bloques)</label>
+  </div>
+  <div id="grupos-bloque"></div>
   <p id="vacio" class="vacio" hidden>No hay actividades que coincidan con el filtro.</p>
 </div>
 
