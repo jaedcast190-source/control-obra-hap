@@ -3,9 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Usuarios y accesos — HAP</title>
+<title>Usuarios y proveedores — HAP</title>
 <link rel="stylesheet" href="/static/estilos.css">
 <link rel="stylesheet" href="/static/validacion.css">
+<link rel="stylesheet" href="/static/expediente.css">
 <style>
 .u-wrap{margin:18px 24px}
 .u-form{background:#F4F8FC;border:1px solid #D6E4F0;border-radius:12px;padding:18px 20px;margin-bottom:20px;display:grid;grid-template-columns:repeat(2,1fr) auto;grid-auto-rows:auto;gap:12px;align-items:end}
@@ -25,6 +26,17 @@
 .u-btn-mini{padding:6px 10px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid #cbd2da;background:#fff;color:#334155}
 .u-btn-mini:hover{background:#f1f5f9}
 .v-btns{display:flex;gap:6px;flex-wrap:wrap}
+.u-seccion-tit{margin:28px 0 10px;font-size:15px;font-weight:700;color:#1E7B4B}
+.u-prov-card{background:#fff;border:1px solid #e3e6ea;border-radius:12px;padding:14px 16px;margin-bottom:12px}
+.u-prov-card.inactivo{opacity:.55;background:#f8fafc}
+.u-prov-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.u-prov-nombre{font-weight:700;font-size:15px}
+.u-prov-meta{font-size:12.5px;color:#6b7280;margin:4px 0 10px}
+.u-prov-ficha{font-size:13px;color:#334155;margin-bottom:10px}
+.u-prov-ficha .falta{color:#b45309;font-style:italic}
+.u-acceso-box{background:#F9FAFB;border:1px dashed #cbd2da;border-radius:9px;padding:10px 12px;margin-top:6px}
+.u-acceso-fila{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px}
+.u-sin-acceso{color:#6b7280;font-size:13px;font-style:italic}
 </style>
 </head>
 <body>
@@ -33,8 +45,8 @@
   <div class="barra-izq">
     <span class="logo">HAP</span>
     <div>
-      <h1>Usuarios y accesos</h1>
-      <p class="sub">Da de alta a cada proveedor para que entre a reportar</p>
+      <h1>Usuarios y proveedores</h1>
+      <p class="sub">Ficha de cada proveedor y su acceso a la plataforma, en un solo lugar</p>
     </div>
   </div>
   <div class="barra-der">
@@ -44,47 +56,95 @@
 </header>
 
 <div class="u-wrap">
-  <p class="u-hint">Crea un usuario por cada proveedor. Cuando entren con su usuario y contraseña,
-     solo verán y reportarán las actividades de su empresa. Tú les pasas el usuario y la contraseña que definas aquí.</p>
 
-  <div class="u-form">
-    <div class="campo"><label>Usuario (para entrar)</label>
-      <input id="u-usuario" placeholder="ej. cebsa" autocomplete="off"></div>
-    <div class="campo"><label>Contraseña</label>
-      <input id="u-clave" placeholder="la que tú decidas" autocomplete="off"></div>
-    <div class="campo"><label>Tipo de acceso</label>
-      <select id="u-rol">
-        <option value="proveedor">Proveedor / Departamento (reporta lo suyo)</option>
-        <option value="supervisor_obra">Supervisor de Obra (apoya en externos)</option>
-        <option value="supervisor_depto">Supervisor de Departamento (apoya en internos)</option>
-      </select></div>
-    <div class="campo" id="campo-mundo"><label>Mundo</label>
-      <select id="u-mundo">
-        <option value="obra">Proveedor externo (contratista)</option>
-        <option value="interno">Departamento interno (HAP)</option>
-      </select></div>
-    <div class="campo" id="campo-prov"><label id="u-lbl-prov">Proveedor (ve solo lo suyo)</label>
-      <input list="dl-u-prov" id="u-proveedor" placeholder="Elige el proveedor" autocomplete="off">
-      <datalist id="dl-u-prov"></datalist>
-      <p class="ayuda" id="u-ayuda" style="font-size:11.5px;color:#6b7280;margin-top:4px">
-        Debe coincidir <b>letra por letra</b> con el nombre que traen las actividades.</p></div>
-    <div class="campo"><label>Teléfono (para avisar por WhatsApp)</label>
-      <input id="u-telefono" placeholder="ej. 477 123 4567" autocomplete="off"></div>
-    <button class="btn-pri" id="u-crear">Crear acceso</button>
-  </div>
-
+  <p class="u-seccion-tit">Accesos generales (administrador y supervisores)</p>
   <div class="v-tabla-wrap">
-    <table class="v-tabla" id="tabla-u">
+    <table class="v-tabla" id="tabla-generales">
       <thead><tr>
-        <th>Usuario</th><th>Proveedor / Departamento</th><th>Tipo</th><th>Rol</th>
-        <th>Accesos</th><th>Estado</th><th></th>
+        <th>Usuario</th><th>Tipo</th><th>Rol</th><th>Accesos</th><th>Estado</th><th></th>
       </tr></thead>
-      <tbody id="tbody-u"></tbody>
+      <tbody id="tbody-generales"></tbody>
     </table>
   </div>
+
+  <p class="u-seccion-tit">Proveedores y departamentos</p>
+  <p class="u-hint">Cada tarjeta junta la ficha de la empresa con su acceso a la plataforma.
+     Si un proveedor ya no trabaja en la obra, desactívalo (no lo borres) para conservar su historial.</p>
+
+  <div class="u-form">
+    <div class="campo"><label>Nombre del proveedor/departamento</label>
+      <input list="dl-nuevo-prov" id="np-nombre" placeholder="ej. cebsa o Sistemas" autocomplete="off">
+      <datalist id="dl-nuevo-prov"></datalist></div>
+    <div class="campo"><label>Tipo</label>
+      <select id="np-tipo"><option value="Externo">Externo (proveedor de obra)</option><option value="Interno">Interno (departamento HAP)</option></select></div>
+    <button class="btn-pri" id="np-agregar">+ Agregar a la ficha</button>
+  </div>
+
+  <input type="search" id="buscar-prov" placeholder="Buscar proveedor o departamento…" style="width:100%;max-width:420px;padding:9px 12px;border:1px solid #cbd2da;border-radius:8px;margin-bottom:16px">
+
+  <div id="lista-proveedores"></div>
 </div>
 
 <div id="toast" class="toast" hidden></div>
+
+<!-- ===== Modal: crear/editar acceso a la plataforma ===== -->
+<div id="modal-acceso" class="modal-overlay" hidden>
+  <div class="modal-caja">
+    <div class="modal-cab"><h3 id="ac-titulo">Crear acceso</h3>
+      <button class="cerrar" id="btn-cerrar-acceso">✕</button></div>
+    <div class="modal-cuerpo">
+      <input type="hidden" id="ac-proveedor">
+      <input type="hidden" id="ac-mundo">
+      <div class="campo"><label>Usuario (para entrar)</label>
+        <input id="ac-usuario" placeholder="ej. cebsa" autocomplete="off"></div>
+      <div class="campo"><label>Contraseña</label>
+        <input id="ac-clave" placeholder="la que tú decidas" autocomplete="off"></div>
+      <div class="campo"><label>Teléfono (para avisar por WhatsApp)</label>
+        <input id="ac-telefono" placeholder="ej. 477 123 4567" autocomplete="off"></div>
+    </div>
+    <div class="modal-pie">
+      <button class="btn-sec" id="btn-cancelar-acceso">Cancelar</button>
+      <button class="btn-pri" id="btn-guardar-acceso">Crear acceso</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Modal: ficha del proveedor (expediente) ===== -->
+<div class="overlay" id="overlay-f" hidden></div>
+<aside class="panel" id="panel-f" hidden>
+  <div class="panel-cab">
+    <h2 id="f-titulo">Ficha de proveedor</h2>
+    <button class="cerrar" id="f-cerrar">✕</button>
+  </div>
+  <div class="panel-cuerpo">
+    <input type="hidden" id="f-nombre">
+    <div class="campo"><label>Nombre (como aparece en la obra)</label>
+      <input id="f-nombre-vis" readonly></div>
+    <div class="campo"><label>Razón social / empresa</label>
+      <input id="f-empresa" placeholder="Nombre legal de la empresa"></div>
+    <div class="fila-2">
+      <div class="campo"><label>Tipo</label>
+        <select id="f-tipo"><option>Externo</option><option>Interno</option></select></div>
+      <div class="campo"><label>Giro / especialidad</label>
+        <input id="f-funcion" placeholder="Eléctrico, aire, cancelería…"></div>
+    </div>
+    <div class="campo"><label>Persona de contacto</label>
+      <input id="f-contacto" placeholder="Nombre de quien atiende"></div>
+    <div class="fila-2">
+      <div class="campo"><label>Teléfono</label>
+        <input id="f-telefono" placeholder="Celular u oficina"></div>
+      <div class="campo"><label>Correo</label>
+        <input id="f-correo" placeholder="correo@empresa.com"></div>
+    </div>
+    <div class="campo"><label>Notas</label>
+      <textarea id="f-notas" rows="4" placeholder="Contrato, condiciones, observaciones…"></textarea></div>
+  </div>
+  <div class="panel-pie">
+    <span class="flex"></span>
+    <button id="f-cancelar" class="btn-sec">Cancelar</button>
+    <button id="f-guardar" class="btn-pri">Guardar ficha</button>
+  </div>
+</aside>
 
 <!-- ===== Modal: restablecer contraseña ===== -->
 <div id="modal-reset" class="modal-overlay" hidden>
@@ -124,169 +184,8 @@
   </div>
 </div>
 
-<script>
-const $ = (s) => document.querySelector(s) || document.createElement("span");
-const $$ = (s) => document.querySelectorAll(s);
-let CAT = {};
-function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
-function toast(m){const t=$("#toast");t.textContent=m;t.hidden=false;setTimeout(()=>t.hidden=true,2200);}
-
-function esSupervisor(){ return $("#u-rol").value !== "proveedor"; }
-
-function llenarLista(){
-  const interno = $("#u-mundo").value === "interno";
-  const lista = interno ? (CAT.departamentos||[]) : (CAT.proveedores||[]);
-  $("#dl-u-prov").innerHTML = lista.map(p=>`<option value="${esc(p)}">`).join("");
-  $("#u-lbl-prov").textContent = interno ? "Departamento (ve solo lo suyo)" : "Proveedor (ve solo lo suyo)";
-  $("#u-proveedor").placeholder = interno ? "Elige el departamento" : "Elige el proveedor";
-}
-
-function ajustarFormPorRol(){
-  // el supervisor NO se liga a un proveedor concreto; ve todo su mundo.
-  const sup = esSupervisor();
-  $("#campo-prov").style.display = sup ? "none" : "";
-  // el mundo del supervisor lo fija el rol; se oculta el selector
-  if ($("#u-rol").value === "supervisor_obra") { $("#u-mundo").value = "obra"; $("#campo-mundo").style.display = "none"; }
-  else if ($("#u-rol").value === "supervisor_depto") { $("#u-mundo").value = "interno"; $("#campo-mundo").style.display = "none"; }
-  else { $("#campo-mundo").style.display = ""; }
-  llenarLista();
-}
-
-function rolTag(u){
-  if (u.rol === "admin") return '<span class="u-roltag u-rol-admin">Administrador</span>';
-  if (u.rol === "supervisor_obra") return '<span class="u-roltag u-rol-super">Superv. Obra</span>';
-  if (u.rol === "supervisor_depto") return '<span class="u-roltag u-rol-super">Superv. Depto</span>';
-  return '<span class="u-roltag u-rol-prov">Proveedor</span>';
-}
-
-async function cargar() {
-  const q = await (await fetch("/api/quien_soy")).json();
-  if (!q.login) { location.href = "/login"; return; }
-  if (q.rol !== "admin") { location.href = "/portal"; return; }
-  CAT = await (await fetch("/api/catalogos")).json();
-  ajustarFormPorRol();
-  const us = await (await fetch("/api/usuarios")).json();
-  $("#tbody-u").innerHTML = us.map(u => {
-    const activo = (u.activo === undefined || u.activo === null) ? 1 : u.activo;
-    const esAdmin = u.rol === "admin";
-    const puedeWa = u.rol === "proveedor";
-    const ult = u.ultimo_login ? (" · último " + esc(String(u.ultimo_login).slice(0,10))) : "";
-    return `
-    <tr>
-      <td class="mono">${esc(u.usuario)}</td>
-      <td>${esc(u.proveedor||"—")}</td>
-      <td>${u.mundo==="interno"?'<span class="exp-tipo ti">Interno HAP</span>':'<span class="exp-tipo te">Externo</span>'}</td>
-      <td>${rolTag(u)}</td>
-      <td class="u-logins">${(u.num_logins||0)} ${(u.num_logins===1?'vez':'veces')}${ult}</td>
-      <td>${esAdmin ? '<span class="u-estado u-activo">Activo</span>'
-                    : `<span class="u-estado ${activo?'u-activo':'u-inactivo'}">${activo?'Activo':'Inactivo'}</span>`}</td>
-      <td class="v-btns">
-        ${esAdmin ? "" : `
-          <button class="u-btn-mini" data-acc="reset" data-id="${u.id}" data-nom="${esc(u.usuario)}">🔑 Contraseña</button>
-          <button class="u-btn-mini" data-acc="tel" data-id="${u.id}" data-nom="${esc(u.usuario)}" data-tel="${esc(u.telefono||'')}">📞 Tel</button>
-          ${puedeWa ? `<button class="u-btnwa" data-acc="wa" data-id="${u.id}">WhatsApp</button>` : ""}
-          <button class="u-btn-mini" data-acc="toggle" data-id="${u.id}" data-activo="${activo}">${activo?'Desactivar':'Activar'}</button>
-          <button class="v-no" data-acc="del" data-id="${u.id}">Quitar</button>
-        `}
-      </td>
-    </tr>`;
-  }).join("");
-  enlazarAcciones();
-}
-
-function enlazarAcciones(){
-  $$("#tbody-u [data-acc]").forEach(b => {
-    const acc = b.dataset.acc, id = b.dataset.id;
-    b.onclick = async () => {
-      if (acc === "del") {
-        if (!confirm("¿Quitar este acceso?")) return;
-        await fetch("/api/usuario/" + id, { method: "DELETE" });
-        toast("Acceso eliminado"); cargar();
-      }
-      else if (acc === "toggle") {
-        const activo = b.dataset.activo === "1";
-        await fetch("/api/usuario/" + id + "/activo", {
-          method: "POST", headers: {"Content-Type":"application/json"},
-          body: JSON.stringify({ activo: !activo }) });
-        toast(activo ? "Acceso desactivado" : "Acceso activado"); cargar();
-      }
-      else if (acc === "reset") {
-        $("#reset-id").value = id; $("#reset-nombre").textContent = b.dataset.nom;
-        $("#reset-clave").value = ""; $("#modal-reset").hidden = false;
-        setTimeout(()=>$("#reset-clave").focus(), 50);
-      }
-      else if (acc === "tel") {
-        $("#tel-id").value = id; $("#tel-nombre").textContent = b.dataset.nom;
-        $("#tel-num").value = b.dataset.tel || ""; $("#modal-tel").hidden = false;
-        setTimeout(()=>$("#tel-num").focus(), 50);
-      }
-      else if (acc === "wa") {
-        const r = await (await fetch("/api/usuario/" + id + "/whatsapp")).json();
-        if (r.error) { toast(r.error); return; }
-        window.open(r.url, "_blank");
-      }
-    };
-  });
-}
-
-// crear
-$("#u-crear").addEventListener("click", async () => {
-  const usuario = $("#u-usuario").value.trim();
-  const clave = $("#u-clave").value.trim();
-  const rol = $("#u-rol").value;
-  const mundo = $("#u-mundo").value;
-  const telefono = $("#u-telefono").value.trim();
-  const proveedor = $("#u-proveedor").value.trim();
-  if (!usuario || !clave) { toast("Llena usuario y contraseña"); return; }
-  // proveedor obligatorio solo si NO es supervisor
-  if (rol === "proveedor" && !proveedor) { toast("Indica a qué proveedor/departamento pertenece"); return; }
-  const cuerpo = { usuario, clave, rol, mundo, telefono };
-  if (rol === "proveedor") cuerpo.proveedor = proveedor;
-  const r = await (await fetch("/api/usuarios", {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(cuerpo),
-  })).json();
-  if (r.error) { toast(r.error); return; }
-  ["#u-usuario","#u-clave","#u-proveedor","#u-telefono"].forEach(s=>$(s).value="");
-  toast("Acceso creado");
-  cargar();
-});
-
-$("#u-rol").addEventListener("change", ajustarFormPorRol);
-$("#u-mundo").addEventListener("change", llenarLista);
-
-// modal reset
-function cerrarReset(){ $("#modal-reset").hidden = true; }
-$("#btn-cerrar-reset").onclick = cerrarReset;
-$("#btn-cancelar-reset").onclick = cerrarReset;
-$("#modal-reset").onclick = (e)=>{ if(e.target.id==="modal-reset") cerrarReset(); };
-$("#btn-guardar-reset").onclick = async () => {
-  const id = $("#reset-id").value;
-  const clave = $("#reset-clave").value.trim();
-  if (!clave) { toast("Escribe la contraseña nueva"); return; }
-  const r = await (await fetch("/api/usuario/" + id + "/clave", {
-    method: "POST", headers: {"Content-Type":"application/json"},
-    body: JSON.stringify({ clave }) })).json();
-  if (r.error) { toast(r.error); return; }
-  cerrarReset(); toast("Contraseña actualizada");
-};
-
-// modal telefono
-function cerrarTel(){ $("#modal-tel").hidden = true; }
-$("#btn-cerrar-tel").onclick = cerrarTel;
-$("#btn-cancelar-tel").onclick = cerrarTel;
-$("#modal-tel").onclick = (e)=>{ if(e.target.id==="modal-tel") cerrarTel(); };
-$("#btn-guardar-tel").onclick = async () => {
-  const id = $("#tel-id").value;
-  const telefono = $("#tel-num").value.trim();
-  const r = await (await fetch("/api/usuario/" + id + "/telefono", {
-    method: "POST", headers: {"Content-Type":"application/json"},
-    body: JSON.stringify({ telefono }) })).json();
-  if (r.error) { toast(r.error); return; }
-  cerrarTel(); toast("Teléfono guardado"); cargar();
-};
-
-cargar();
-</script>
+<!-- Scripts al final: asi ya existen todos los modales cuando el JS engancha los botones -->
+<script src="/static/limpiar_campos.js"></script>
+<script src="/static/usuarios_proveedores.js"></script>
 </body>
 </html>
