@@ -4,6 +4,7 @@ let CATALOGOS = {};
 let CAUSAS = [];
 let SELECCION = new Set();
 let MUNDO = "obra"; // 'obra' o 'interno'
+let PANEL_AVANCE_ORIGINAL = 0; // % con el que se abrió el panel, para saber si el admin lo cambió
 
 /* === BLINDAJE v1.4 (2 sep 2026) — método seguro ===
    Si un id no existe en el HTML, $ devuelve un elemento suelto (no visible)
@@ -110,6 +111,10 @@ async function cargarActividades() {
 function render() {
   const cont = $("#grupos-bloque");
   const hoy = new Date().toISOString().slice(0, 10);
+  // recordar qué bloques estaban abiertos ANTES de redibujar, para no cerrarlos
+  const abiertosAntes = new Set(
+    [...$$("#grupos-bloque details.grupo-bloque[open]")].map((d) => d.dataset.bloque)
+  );
   if (!TODAS.length) {
     cont.innerHTML = "";
     $("#vacio").hidden = false;
@@ -129,7 +134,8 @@ function render() {
     const n = acts.length;
     const avgAv = Math.round(acts.reduce((s, a) => s + (a.avance || 0), 0) / n);
     const filas = acts.map((a) => filaHtml(a, hoy)).join("");
-    return `<details class="grupo-bloque" data-bloque="${escapa(bloque)}">
+    const abierto = abiertosAntes.has(bloque) ? " open" : "";
+    return `<details class="grupo-bloque" data-bloque="${escapa(bloque)}"${abierto}>
       <summary class="grupo-resumen">
         <span class="grupo-nombre">${escapa(bloque)}</span>
         <span class="grupo-cant">${n} ${n === 1 ? "actividad" : "actividades"}</span>
@@ -141,7 +147,7 @@ function render() {
           <th class="col-check"></th>
           <th>Código</th><th>Área</th><th>Giro</th><th class="th-proveedor">Proveedor</th>
           <th>Partida</th><th>Tipo</th><th class="col-av">Avance</th>
-          <th>Def.</th><th>Fin</th><th>Estatus</th><th></th>
+          <th>Depende</th><th>Fecha compromiso</th><th>Estatus</th><th></th>
         </tr></thead>
         <tbody>${filas}</tbody>
       </table>
@@ -165,7 +171,6 @@ function filaHtml(a, hoy) {
   }
   const tp = a.tipo_partida || "Construcción";
   const tpCls = {"Construcción":"tp-con","Mobiliario y equipo":"tp-mob","Puesta en marcha":"tp-pm","Detalles finales":"tp-det"}[tp] || "tp-con";
-  const def = (a.definido === "SÍ");
   const sel = SELECCION.has(a.id) ? "checked" : "";
   let depBadge = `<span style="color:#a0aec0;">—</span>`;
   if (a.dep_bloqueada) {
@@ -187,9 +192,6 @@ function filaHtml(a, hoy) {
           ${[0,25,50,75,100].map(v=>`<option value="${v}" ${v===av?"selected":""}>${v}%</option>`).join("")}
         </select>
       </td>
-      <td class="col-def" data-id="${a.id}" title="¿Definido / tiene plano?">
-        <span class="def-chip ${def?'def-si':'def-no'}">${def?'✓':'—'}</span>
-      </td>
       <td class="col-dep" style="text-align:center;">${depBadge}</td>
       <td class="${finCls}">${escapa(a.f_fin || "")}</td>
       <td>${badge(a.estatus)}</td>
@@ -206,7 +208,6 @@ function enlazarFilas() {
   $$("#grupos-bloque tr[data-id]").forEach((tr) =>
     tr.addEventListener("click", (e) => {
       if (e.target.closest(".celda-avance")) return;
-      if (e.target.closest(".col-def")) return;
       if (e.target.closest(".col-dep")) return;
       if (e.target.closest(".col-check")) return;
       if (e.target.closest(".borrar-ico")) return;
@@ -233,21 +234,6 @@ function enlazarFilas() {
       });
       toast("Avance actualizado a " + av + "%");
       await cargarResumen();
-      await cargarActividades();
-    })
-  );
-  // clic en el chip de "definido" lo alterna Sí/No directo en la tabla
-  $$(".col-def").forEach((celda) =>
-    celda.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      const id = celda.dataset.id;
-      const a = TODAS.find((x) => x.id == id);
-      const nuevo = (a.definido === "SÍ") ? "NO" : "SÍ";
-      await fetch("/api/actividad/" + id, {
-        method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ definido: nuevo }),
-      });
-      toast(nuevo === "SÍ" ? "Marcado como definido / en cancha" : "Desmarcado");
       await cargarActividades();
     })
   );
@@ -304,6 +290,17 @@ function abrirPanel(id) {
   $("#e-definido").value = a.definido || "NO";
   $("#e-aplica").value = a.aplica || "SÍ";
   $("#e-avance").value = a.avance || 0;
+  PANEL_AVANCE_ORIGINAL = a.avance || 0;
+  $("#e-nota-mod").value = "";
+  $("#campo-nota-mod").hidden = true;
+  const infoDecl = $("#e-avance-decl-info");
+  if (a.avance_decl != null && a.avance_decl !== (a.avance || 0)) {
+    infoDecl.hidden = false;
+    infoDecl.textContent = `El proveedor reportó ${a.avance_decl}% (aún no se confirma como oficial).`;
+  } else {
+    infoDecl.hidden = true;
+    infoDecl.textContent = "";
+  }
   $("#e-inicio").value = a.f_inicio || "";
   $("#e-fin").value = a.f_fin || "";
   $("#e-duracion").value = a.duracion_dias || "";
@@ -330,6 +327,10 @@ function nuevaActividad() {
   $("#causa-sello").hidden = true;
   $("#e-aplica").value = "SÍ";
   $("#e-avance").value = 0;
+  PANEL_AVANCE_ORIGINAL = 0;
+  $("#e-nota-mod").value = "";
+  $("#campo-nota-mod").hidden = true;
+  $("#e-avance-decl-info").hidden = true;
   $("#e-tipo-partida").value = "Construcción";
   $("#e-definido").value = "NO";
   $("#e-estatus").value = "Pendiente";
@@ -378,25 +379,66 @@ function mostrarPanel() {
   ov.hidden = false; pn.hidden = false;
   ov.style.display = "block";
   pn.style.display = "flex";
+  hapProtegerHistorial();
 }
 function ocultarPanel() {
   const ov = $("#overlay"), pn = $("#panel");
   ov.hidden = true; pn.hidden = true;
   ov.style.display = "none";
   pn.style.display = "none";
+  hapLiberarHistorial();
 }
+
+// ===== Protección del botón "atrás" (celular/tablet) =====
+// Sin esto, al dar "atrás" con un panel abierto el navegador sale de la
+// app y manda al login. Con esto, "atrás" solo cierra lo que esté abierto.
+let HAP_HIST_ABIERTO = false;
+function hapProtegerHistorial() {
+  if (!HAP_HIST_ABIERTO) {
+    history.pushState({ hapModal: true }, "", location.href);
+    HAP_HIST_ABIERTO = true;
+  }
+}
+function hapLiberarHistorial() {
+  if (HAP_HIST_ABIERTO) {
+    HAP_HIST_ABIERTO = false;
+    history.back();
+  }
+}
+window.addEventListener("popstate", () => {
+  if (!HAP_HIST_ABIERTO) return;
+  HAP_HIST_ABIERTO = false;
+  // cierra cualquier panel/modal que esté abierto en este momento
+  const ov = $("#overlay"), pn = $("#panel");
+  if (pn && !pn.hidden) { ov.hidden = true; pn.hidden = true; ov.style.display = "none"; pn.style.display = "none"; }
+  cerrarHistorial();
+  if (typeof cerrarModalDel === "function") cerrarModalDel();
+  if (typeof cerrarModalAdd === "function") cerrarModalAdd();
+  if (typeof cerrarModalDep === "function") cerrarModalDep();
+  if (typeof cerrarClaveAdmin === "function") cerrarClaveAdmin();
+});
 
 async function guardar() {
   const id = $("#e-id").value;
   const interno = MUNDO === "interno";
+  const nuevoAvance = parseInt($("#e-avance").value || 0);
+  let notasFinal = $("#e-notas").value || "";
+  // si el admin ajustó el % de avance, dejamos constancia con fecha, en Notas
+  if (id && nuevoAvance !== PANEL_AVANCE_ORIGINAL) {
+    const hoy = new Date().toISOString().slice(0, 10);
+    const notaMod = ($("#e-nota-mod").value || "").trim();
+    const linea = `[${hoy}] Admin ajustó avance de ${PANEL_AVANCE_ORIGINAL}% a ${nuevoAvance}%.` +
+      (notaMod ? ` Nota: ${notaMod}` : "");
+    notasFinal = notasFinal ? (notasFinal + "\n" + linea) : linea;
+  }
   const cuerpo = {
     area: $("#e-area").value, bloque: $("#e-bloque").value, giro: $("#e-giro").value,
     proveedor: $("#e-proveedor").value, partida: $("#e-partida").value,
     tipo_partida: $("#e-tipo-partida").value, definido: $("#e-definido").value,
-    aplica: $("#e-aplica").value, avance: parseInt($("#e-avance").value || 0),
+    aplica: $("#e-aplica").value, avance: nuevoAvance,
     f_inicio: $("#e-inicio").value || null, f_fin: $("#e-fin").value || null,
     duracion_dias: $("#e-duracion").value || null, estatus: $("#e-estatus").value,
-    depende_de: $("#e-depende").value || null, notas: $("#e-notas").value,
+    depende_de: $("#e-depende").value || null, notas: notasFinal,
     causa_retraso: $("#e-causa").value || null,
     nota_proveedor: $("#e-nota-prov").value || null,
     mundo: MUNDO,
@@ -435,6 +477,8 @@ $("#e-avance").addEventListener("input", () => {
   if (v >= 100) $("#e-estatus").value = "Listo";
   else if (v > 0) $("#e-estatus").value = "En proceso";
   else $("#e-estatus").value = "Pendiente";
+  // si el admin cambia el % respecto al que traía la actividad, ofrecer nota
+  $("#campo-nota-mod").hidden = (v === PANEL_AVANCE_ORIGINAL);
 });
 
 function toast(msg) {
