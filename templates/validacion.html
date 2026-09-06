@@ -86,32 +86,90 @@
   </div>
 </section>
 
-<!-- ===== Modal: editar y corregir (proveedor / ubicación / partida) ===== -->
-<div id="modal-editar" class="modal-overlay" hidden>
-  <div class="modal-caja">
-    <div class="modal-cab"><h3 id="ed-titulo">Corregir actividad</h3>
-      <button class="cerrar" id="btn-cerrar-editar">✕</button></div>
-    <div class="modal-cuerpo">
-      <input type="hidden" id="ed-id">
-      <input type="hidden" id="ed-contexto">
-      <p class="v-desc" id="ed-codigo" style="font-weight:600"></p>
-      <div class="campo"><label id="ed-lbl-prov">Proveedor</label>
-        <input id="ed-proveedor" placeholder="Nombre exacto del proveedor/departamento"></div>
-      <div class="fila-2">
-        <div class="campo"><label>Bloque</label>
-          <input id="ed-bloque" placeholder="ej. Q1"></div>
-        <div class="campo"><label>Área</label>
-          <input id="ed-area" placeholder="ej. Recuperación pre anestésica"></div>
-      </div>
-      <div class="campo"><label>Partida</label>
-        <textarea id="ed-partida" rows="2"></textarea></div>
-    </div>
-    <div class="modal-pie">
-      <button class="btn-sec" id="btn-cancelar-editar">Cancelar</button>
-      <button class="btn-pri" id="btn-guardar-editar">Guardar corrección</button>
-    </div>
+<!-- ===== Modal: editar y corregir (todos los campos de la actividad) ===== -->
+<div class="overlay" id="overlay-ed" hidden></div>
+<aside class="panel" id="panel-editar" hidden>
+  <div class="panel-cab">
+    <h2 id="ed-titulo">Corregir actividad</h2>
+    <button class="cerrar" id="btn-cerrar-editar">✕</button>
   </div>
-</div>
+  <div class="panel-cuerpo">
+    <input type="hidden" id="ed-id">
+    <input type="hidden" id="ed-contexto">
+    <input type="hidden" id="ed-mundo">
+    <p class="v-desc" id="ed-codigo" style="font-weight:600"></p>
+    <div class="campo"><label>Área</label>
+      <input list="dl-ed-area" id="ed-area" autocomplete="off">
+      <datalist id="dl-ed-area"></datalist>
+      <button type="button" class="mini-add" data-add="area">+ Agregar área nueva</button>
+    </div>
+    <div class="fila-2">
+      <div class="campo"><label>Bloque</label>
+        <input list="dl-ed-bloque" id="ed-bloque" autocomplete="off">
+        <datalist id="dl-ed-bloque"></datalist>
+        <button type="button" class="mini-add" data-add="bloque">+ Agregar bloque</button>
+      </div>
+      <div class="campo"><label>Giro</label>
+        <input list="dl-ed-giro" id="ed-giro" autocomplete="off">
+        <datalist id="dl-ed-giro"></datalist>
+        <button type="button" class="mini-add" data-add="giro">+ Agregar giro</button>
+      </div>
+    </div>
+    <div class="campo"><label id="ed-lbl-prov">Proveedor</label>
+      <input list="dl-ed-proveedor" id="ed-proveedor" autocomplete="off">
+      <datalist id="dl-ed-proveedor"></datalist>
+      <button type="button" class="mini-add" data-add="proveedor">+ Agregar proveedor nuevo</button>
+    </div>
+    <div class="campo"><label>Partida / Actividad</label>
+      <textarea id="ed-partida" rows="2"></textarea></div>
+    <div class="fila-2">
+      <div class="campo"><label>Tipo de partida</label>
+        <select id="ed-tipo-partida">
+          <option>Construcción</option><option>Mobiliario y equipo</option>
+          <option>Puesta en marcha</option><option>Detalles finales</option>
+        </select></div>
+      <div class="campo"><label>¿Definido / tiene plano?</label>
+        <select id="ed-definido"><option value="NO">No</option><option value="SÍ">Sí</option></select></div>
+    </div>
+    <div class="fila-2">
+      <div class="campo"><label>¿Aplica?</label>
+        <select id="ed-aplica"><option>SÍ</option><option>NO</option></select></div>
+      <div class="campo"><label>% Avance</label>
+        <input type="number" id="ed-avance" min="0" max="100" step="5"></div>
+    </div>
+    <div class="fila-2">
+      <div class="campo"><label>Fecha inicio</label><input type="date" id="ed-inicio"></div>
+      <div class="campo"><label>Fecha fin (compromiso)</label><input type="date" id="ed-fin"></div>
+    </div>
+    <div class="fila-2">
+      <div class="campo"><label>Duración (días)</label><input type="number" id="ed-duracion" min="0"></div>
+      <div class="campo"><label>Estatus</label>
+        <select id="ed-estatus">
+          <option>Pendiente</option><option>En proceso</option>
+          <option>Listo</option><option>Post-apertura</option>
+        </select></div>
+    </div>
+    <div class="campo"><label>Depende de (esta actividad no empieza hasta que la otra acabe)</label>
+      <select id="ed-depende"><option value="">— Ninguna —</option></select>
+    </div>
+    <div class="bloque-causa">
+      <div class="campo"><label>Causa de retraso <span class="op">(si va atrasada)</span></label>
+        <input list="dl-ed-causa" id="ed-causa" autocomplete="off" placeholder="— Sin causa —">
+        <datalist id="dl-ed-causa"></datalist>
+        <button type="button" class="mini-add" data-add="causa">+ Agregar causa nueva</button>
+      </div>
+      <div class="campo"><label>Lo que sostiene el proveedor <span class="op">(su versión)</span></label>
+        <textarea id="ed-nota-prov" rows="2"></textarea>
+      </div>
+    </div>
+    <div class="campo"><label>Notas</label><textarea id="ed-notas" rows="3"></textarea></div>
+  </div>
+  <div class="panel-pie">
+    <span class="flex"></span>
+    <button id="btn-cancelar-editar" class="btn-sec">Cancelar</button>
+    <button id="btn-guardar-editar" class="btn-pri">Guardar corrección</button>
+  </div>
+</aside>
 
 <div id="toast" class="toast" hidden></div>
 
