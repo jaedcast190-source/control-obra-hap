@@ -144,7 +144,13 @@
       <div class="campo"><label>¿Aplica?</label>
         <select id="e-aplica"><option>SÍ</option><option>NO</option></select></div>
       <div class="campo"><label>% Avance</label>
-        <input type="number" id="e-avance" min="0" max="100" step="5"></div>
+        <input type="number" id="e-avance" min="0" max="100" step="5">
+        <p class="ayuda" id="e-avance-decl-info" hidden></p>
+      </div>
+    </div>
+    <div class="campo" id="campo-nota-mod" hidden>
+      <label>Nota de este cambio de avance <small style="font-weight:400;color:#8a94a3;">(por qué lo ajustaste)</small></label>
+      <textarea id="e-nota-mod" rows="2" placeholder="Ej. Verificado en obra, se confirma 60%"></textarea>
     </div>
     <div class="fila-2">
       <div class="campo"><label>Fecha inicio</label><input type="date" id="e-inicio"></div>
