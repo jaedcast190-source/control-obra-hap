@@ -10,6 +10,17 @@ function toast(m){const t=$("#toast");t.textContent=m;t.hidden=false;setTimeout(
 const DEDONDE = { plano:"Venía en plano", adicional:"Adicional en obra", comentario:"Comentario/indicación" };
 
 let AVANCES = [], PROPUESTAS = [], NORECO = [], RECHAZADAS = [];
+let CATALOGOS = {}, CAUSAS_OBRA = [], CAUSAS_INTERNO = [];
+
+function llenarDatalist(sel, items){ $(sel).innerHTML = (items||[]).map(i=>`<option value="${esc(i)}">`).join(""); }
+
+async function cargarCatalogosEdicion(){
+  CATALOGOS = await (await fetch("/api/catalogos")).json();
+  llenarDatalist("#dl-ed-bloque", CATALOGOS.bloques);
+  llenarDatalist("#dl-ed-giro", CATALOGOS.giros);
+  CAUSAS_OBRA = await (await fetch("/api/causas?mundo=obra")).json();
+  CAUSAS_INTERNO = await (await fetch("/api/causas?mundo=interno")).json();
+}
 
 function getResponsable(a) {
   if (a.mundo === "interno") {
@@ -22,6 +33,7 @@ async function cargar() {
   const q = await (await fetch("/api/quien_soy")).json();
   if (!q.login) { location.href = "/login"; return; }
   if (q.rol !== "admin") { location.href = "/portal"; return; }
+  if (!CATALOGOS.bloques) await cargarCatalogosEdicion();
   const d = await (await fetch("/api/validacion/pendientes")).json();
   AVANCES = d.avances || [];
   PROPUESTAS = d.propuestas || [];
@@ -79,39 +91,135 @@ async function cargarAtencion() {
   $$('#tbody-rech [data-acc="editar"]').forEach(b => b.onclick = () => abrirEditar(b.dataset.id, "rechazada", RECHAZADAS));
 }
 
-/* ---------- editar y corregir (proveedor / ubicación / partida) ---------- */
+/* ---------- editar y corregir (todos los campos, igual que el panel) ---------- */
+function llenarProveedorSegunMundo(mundo){
+  const lista = mundo === "interno" ? (CATALOGOS.departamentos||[]) : (CATALOGOS.proveedores||[]);
+  llenarDatalist("#dl-ed-proveedor", lista);
+  $("#ed-lbl-prov").textContent = mundo === "interno" ? "Departamento" : "Proveedor";
+}
+function llenarAreasSegunBloque(){
+  const bloque = $("#ed-bloque").value;
+  const mapa = CATALOGOS.mapa_bloque_areas || {};
+  const areas = bloque && mapa[bloque] ? mapa[bloque] : (CATALOGOS.areas||[]);
+  llenarDatalist("#dl-ed-area", areas);
+}
+async function llenarDependenciasEd(propioId, seleccion, bloque, area){
+  const sel = $("#ed-depende");
+  if (!bloque && !area) { sel.innerHTML = '<option value="">— Ninguna —</option>'; return; }
+  const params = new URLSearchParams();
+  if (bloque) params.set("bloque", bloque);
+  if (area) params.set("area", area);
+  params.set("mundo", "todos");
+  const lista = await (await fetch("/api/actividades?" + params.toString())).json();
+  const ops = lista.filter(a => a.id != propioId)
+    .map(a => `<option value="${a.id}">${esc(a.codigo)} · ${esc((a.partida||"").slice(0,45))}</option>`).join("");
+  sel.innerHTML = '<option value="">— Ninguna —</option>' + ops;
+  if (seleccion) sel.value = seleccion;
+}
+
 function abrirEditar(id, contexto, lista) {
   const a = lista.find(x => String(x.id) === String(id));
   if (!a) return;
+  const mundo = a.mundo || "obra";
   $("#ed-id").value = id;
   $("#ed-contexto").value = contexto;
+  $("#ed-mundo").value = mundo;
   $("#ed-codigo").textContent = a.codigo || "";
-  $("#ed-lbl-prov").textContent = a.mundo === "interno" ? "Departamento" : "Proveedor";
-  $("#ed-proveedor").value = (a.mundo === "interno" ? a.departamento : a.proveedor) || "";
+  llenarProveedorSegunMundo(mundo);
+  llenarDatalist("#dl-ed-causa", mundo === "interno" ? CAUSAS_INTERNO : CAUSAS_OBRA);
   $("#ed-bloque").value = a.bloque || "";
+  llenarAreasSegunBloque();
   $("#ed-area").value = a.area || "";
+  $("#ed-giro").value = a.giro || "";
+  $("#ed-proveedor").value = (mundo === "interno" ? a.departamento : a.proveedor) || "";
   $("#ed-partida").value = a.partida || "";
+  $("#ed-tipo-partida").value = a.tipo_partida || "Construcción";
+  $("#ed-definido").value = a.definido || "NO";
+  $("#ed-aplica").value = a.aplica || "SÍ";
+  $("#ed-avance").value = a.avance || 0;
+  $("#ed-inicio").value = a.f_inicio || "";
+  $("#ed-fin").value = a.f_fin || "";
+  $("#ed-duracion").value = a.duracion_dias || "";
+  $("#ed-estatus").value = a.estatus || "Pendiente";
+  $("#ed-causa").value = a.causa_retraso || "";
+  $("#ed-nota-prov").value = a.nota_proveedor || "";
+  $("#ed-notas").value = a.notas || "";
+  llenarDependenciasEd(a.id, a.depende_de, a.bloque, a.area);
   $("#ed-titulo").textContent = contexto === "noreco" ? "Corregir y quitar marca" : "Corregir y reactivar";
   $("#btn-guardar-editar").textContent = contexto === "noreco" ? "Guardar y quitar marca" : "Guardar y reactivar";
-  $("#modal-editar").hidden = false;
-  setTimeout(() => $("#ed-proveedor").focus(), 50);
+  mostrarEditar();
 }
-function cerrarEditar() { $("#modal-editar").hidden = true; }
+function mostrarEditar(){
+  $("#overlay-ed").hidden = false; $("#overlay-ed").style.display = "block";
+  $("#panel-editar").hidden = false; $("#panel-editar").style.display = "flex";
+}
+function cerrarEditar() {
+  $("#overlay-ed").hidden = true; $("#overlay-ed").style.display = "none";
+  $("#panel-editar").hidden = true; $("#panel-editar").style.display = "none";
+}
 $("#btn-cerrar-editar").onclick = cerrarEditar;
 $("#btn-cancelar-editar").onclick = cerrarEditar;
-$("#modal-editar").onclick = (e) => { if (e.target.id === "modal-editar") cerrarEditar(); };
+$("#overlay-ed").onclick = cerrarEditar;
+
+$("#ed-bloque").addEventListener("change", () => { llenarAreasSegunBloque(); llenarDependenciasEd($("#ed-id").value, $("#ed-depende").value, $("#ed-bloque").value, $("#ed-area").value); });
+$("#ed-bloque").addEventListener("input", () => { llenarAreasSegunBloque(); });
+$("#ed-area").addEventListener("change", () => llenarDependenciasEd($("#ed-id").value, $("#ed-depende").value, $("#ed-bloque").value, $("#ed-area").value));
+
+// mini "+ agregar" rapido: usa el mismo catalogo generico del panel principal
+$$('#panel-editar [data-add]').forEach(btn => {
+  btn.onclick = async () => {
+    const clase = btn.dataset.add;
+    if (clase === "causa") {
+      const nombre = (prompt("Nueva causa de retraso:") || "").trim();
+      if (!nombre) return;
+      const mundo = $("#ed-mundo").value;
+      await fetch("/api/causas", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ nombre, mundo }) });
+      if (mundo === "interno") CAUSAS_INTERNO.push(nombre); else CAUSAS_OBRA.push(nombre);
+      llenarDatalist("#dl-ed-causa", mundo === "interno" ? CAUSAS_INTERNO : CAUSAS_OBRA);
+      $("#ed-causa").value = nombre;
+      return;
+    }
+    if (clase === "proveedor") {
+      const nombre = (prompt("Nombre del proveedor/departamento nuevo:") || "").trim();
+      if (!nombre) return;
+      await fetch("/api/expediente", { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ nombre, tipo: $("#ed-mundo").value === "interno" ? "Interno" : "Externo" }) });
+      const mundo = $("#ed-mundo").value;
+      if (mundo === "interno") CATALOGOS.departamentos = [...(CATALOGOS.departamentos||[]), nombre];
+      else CATALOGOS.proveedores = [...(CATALOGOS.proveedores||[]), nombre];
+      llenarProveedorSegunMundo(mundo);
+      $("#ed-proveedor").value = nombre;
+      return;
+    }
+    const nombre = (prompt(`Nuevo ${clase}:`) || "").trim();
+    if (!nombre) return;
+    await fetch("/api/catalogo/" + clase, { method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify({ nombre }) });
+    if (clase === "bloque") { CATALOGOS.bloques = [...(CATALOGOS.bloques||[]), nombre]; llenarDatalist("#dl-ed-bloque", CATALOGOS.bloques); $("#ed-bloque").value = nombre; llenarAreasSegunBloque(); }
+    if (clase === "area") { CATALOGOS.areas = [...(CATALOGOS.areas||[]), nombre]; llenarAreasSegunBloque(); $("#ed-area").value = nombre; }
+    if (clase === "giro") { CATALOGOS.giros = [...(CATALOGOS.giros||[]), nombre]; llenarDatalist("#dl-ed-giro", CATALOGOS.giros); $("#ed-giro").value = nombre; }
+  };
+});
+
 $("#btn-guardar-editar").onclick = async () => {
   const id = $("#ed-id").value;
   const contexto = $("#ed-contexto").value;
-  const lista = contexto === "noreco" ? NORECO : RECHAZADAS;
-  const a = lista.find(x => String(x.id) === String(id));
-  const nombreCampo = (a && a.mundo === "interno") ? "departamento" : "proveedor";
+  const mundo = $("#ed-mundo").value;
   const cuerpo = {
-    [nombreCampo]: $("#ed-proveedor").value.trim(),
-    bloque: $("#ed-bloque").value.trim(),
-    area: $("#ed-area").value.trim(),
-    partida: $("#ed-partida").value.trim(),
+    area: $("#ed-area").value, bloque: $("#ed-bloque").value, giro: $("#ed-giro").value,
+    partida: $("#ed-partida").value, tipo_partida: $("#ed-tipo-partida").value,
+    definido: $("#ed-definido").value, aplica: $("#ed-aplica").value,
+    avance: parseInt($("#ed-avance").value || 0),
+    f_inicio: $("#ed-inicio").value || null, f_fin: $("#ed-fin").value || null,
+    duracion_dias: $("#ed-duracion").value || null, estatus: $("#ed-estatus").value,
+    depende_de: $("#ed-depende").value || null, notas: $("#ed-notas").value,
+    causa_retraso: $("#ed-causa").value || null, nota_proveedor: $("#ed-nota-prov").value || null,
+    mundo,
   };
+  if (mundo === "interno") {
+    cuerpo.departamento = $("#ed-proveedor").value;
+    cuerpo.tipo_interno = $("#ed-tipo-partida").value;
+  } else {
+    cuerpo.proveedor = $("#ed-proveedor").value;
+  }
   const r = await (await fetch("/api/actividad/" + id, {
     method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cuerpo) })).json();
   if (r.error) { toast(r.error); return; }
