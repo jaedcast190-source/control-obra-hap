@@ -93,7 +93,42 @@ function render() {
   $("#p-contador").textContent = lista.length + " actividades";
   const cont = $("#p-lista");
   if (!lista.length) { cont.innerHTML = `<p class="vacio">No hay actividades.</p>`; return; }
-  cont.innerHTML = lista.map(a => {
+
+  // recordar qué bloques estaban abiertos ANTES de redibujar, para no cerrarlos
+  const abiertosAntes = new Set(
+    [...$$("#p-lista details.p-grupo-bloque[open]")].map((d) => d.dataset.bloque)
+  );
+
+  // agrupar por bloque, respetando el orden en que aparecen
+  const grupos = new Map();
+  lista.forEach((a) => {
+    const b = a.bloque || "— Sin bloque —";
+    if (!grupos.has(b)) grupos.set(b, []);
+    grupos.get(b).push(a);
+  });
+
+  cont.innerHTML = [...grupos.entries()].map(([bloque, acts]) => {
+    const n = acts.length;
+    const tarjetas = acts.map((a) => tarjetaHtml(a)).join("");
+    const abierto = abiertosAntes.has(bloque) ? " open" : "";
+    return `<details class="p-grupo-bloque" data-bloque="${esc(bloque)}"${abierto}>
+      <summary class="p-grupo-resumen">
+        <span class="p-grupo-nombre">${esc(bloque)}</span>
+        <span class="p-grupo-cant">${n} ${n === 1 ? "actividad" : "actividades"}</span>
+      </summary>
+      <div class="p-grupo-cuerpo">${tarjetas}</div>
+    </details>`;
+  }).join("");
+
+  $$(".p-reportar").forEach(b =>
+    b.addEventListener("click", () => abrirReporte(b.dataset.id)));
+  $$(".p-reconocer").forEach(b =>
+    b.addEventListener("click", () => reconocer(b.dataset.id)));
+  $$(".p-norecon").forEach(b =>
+    b.addEventListener("click", () => noReconozco(b.dataset.id)));
+}
+
+function tarjetaHtml(a) {
     const av = a.avance || 0;
     const decl = a.avance_decl;
     const enRevision = decl != null && decl !== av;
@@ -150,13 +185,6 @@ function render() {
       ${sinReconocer ? "" : `<div class="p-barra"><div class="p-barra-fill" style="width:${enRevision?decl:av}%"></div></div>`}
       ${boton}
     </div>`;
-  }).join("");
-  $$(".p-reportar").forEach(b =>
-    b.addEventListener("click", () => abrirReporte(b.dataset.id)));
-  $$(".p-reconocer").forEach(b =>
-    b.addEventListener("click", () => reconocer(b.dataset.id)));
-  $$(".p-norecon").forEach(b =>
-    b.addEventListener("click", () => noReconozco(b.dataset.id)));
 }
 
 // ---- Reportar avance ----
@@ -290,6 +318,7 @@ async function abrirZona() {
     m.hidden = false;
     m.style.display = "flex";
   }
+  hapProtegerHistorial();
   try {
     const res = await (await fetch("/api/portal/avance_zona")).json();
     ZONA_ACTS = res.actividades || [];
@@ -308,6 +337,7 @@ function cerrarZona() {
     m.hidden = true;
     m.style.display = "none";
   }
+  hapLiberarHistorial();
 }
 
 function renderZona() {
@@ -360,6 +390,7 @@ function abrirCambiarClave() {
     m.hidden = false;
     m.style.display = "flex";
   }
+  hapProtegerHistorial();
   setTimeout(() => $("#clave-actual").focus(), 50);
 }
 
@@ -369,6 +400,7 @@ function cerrarCambiarClave() {
     m.hidden = true;
     m.style.display = "none";
   }
+  hapLiberarHistorial();
 }
 
 async function guardarNuevaClave() {
@@ -406,13 +438,40 @@ function abrir(ov, pn) {
   const o = $(ov), p = $(pn);
   if (o) { o.hidden = false; o.style.display = "block"; }
   if (p) { p.hidden = false; p.style.display = "flex"; }
+  hapProtegerHistorial();
 }
 
 function cerrar(ov, pn) {
   const o = $(ov), p = $(pn);
   if (o) { o.hidden = true; o.style.display = "none"; }
   if (p) { p.hidden = true; p.style.display = "none"; }
+  hapLiberarHistorial();
 }
+
+// ===== Protección del botón "atrás" (celular/tablet) =====
+// Sin esto, al dar "atrás" con un panel abierto el navegador sale de la
+// app y manda al login. Con esto, "atrás" solo cierra lo que esté abierto.
+let HAP_HIST_ABIERTO = false;
+function hapProtegerHistorial() {
+  if (!HAP_HIST_ABIERTO) {
+    history.pushState({ hapModal: true }, "", location.href);
+    HAP_HIST_ABIERTO = true;
+  }
+}
+function hapLiberarHistorial() {
+  if (HAP_HIST_ABIERTO) {
+    HAP_HIST_ABIERTO = false;
+    history.back();
+  }
+}
+window.addEventListener("popstate", () => {
+  if (!HAP_HIST_ABIERTO) return;
+  HAP_HIST_ABIERTO = false;
+  cerrar("#ov-rep", "#panel-rep");
+  cerrar("#ov-new", "#panel-new");
+  cerrarZona();
+  cerrarCambiarClave();
+});
 
 function abrirNuevaActividad() {
   filtrarAreasNueva();
