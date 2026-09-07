@@ -65,6 +65,7 @@
       </tr></thead>
       <tbody id="tbody-generales"></tbody>
     </table>
+    <button class="btn-pri" id="btn-nuevo-super" style="margin-top:10px">+ Nuevo supervisor</button>
   </div>
 
   <p class="u-seccion-tit">Proveedores y departamentos</p>
@@ -105,6 +106,27 @@
     <div class="modal-pie">
       <button class="btn-sec" id="btn-cancelar-acceso">Cancelar</button>
       <button class="btn-pri" id="btn-guardar-acceso">Crear acceso</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== Modal: crear supervisor ===== -->
+<div id="modal-super" class="modal-overlay" hidden>
+  <div class="modal-caja">
+    <div class="modal-cab"><h3>Nuevo supervisor</h3>
+      <button class="cerrar" id="btn-cerrar-super">✕</button></div>
+    <div class="modal-cuerpo">
+      <p class="v-desc">El supervisor puede validar avances, corregir y dar de alta actividades, gestionar dependencias y cambiar su contraseña. No puede crear usuarios, generar reportes para dirección ni hacer respaldos.</p>
+      <div class="campo"><label>Nombre del supervisor</label>
+        <input id="sp-nombre" placeholder="ej. Jorge Pompa" autocomplete="off"></div>
+      <div class="campo"><label>Usuario (para entrar a la plataforma)</label>
+        <input id="sp-usuario" placeholder="ej. jpompa" autocomplete="off"></div>
+      <div class="campo"><label>Contraseña</label>
+        <input id="sp-clave" placeholder="la que tú decidas" autocomplete="off"></div>
+    </div>
+    <div class="modal-pie">
+      <button class="btn-sec" id="btn-cancelar-super">Cancelar</button>
+      <button class="btn-pri" id="btn-guardar-super">Crear supervisor</button>
     </div>
   </div>
 </div>
