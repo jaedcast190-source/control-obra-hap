@@ -14,7 +14,19 @@ const $ = (s) => document.querySelector(s) || document.createElement("span");
 const $$ = (s) => document.querySelectorAll(s);
 
 // ====== Carga inicial ======
+let ROL_ACTUAL = "admin";
 async function cargarTodo() {
+  // quién soy: nombre, rol, permisos
+  try {
+    const q = await (await fetch("/api/quien_soy")).json();
+    if (!q.login) { location.href = "/login"; return; }
+    ROL_ACTUAL = q.rol || "admin";
+    $("#usuario-logueado").textContent = "👤 " + (q.usuario || "");
+    // supervisor: ocultar botones marcados con perm-admin
+    if (ROL_ACTUAL !== "admin") {
+      [...$$(".perm-admin")].forEach(el => el.style.display = "none");
+    }
+  } catch(e) { /* si falla, sigue normal */ }
   await cargarCatalogos();
   await cargarResumen();
   await cargarActividades();
@@ -145,7 +157,7 @@ function render() {
       <table>
         <thead><tr>
           <th class="col-check"></th>
-          <th>Código</th><th>Área</th><th>Giro</th><th class="th-proveedor">Proveedor</th>
+          <th>Código</th><th>Área</th><th>Especialidad</th><th class="th-proveedor">Proveedor</th>
           <th>Partida</th><th>Tipo</th><th class="col-av">Avance</th>
           <th>Depende</th><th>Fecha compromiso</th><th>Estatus</th><th></th>
         </tr></thead>
@@ -589,7 +601,7 @@ const NOMBRE_CAMPO = {
   "no reconocida": "No reconocida", "actividad propuesta": "Actividad propuesta",
   "f_inicio": "Fecha inicio", "f_fin": "Fecha fin", "definido": "Definido/plano",
   "definido_por": "De dónde salió", "estatus": "Estatus", "proveedor": "Proveedor",
-  "area": "Área", "bloque": "Bloque", "partida": "Partida", "giro": "Giro",
+  "area": "Área", "bloque": "Bloque", "partida": "Partida", "giro": "Especialidad",
   "causa_retraso": "Causa de retraso", "nota_proveedor": "Nota del proveedor",
   "avance_decl": "Avance declarado",
 };
@@ -737,7 +749,7 @@ let ADD_CLASE = null;
 function abrirModalAdd(clase) {
   ADD_CLASE = clase;
   const titulos = { proveedor: "Agregar proveedor nuevo", area: "Agregar área nueva",
-                    bloque: "Agregar bloque nuevo", giro: "Agregar giro nuevo",
+                    bloque: "Agregar bloque nuevo", giro: "Agregar especialidad nueva",
                     causa: "Agregar causa de retraso" };
   $("#add-titulo").textContent = titulos[clase] || "Agregar";
   $("#add-nombre").value = "";
