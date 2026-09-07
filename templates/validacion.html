@@ -98,21 +98,21 @@
     <input type="hidden" id="ed-contexto">
     <input type="hidden" id="ed-mundo">
     <p class="v-desc" id="ed-codigo" style="font-weight:600"></p>
+    <div class="campo"><label>Bloque</label>
+      <input list="dl-ed-bloque" id="ed-bloque" autocomplete="off">
+      <datalist id="dl-ed-bloque"></datalist>
+      <button type="button" class="mini-add" data-add="bloque">+ Agregar bloque</button>
+    </div>
     <div class="campo"><label>Área</label>
       <input list="dl-ed-area" id="ed-area" autocomplete="off">
       <datalist id="dl-ed-area"></datalist>
       <button type="button" class="mini-add" data-add="area">+ Agregar área nueva</button>
     </div>
     <div class="fila-2">
-      <div class="campo"><label>Bloque</label>
-        <input list="dl-ed-bloque" id="ed-bloque" autocomplete="off">
-        <datalist id="dl-ed-bloque"></datalist>
-        <button type="button" class="mini-add" data-add="bloque">+ Agregar bloque</button>
-      </div>
-      <div class="campo"><label>Giro</label>
+      <div class="campo"><label>Especialidad</label>
         <input list="dl-ed-giro" id="ed-giro" autocomplete="off">
         <datalist id="dl-ed-giro"></datalist>
-        <button type="button" class="mini-add" data-add="giro">+ Agregar giro</button>
+        <button type="button" class="mini-add" data-add="especialidad">+ Agregar especialidad</button>
       </div>
     </div>
     <div class="campo"><label id="ed-lbl-prov">Proveedor</label>
@@ -165,6 +165,7 @@
     <div class="campo"><label>Notas</label><textarea id="ed-notas" rows="3"></textarea></div>
   </div>
   <div class="panel-pie">
+    <button id="btn-eliminar-editar" class="btn-borrar">Eliminar</button>
     <span class="flex"></span>
     <button id="btn-cancelar-editar" class="btn-sec">Cancelar</button>
     <button id="btn-guardar-editar" class="btn-pri">Guardar corrección</button>
