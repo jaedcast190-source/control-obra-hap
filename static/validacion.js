@@ -32,7 +32,7 @@ function getResponsable(a) {
 async function cargar() {
   const q = await (await fetch("/api/quien_soy")).json();
   if (!q.login) { location.href = "/login"; return; }
-  if (q.rol !== "admin") { location.href = "/portal"; return; }
+  if (q.rol !== "admin" && q.rol !== "supervisor") { location.href = "/portal"; return; }
   if (!CATALOGOS.bloques) await cargarCatalogosEdicion();
   const d = await (await fetch("/api/validacion/pendientes")).json();
   AVANCES = d.avances || [];
@@ -332,6 +332,22 @@ $("#btn-todos-av").addEventListener("click", async () => {
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
   cerrarModalRechazo(); cerrarEditar();
+});
+
+// Eliminar actividad desde el panel de editar de Validación
+$("#btn-eliminar-editar").addEventListener("click", async () => {
+  const id = $("#ed-id").value;
+  const cod = $("#ed-codigo").textContent;
+  if (!id) return;
+  if (!confirm(`¿Eliminar la actividad ${cod}? Esta acción no se puede deshacer.`)) return;
+  const r = await fetch("/api/actividad/" + id, { method: "DELETE" });
+  if (r.ok) {
+    cerrarEditar();
+    toast("Actividad eliminada");
+    await cargar();
+  } else {
+    toast("Error al eliminar");
+  }
 });
 
 cargar();
