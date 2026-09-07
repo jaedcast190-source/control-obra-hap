@@ -41,6 +41,8 @@ body{
 .barra h1{font-size:17px;font-weight:600}
 .sub{font-size:12.5px;color:#a9bdb6;margin-top:2px}
 .barra-der{display:flex;align-items:center;gap:20px}
+.usuario-logueado{font-size:13px;color:#c8dbd2;font-weight:600;padding:4px 10px;
+  background:rgba(255,255,255,.1);border-radius:6px;white-space:nowrap}
 .contador{text-align:right;display:flex;flex-direction:column;line-height:1.1}
 .contador-num{font-size:30px;font-weight:800;color:#f0c14b}
 .contador-lbl{font-size:11.5px;color:#a9bdb6;text-transform:none}
@@ -213,6 +215,7 @@ body.modo-sel .col-check{display:table-cell}
   top: 0;
   right: 0;
   height: 100vh;
+  height: 100dvh; /* dvh: altura visual dinámica, respeta barra del navegador móvil */
   width: 460px;
   max-width: 94vw;
   background: #fff;
@@ -267,7 +270,7 @@ body.modo-sel .col-check{display:table-cell}
 .campo textarea{resize:vertical}
 .fila-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .panel-pie{display:flex;align-items:center;gap:10px;padding:16px 22px;
-  border-top:1px solid var(--linea)}
+  border-top:1px solid var(--linea);flex-shrink:0}
 .btn-borrar{background:#fff;border:1px solid var(--rojo);color:var(--rojo);
   padding:8px 14px;border-radius:5px;font-size:13px;font-weight:600;cursor:pointer}
 .btn-borrar:hover{background:var(--rojo-suave)}
