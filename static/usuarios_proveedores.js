@@ -9,7 +9,7 @@ function toast(m){const t=$("#toast");t.textContent=m;t.hidden=false;setTimeout(
 
 function rolTag(u){
   if (u.rol === "admin") return '<span class="u-roltag u-rol-admin">Administrador</span>';
-  if (u.rol === "supervisor_obra") return '<span class="u-roltag u-rol-super">Superv. Obra</span>';
+  if (u.rol === "supervisor" || u.rol === "supervisor_obra") return '<span class="u-roltag u-rol-super">Supervisor</span>';
   if (u.rol === "supervisor_depto") return '<span class="u-roltag u-rol-super">Superv. Depto</span>';
   return '<span class="u-roltag u-rol-prov">Proveedor</span>';
 }
@@ -17,7 +17,7 @@ function rolTag(u){
 /* ---------- sección 1: accesos generales (admin/supervisores) ---------- */
 async function cargarGenerales(){
   const us = await (await fetch("/api/usuarios")).json();
-  const generales = us.filter(u => u.rol === "admin" || u.rol === "supervisor_obra" || u.rol === "supervisor_depto");
+  const generales = us.filter(u => u.rol === "admin" || u.rol === "supervisor" || u.rol === "supervisor_obra" || u.rol === "supervisor_depto");
   $("#tbody-generales").innerHTML = generales.map(u => {
     const activo = (u.activo===undefined||u.activo===null) ? 1 : u.activo;
     const esAdmin = u.rol === "admin";
@@ -270,16 +270,47 @@ $("#btn-guardar-tel").onclick = async () => {
   cerrarTel(); toast("Teléfono guardado"); cargarProveedores();
 };
 
+/* ---------- crear supervisor ---------- */
+function abrirNuevoSuper(){
+  $("#sp-nombre").value = "";
+  $("#sp-usuario").value = "";
+  $("#sp-clave").value = "";
+  const m = $("#modal-super");
+  if (m) { m.hidden = false; m.style.display = "flex"; }
+}
+function cerrarSuper(){
+  const m = $("#modal-super");
+  if (m) { m.hidden = true; m.style.display = "none"; }
+}
+$("#btn-nuevo-super").addEventListener("click", abrirNuevoSuper);
+$("#btn-cerrar-super").addEventListener("click", cerrarSuper);
+$("#btn-cancelar-super").addEventListener("click", cerrarSuper);
+$("#btn-guardar-super").addEventListener("click", async () => {
+  const nombre = ($("#sp-nombre").value || "").trim();
+  const usuario = ($("#sp-usuario").value || "").trim();
+  const clave = ($("#sp-clave").value || "").trim();
+  if (!usuario || !clave) { toast("Usuario y contraseña son obligatorios"); return; }
+  const r = await fetch("/api/usuarios", {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ usuario, clave, proveedor: nombre || null, rol: "supervisor", mundo: "obra" })
+  });
+  const d = await r.json();
+  if (d.error) { toast(d.error); return; }
+  cerrarSuper();
+  toast("Supervisor creado: " + usuario);
+  cargarTodo();
+});
+
 /* ---------- arranque ---------- */
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
-  cerrarAcceso(); cerrarFicha(); cerrarReset(); cerrarTel();
+  cerrarAcceso(); cerrarFicha(); cerrarReset(); cerrarTel(); cerrarSuper();
 });
 
 async function cargarTodo(){
   const q = await (await fetch("/api/quien_soy")).json();
   if (!q.login) { location.href = "/login"; return; }
-  if (q.rol !== "admin") { location.href = "/portal"; return; }
+  if (q.rol !== "admin") { location.href = "/"; return; }
   cerrarFicha();
   await cargarGenerales();
   await cargarProveedores();
