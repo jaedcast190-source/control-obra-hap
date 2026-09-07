@@ -127,7 +127,7 @@ def requiere_admin(fn):
 
 # Roles que pueden GESTIONAR la obra (validar, asignar, editar, dependencias):
 # el admin y los dos supervisores. NO incluye tocar usuarios, respaldos ni borrar.
-ROLES_GESTORES = ("admin", "supervisor_obra", "supervisor_depto")
+ROLES_GESTORES = ("admin", "supervisor", "supervisor_obra", "supervisor_depto")
 
 def es_gestor(rol):
     return rol in ROLES_GESTORES
@@ -1961,10 +1961,10 @@ def api_crear_usuario():
     telefono = (data.get("telefono") or "").strip() or None
     # rol: por defecto proveedor. El admin puede crear supervisores.
     rol = data.get("rol", "proveedor")
-    if rol not in ("proveedor", "supervisor_obra", "supervisor_depto"):
+    if rol not in ("proveedor", "supervisor", "supervisor_obra", "supervisor_depto"):
         rol = "proveedor"
     # el supervisor de obra vive en mundo 'obra'; el de depto en 'interno'
-    if rol == "supervisor_obra":
+    if rol in ("supervisor", "supervisor_obra"):
         mundo = "obra"
     elif rol == "supervisor_depto":
         mundo = "interno"
@@ -2827,6 +2827,45 @@ except Exception as _e:
 
 if __name__ == "__main__":
     print("=" * 60)
+# ──── RUTA TEMPORAL: alta masiva mármol (borrar después de usar) ────
+@app.route("/api/migrar_marmol")
+@requiere_admin
+def migrar_marmol():
+    db = get_db()
+    # verificar que no se haya corrido ya
+    ya = db.execute("SELECT COUNT(*) c FROM actividades WHERE codigo='ACT-1101'").fetchone()["c"]
+    if ya:
+        return jsonify({"error": "Ya se ejecutó esta migración (ACT-1101 ya existe)"}), 400
+    nuevas = [
+        ("ACT-1101","Club médico y descanso","Vestidor doctoras","Mármol","Luis Carlos López","Barra para lavabo vestidores Dras. 3.00×0.50 mts — Mármol Crema Marfil"),
+        ("ACT-1102","Club médico y descanso","Vestidores doctores","Mármol","Luis Carlos López","Barra para lavabo vestidores Dres. 1.80×0.50 mts — Mármol Crema Marfil"),
+        ("ACT-1103","Club médico y descanso","Baño discapacitados mujeres","Mármol","Luis Carlos López","Barra para lavabo 75×50 cm — Granito Blanco Confeti"),
+        ("ACT-1104","Club médico y descanso","Baño discapacitados hombres","Mármol","Luis Carlos López","Barra para lavabo 75×50 cm — Granito Blanco Confeti"),
+        ("ACT-1105","Club médico y descanso","Vestidores doctores","Mármol","Luis Carlos López","Barra para lavabo baño hombres club médico 1.20×0.60 mts — Mármol Crema Marfil"),
+        ("ACT-1106","Club médico y descanso","Vestidor doctoras","Mármol","Luis Carlos López","Barra para lavabo baño mujeres club médico en escuadra 2.92×0.60 mts — Mármol Crema Marfil"),
+        ("ACT-1107","Recuperación pre","Cubículo anestesiólogo","Mármol","Luis Carlos López","Barra para cubículo anestesiólogo en escuadra 4.19×0.60 mts — Granito Gris Castello"),
+        ("ACT-1108","Club médico y descanso","Descanso médico","Mármol","Luis Carlos López","Barra mueble cafetera tipo grapa 1.45×0.65 + faldones + splash back — Granito Gris Castello"),
+        ("ACT-1109","Club médico y descanso","Descanso médico","Mármol","Luis Carlos López","Barra mueble club médico 2.80×0.65 + splash back 2.80×0.68 — Granito Gris Castello"),
+        ("ACT-1110","Club médico y descanso","Vestidores doctores","Mármol","Luis Carlos López","8 cubiertas para cabeceras mueble ropa sucia vestidores Dres. y Dras. — Granito Gris Castello"),
+        ("ACT-1111","Administrativas y técnicas","Jefatura","Mármol","Luis Carlos López","Cubierta para mueble jefatura 2.81×0.50 mts — Granito Gris Castello"),
+        ("ACT-1112","Administrativas y técnicas","Jefatura","Mármol","Luis Carlos López","Cubierta para mueble jefatura 1.20×0.50 mts — Granito Gris Castello"),
+    ]
+    ahora = datetime.datetime.now().isoformat(timespec="seconds")
+    creadas = []
+    for cod, bloque, area, giro, prov, partida in nuevas:
+        db.execute(
+            """INSERT INTO actividades
+            (codigo,bloque,area,giro,proveedor,partida,tipo,tipo_partida,aplica,avance,
+             estatus,definido,mundo,actualizado)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (cod, bloque, area, giro, prov, partida,
+             "Construcción", "Construcción", "SÍ", 0,
+             "Pendiente", "NO", "obra", ahora))
+        creadas.append(cod)
+    db.commit()
+    return jsonify({"ok": True, "creadas": creadas, "total": len(creadas)})
+
+
     print("  PLATAFORMA DE CONTROL DE OBRA — HAP")
     print("  Base de datos:", DB_PATH)
     print("  Abre en tu navegador:  http://localhost:5000")
