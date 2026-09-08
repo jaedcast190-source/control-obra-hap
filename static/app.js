@@ -589,6 +589,31 @@ $("#cancelar").addEventListener("click", ocultarPanel);
 $("#overlay").addEventListener("click", ocultarPanel);
 $("#guardar").addEventListener("click", guardar);
 $("#borrar-act").addEventListener("click", borrar);
+$("#duplicar-act").addEventListener("click", async () => {
+  const id = $("#e-id").value;
+  if (!id) return;
+  if (!confirm("Se creará una copia de esta actividad con un nuevo código. ¿Continuar?")) return;
+  const cuerpo = {
+    area: $("#e-area").value, bloque: $("#e-bloque").value, giro: $("#e-giro").value,
+    proveedor: $("#e-proveedor").value, partida: $("#e-partida").value,
+    tipo_partida: $("#e-tipo-partida").value, definido: $("#e-definido").value,
+    aplica: $("#e-aplica").value, avance: 0,
+    f_inicio: $("#e-inicio").value || null, f_fin: $("#e-fin").value || null,
+    duracion_dias: $("#e-duracion").value || null, estatus: "Pendiente",
+    depende_de: null, notas: "Duplicada de " + (TODAS.find(a => a.id == id)?.codigo || id),
+    causa_retraso: null, nota_proveedor: null, mundo: MUNDO,
+  };
+  const r = await fetch("/api/actividad", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cuerpo) });
+  const d = await r.json();
+  if (d.id) {
+    ocultarPanel();
+    toast("Actividad duplicada → " + (d.codigo || "nueva"));
+    await cargarActividades();
+    await cargarResumen();
+  } else {
+    toast(d.error || "Error al duplicar");
+  }
+});
 // Tecla Escape también cierra el panel
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") ocultarPanel();
@@ -987,3 +1012,161 @@ $("#btn-guardar-clave-admin").onclick = async () => {
     toast(r.error || "Error al actualizar contraseña");
   }
 };
+
+// ============================================================================
+// Carga masiva por Excel
+// ============================================================================
+let MASIVA_DATOS = []; // filas validadas listas para subir
+
+function abrirMasiva() {
+  $("#overlay-masiva").hidden = false;
+  $("#modal-masiva").hidden = false;
+  $("#masiva-archivo").value = "";
+  $("#masiva-preview").hidden = true;
+  $("#masiva-subir").disabled = true;
+  MASIVA_DATOS = [];
+  hapProtegerHistorial();
+}
+function cerrarMasiva() {
+  $("#overlay-masiva").hidden = true;
+  $("#modal-masiva").hidden = true;
+  MASIVA_DATOS = [];
+  hapLiberarHistorial();
+}
+
+$("#btn-carga-masiva").addEventListener("click", abrirMasiva);
+$("#masiva-cerrar").addEventListener("click", cerrarMasiva);
+$("#masiva-cancelar").addEventListener("click", cerrarMasiva);
+$("#overlay-masiva").addEventListener("click", cerrarMasiva);
+
+// Leer Excel con SheetJS (xlsx) importado dinámicamente
+$("#masiva-archivo").addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  // Cargar SheetJS si no está
+  if (typeof XLSX === "undefined") {
+    const s = document.createElement("script");
+    s.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
+    document.head.appendChild(s);
+    await new Promise(r => { s.onload = r; s.onerror = () => { toast("Error cargando librería Excel"); r(); }; });
+  }
+
+  const reader = new FileReader();
+  reader.onload = async function(ev) {
+    try {
+      const wb = XLSX.read(ev.target.result, { type: "array" });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const data = XLSX.utils.sheet_to_json(ws, { defval: "" });
+
+      if (!data.length) { toast("El archivo está vacío"); return; }
+
+      // Normalizar encabezados (buscar columnas por nombre flexible)
+      const mapCol = (row, opciones) => {
+        for (const op of opciones) {
+          for (const key of Object.keys(row)) {
+            if (key.toLowerCase().trim().replace(/[áéíóú]/g, m => "aeiou"["áéíóú".indexOf(m)]) 
+                .includes(op.toLowerCase())) return String(row[key] || "").trim();
+          }
+        }
+        return "";
+      };
+
+      // Obtener catálogos del servidor para validar
+      const cats = await (await fetch("/api/catalogos")).json();
+      const bloques_ok = new Set((cats.bloques || []).map(b => b.toLowerCase()));
+      const areas_ok = new Set((cats.areas || []).map(a => a.toLowerCase()));
+      const giros_ok = new Set((cats.giros || []).map(g => g.toLowerCase()));
+      const provs_ok = new Set((cats.proveedores || []).map(p => p.nombre ? p.nombre.toLowerCase() : p.toLowerCase()));
+
+      let errores = [];
+      let validas = [];
+
+      data.forEach((row, i) => {
+        const fila = i + 2; // fila en Excel (1-indexed + header)
+        const bloque = mapCol(row, ["bloque"]);
+        const area = mapCol(row, ["area", "área"]);
+        const giro = mapCol(row, ["especialidad", "giro", "disciplina"]);
+        const proveedor = mapCol(row, ["proveedor"]);
+        const partida = mapCol(row, ["partida", "actividad", "descripcion", "descripción"]);
+        const tipo = mapCol(row, ["tipo", "tipo de partida"]) || "Construcción";
+        const fecha = mapCol(row, ["fecha compromiso", "fecha fin", "fecha", "compromiso"]);
+
+        const errs = [];
+        if (!bloque) errs.push("Sin bloque");
+        else if (!bloques_ok.has(bloque.toLowerCase())) errs.push("Bloque no existe: " + bloque);
+        if (!area) errs.push("Sin área");
+        else if (!areas_ok.has(area.toLowerCase())) errs.push("Área no existe: " + area);
+        if (!proveedor) errs.push("Sin proveedor");
+        else if (!provs_ok.has(proveedor.toLowerCase())) errs.push("Proveedor no existe: " + proveedor);
+        if (!partida) errs.push("Sin partida/actividad");
+        // giro es opcional pero si viene, validar
+        if (giro && !giros_ok.has(giro.toLowerCase())) errs.push("Especialidad no existe: " + giro);
+
+        if (errs.length) {
+          errores.push({ fila, errs, bloque, area, giro, proveedor, partida, tipo, fecha });
+        } else {
+          validas.push({ bloque, area, giro, proveedor, partida, tipo_partida: tipo, f_fin: fecha, mundo: MUNDO });
+        }
+      });
+
+      // Mostrar preview
+      $("#masiva-preview").hidden = false;
+      $("#masiva-resumen").textContent = `${data.length} filas leídas: ${validas.length} válidas, ${errores.length} con error`;
+
+      if (errores.length) {
+        $("#masiva-errores").innerHTML = errores.map(e =>
+          `<p>Fila ${e.fila}: ${e.errs.join(", ")}</p>`
+        ).join("");
+      } else {
+        $("#masiva-errores").innerHTML = "";
+      }
+
+      if (validas.length) {
+        $("#masiva-ok").innerHTML = `<p>✅ ${validas.length} actividades listas para subir</p>`;
+      } else {
+        $("#masiva-ok").innerHTML = "";
+      }
+
+      // Tabla preview
+      const tbody = $("#masiva-tbody");
+      const todas = [...validas.map(v => ({...v, ok: true})), ...errores.map(e => ({
+        bloque: e.bloque, area: e.area, giro: e.giro, proveedor: e.proveedor,
+        partida: e.partida, tipo_partida: e.tipo, f_fin: e.fecha, ok: false, err: e.errs.join("; ")
+      }))];
+      tbody.innerHTML = todas.slice(0, 50).map(r => `<tr style="${r.ok ? '' : 'background:#fff5f5'}">
+        <td>${r.bloque||""}</td><td>${r.area||""}</td><td>${r.giro||""}</td>
+        <td>${r.proveedor||""}</td><td>${r.partida?.substring(0,40)||""}</td>
+        <td>${r.tipo_partida||""}</td><td>${r.f_fin||""}</td>
+        <td>${r.ok ? "✅" : "❌ " + (r.err||"")}</td>
+      </tr>`).join("");
+
+      MASIVA_DATOS = validas;
+      $("#masiva-subir").disabled = !validas.length;
+    } catch(err) {
+      toast("Error leyendo archivo: " + err.message);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+});
+
+// Subir actividades validadas
+$("#masiva-subir").addEventListener("click", async () => {
+  if (!MASIVA_DATOS.length) return;
+  if (!confirm(`¿Subir ${MASIVA_DATOS.length} actividades? Se crearán con avance 0% y estatus Pendiente.`)) return;
+
+  const r = await fetch("/api/carga_masiva", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ actividades: MASIVA_DATOS }),
+  });
+  const d = await r.json();
+  if (d.ok) {
+    cerrarMasiva();
+    toast(`${d.creadas} actividades creadas (${d.codigos[0]} a ${d.codigos[d.codigos.length-1]})`);
+    await cargarActividades();
+    await cargarResumen();
+  } else {
+    toast(d.error || "Error en carga masiva");
+  }
+});
