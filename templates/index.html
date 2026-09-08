@@ -82,6 +82,7 @@
   <button id="btn-limpiar" class="btn-sec">Limpiar</button>
   <span class="flex"></span>
   <button id="btn-nueva" class="btn-pri">+ Nueva actividad</button>
+  <button id="btn-carga-masiva" class="btn-sec">📋 Carga masiva (Excel)</button>
   <button id="btn-foto" class="btn-sec" title="Guarda una foto del avance de hoy para comparar la próxima semana">📸 Guardar foto semanal</button>
   <a href="/api/exportar" class="btn-sec">Exportar a Excel</a>
 </section>
@@ -183,6 +184,7 @@
   </div>
   <div class="panel-pie">
     <button id="borrar-act" class="btn-borrar">Eliminar</button>
+    <button id="duplicar-act" class="btn-sec" title="Crear copia con nuevo código">Duplicar</button>
     <span class="flex"></span>
     <button id="cancelar" class="btn-sec">Cancelar</button>
     <button id="guardar" class="btn-pri">Guardar</button>
@@ -298,6 +300,36 @@
 </div>
 
 <div id="toast" class="toast" hidden></div>
+
+<!-- ===== Modal: carga masiva por Excel ===== -->
+<div class="overlay" id="overlay-masiva" hidden></div>
+<div class="modal-add" id="modal-masiva" hidden style="max-width:620px">
+  <div class="modal-cab">
+    <h3>Carga masiva por Excel</h3>
+    <button class="cerrar" id="masiva-cerrar">✕</button>
+  </div>
+  <div class="modal-cuerpo">
+    <p class="ayuda" style="margin-bottom:12px">Sube un archivo Excel (.xlsx) con estas columnas: <b>Bloque, Área, Especialidad, Proveedor, Partida</b>. Opcionales: Tipo de partida, Fecha compromiso.</p>
+    <p class="ayuda" style="margin-bottom:12px">La plataforma valida que cada bloque, área, especialidad y proveedor ya estén dados de alta. Si alguno no existe, te lo rechaza y te dice cuáles sí hay.</p>
+    <div class="campo">
+      <input type="file" id="masiva-archivo" accept=".xlsx,.xls,.csv">
+    </div>
+    <div id="masiva-preview" hidden>
+      <p id="masiva-resumen" style="font-weight:600;margin:8px 0"></p>
+      <div id="masiva-errores" style="color:#c53030;font-size:13px;max-height:200px;overflow-y:auto"></div>
+      <div id="masiva-ok" style="color:#2f855a;font-size:13px"></div>
+      <table class="v-tabla" id="masiva-tabla" style="font-size:12px;margin-top:8px;max-height:250px;overflow-y:auto;display:block">
+        <thead><tr><th>Bloque</th><th>Área</th><th>Especialidad</th><th>Proveedor</th><th>Partida</th><th>Tipo</th><th>Fecha comp.</th><th>OK?</th></tr></thead>
+        <tbody id="masiva-tbody"></tbody>
+      </table>
+    </div>
+  </div>
+  <div class="modal-pie">
+    <button class="btn-sec" id="masiva-cancelar">Cancelar</button>
+    <a href="/api/plantilla_carga_masiva" class="btn-sec" download>⬇ Descargar plantilla</a>
+    <button class="btn-pri" id="masiva-subir" disabled>Subir actividades</button>
+  </div>
+</div>
 
 <script src="/static/limpiar_campos.js"></script>
 <script src="/static/app.js"></script>
