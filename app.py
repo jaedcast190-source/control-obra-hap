@@ -2825,6 +2825,63 @@ except Exception as _e:
     print("Aviso al iniciar la base:", _e)
 
 
+# ──── Carga masiva de actividades por Excel ────
+@app.route("/api/carga_masiva", methods=["POST"])
+@requiere_gestor
+def api_carga_masiva():
+    db = get_db()
+    data = request.get_json()
+    acts = data.get("actividades", [])
+    if not acts:
+        return jsonify({"error": "No hay actividades para subir"}), 400
+
+    # Obtener siguiente código
+    ult = db.execute("SELECT codigo FROM actividades ORDER BY id DESC LIMIT 1").fetchone()
+    if ult:
+        num = int(ult["codigo"].replace("ACT-","").replace("PROP-","")) + 1
+    else:
+        num = 1
+
+    ahora = datetime.datetime.now().isoformat(timespec="seconds")
+    codigos = []
+    for a in acts:
+        cod = f"ACT-{num:04d}"
+        db.execute(
+            """INSERT INTO actividades
+            (codigo,bloque,area,giro,proveedor,partida,tipo,tipo_partida,aplica,avance,
+             estatus,definido,mundo,f_fin,actualizado)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (cod, a.get("bloque",""), a.get("area",""), a.get("giro",""),
+             a.get("proveedor",""), a.get("partida",""),
+             a.get("tipo_partida","Construcción"), a.get("tipo_partida","Construcción"),
+             "SÍ", 0, "Pendiente", "NO", a.get("mundo","obra"),
+             a.get("f_fin") or None, ahora))
+        codigos.append(cod)
+        num += 1
+    db.commit()
+    return jsonify({"ok": True, "creadas": len(codigos), "codigos": codigos})
+
+
+@app.route("/api/plantilla_carga_masiva")
+@requiere_gestor
+def api_plantilla_carga_masiva():
+    import io
+    try:
+        from openpyxl import Workbook
+    except ImportError:
+        return "openpyxl no disponible", 500
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Actividades"
+    ws.append(["Bloque", "Área", "Especialidad", "Proveedor", "Partida", "Tipo de partida", "Fecha compromiso"])
+    ws.append(["Ejemplo: Cuneros", "Cuneros 1", "Eléctrico", "Daniel Contreras", "Contactos a 110V", "Construcción", "2026-10-15"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return send_file(buf, as_attachment=True, download_name="plantilla_carga_masiva.xlsx",
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
 if __name__ == "__main__":
     print("=" * 60)
 # ──── RUTA TEMPORAL: alta masiva mármol (borrar después de usar) ────
