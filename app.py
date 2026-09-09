@@ -2882,6 +2882,222 @@ def api_plantilla_carga_masiva():
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
+@app.route("/seguimiento")
+def seguimiento_page():
+    return render_template("seguimiento.html")
+
+
+@app.route("/api/seguimiento")
+@requiere_gestor
+def api_seguimiento():
+    """Módulo de Seguimiento y Cumplimiento — solo lectura, no modifica nada."""
+    db = get_db()
+    fecha_hoy = datetime.date.today().isoformat()
+    fecha_entrega = FECHA_ENTREGA
+
+    # Todos los responsables (proveedores + departamentos)
+    nombres = set()
+    for r in db.execute("SELECT DISTINCT proveedor FROM actividades WHERE proveedor IS NOT NULL AND proveedor<>''"):
+        nombres.add((r[0], "obra"))
+    for r in db.execute("SELECT DISTINCT departamento FROM actividades WHERE departamento IS NOT NULL AND departamento<>''"):
+        nombres.add((r[0], "interno"))
+
+    prov_info = {}
+    for r in db.execute("SELECT nombre, tipo, funcion FROM proveedores"):
+        prov_info[r["nombre"]] = {"tipo": r["tipo"] or "Externo", "funcion": r["funcion"] or ""}
+
+    usuarios_por = {}
+    for r in db.execute("SELECT proveedor, usuario, num_logins, ultimo_login, activo FROM usuarios WHERE rol='proveedor' AND proveedor IS NOT NULL"):
+        usuarios_por.setdefault(r["proveedor"], []).append(dict(r))
+
+    responsables = []
+    totales = {}
+    for m in ("obra", "interno"):
+        totales[m] = {"total":0,"terminadas":0,"proceso":0,"pendientes":0,"atrasadas":0,
+                      "riesgo":0,"pend_validar":0,"propuestas":0,"sin_reconocer":0}
+
+    fecha_riesgo = (datetime.date.today() + datetime.timedelta(days=14)).isoformat()
+
+    for nombre, mundo in sorted(nombres, key=lambda x: x[0].lower()):
+        col = "departamento" if mundo == "interno" else "proveedor"
+        acts = db.execute(f"SELECT * FROM actividades WHERE {col}=?", (nombre,)).fetchall()
+        if not acts:
+            continue
+
+        n_total = len(acts)
+        n_terminadas = sum(1 for a in acts if a["estatus"] == "Terminada")
+        n_proceso = sum(1 for a in acts if a["estatus"] == "En proceso")
+        n_pendientes = sum(1 for a in acts if a["estatus"] == "Pendiente")
+        n_reconocidas = sum(1 for a in acts if a["reconocida"] == "SÍ")
+        n_sin_reconocer = sum(1 for a in acts if a["reconocida"] != "SÍ")
+        n_atrasadas = sum(1 for a in acts if a["f_fin"] and a["f_fin"] < fecha_hoy and a["estatus"] != "Terminada")
+        n_riesgo = sum(1 for a in acts if a["f_fin"] and fecha_hoy <= a["f_fin"] <= fecha_riesgo
+                       and (a["avance"] or 0) < 75 and a["estatus"] != "Terminada")
+        n_pend_validar = sum(1 for a in acts if a["avance_decl"] is not None and a["avance_decl"] > (a["avance"] or 0))
+        n_propuestas = sum(1 for a in acts if a["origen"] == "propuesta" and a["estado_val"] == "propuesta")
+
+        av_oficial = round(sum(a["avance"] or 0 for a in acts) / n_total, 1)
+        fechas_act = [a["actualizado"] for a in acts if a["actualizado"]]
+        ultimo_reporte = max(fechas_act) if fechas_act else None
+        dias_sin = None
+        if ultimo_reporte:
+            try:
+                dias_sin = (datetime.date.today() - datetime.date.fromisoformat(ultimo_reporte[:10])).days
+            except Exception:
+                pass
+
+        usus = usuarios_por.get(nombre, [])
+        tiene_usuario = len(usus) > 0
+        ultimo_login = None
+        num_logins_total = 0
+        for u in usus:
+            num_logins_total += u["num_logins"] or 0
+            if u["ultimo_login"] and (ultimo_login is None or u["ultimo_login"] > ultimo_login):
+                ultimo_login = u["ultimo_login"]
+
+        dias_sin_login = None
+        if ultimo_login:
+            try:
+                dias_sin_login = (datetime.date.today() - datetime.date.fromisoformat(ultimo_login[:10])).days
+            except Exception:
+                pass
+
+        # --- Semáforo ---
+        motivos = []
+        pend_admin = []
+        if n_pend_validar > 0:
+            pend_admin.append(f"{n_pend_validar} avances esperan validación del administrador")
+        if n_propuestas > 0:
+            pend_admin.append(f"{n_propuestas} propuestas esperan aprobación")
+
+        if not tiene_usuario and n_total > 0:
+            semaforo = "gris"
+            motivos.append("No cuenta con usuario para la plataforma")
+            if n_sin_reconocer > 0:
+                motivos.append(f"{n_sin_reconocer} actividades sin reconocer")
+        elif n_atrasadas >= 5 or (n_sin_reconocer > n_total * 0.5 and n_sin_reconocer > 10) or \
+             (dias_sin_login is not None and dias_sin_login > 14) or \
+             (tiene_usuario and num_logins_total == 0):
+            semaforo = "rojo"
+            if n_atrasadas > 0:
+                motivos.append(f"{n_atrasadas} actividades vencidas")
+            if n_sin_reconocer > 0:
+                motivos.append(f"{n_sin_reconocer} actividades sin reconocer")
+            if tiene_usuario and num_logins_total == 0:
+                motivos.append("Tiene usuario pero nunca ha ingresado")
+            elif dias_sin_login and dias_sin_login > 14:
+                motivos.append(f"Último acceso hace {dias_sin_login} días")
+            if n_riesgo > 0:
+                motivos.append(f"{n_riesgo} actividades en riesgo de vencer")
+        elif n_atrasadas > 0 or n_sin_reconocer > 5 or \
+             (dias_sin is not None and dias_sin > 7) or n_riesgo > 3:
+            semaforo = "amarillo"
+            if n_atrasadas > 0:
+                motivos.append(f"{n_atrasadas} actividades vencidas")
+            if n_sin_reconocer > 0:
+                motivos.append(f"{n_sin_reconocer} sin reconocer")
+            if dias_sin and dias_sin > 7:
+                motivos.append(f"{dias_sin} días sin actualización")
+            if n_riesgo > 0:
+                motivos.append(f"{n_riesgo} próximas a vencer")
+        else:
+            semaforo = "verde"
+            motivos.append("Al corriente")
+
+        accion = ""
+        if semaforo == "gris":
+            accion = "Crear usuario y solicitar reconocimiento de actividades."
+        elif semaforo == "rojo":
+            partes = []
+            if n_sin_reconocer > 10:
+                partes.append("reconocimiento")
+            if n_atrasadas > 0:
+                partes.append("actualización inmediata y fecha compromiso")
+            if tiene_usuario and num_logins_total == 0:
+                partes.append("que ingrese a la plataforma")
+            accion = "Solicitar " + " y ".join(partes) + "." if partes else "Dar seguimiento urgente."
+        elif semaforo == "amarillo":
+            accion = "Dar seguimiento y solicitar actualización."
+
+        info = prov_info.get(nombre, {"tipo": "Interno" if mundo == "interno" else "Externo", "funcion": ""})
+
+        responsables.append({
+            "nombre": nombre, "mundo": mundo, "tipo": info["tipo"],
+            "funcion": info.get("funcion", ""),
+            "total": n_total, "terminadas": n_terminadas, "proceso": n_proceso,
+            "pendientes": n_pendientes, "reconocidas": n_reconocidas,
+            "sin_reconocer": n_sin_reconocer, "atrasadas": n_atrasadas,
+            "riesgo": n_riesgo, "pend_validar": n_pend_validar,
+            "propuestas": n_propuestas, "av_oficial": av_oficial,
+            "ultimo_reporte": ultimo_reporte, "ultimo_login": ultimo_login,
+            "dias_sin_actualizar": dias_sin, "dias_sin_login": dias_sin_login,
+            "tiene_usuario": tiene_usuario, "num_logins": num_logins_total,
+            "semaforo": semaforo, "motivos": motivos, "pend_admin": pend_admin,
+            "accion": accion,
+        })
+
+        t = totales[mundo]
+        t["total"] += n_total
+        t["terminadas"] += n_terminadas
+        t["proceso"] += n_proceso
+        t["pendientes"] += n_pendientes
+        t["atrasadas"] += n_atrasadas
+        t["riesgo"] += n_riesgo
+        t["pend_validar"] += n_pend_validar
+        t["propuestas"] += n_propuestas
+        t["sin_reconocer"] += n_sin_reconocer
+
+    try:
+        dias_entrega = (datetime.date.fromisoformat(fecha_entrega) - datetime.date.today()).days
+    except Exception:
+        dias_entrega = 0
+    totales["dias_para_entrega"] = dias_entrega
+
+    return jsonify({"responsables": responsables, "totales": totales, "fecha": fecha_hoy})
+
+
+@app.route("/api/seguimiento/detalle/<nombre>")
+@requiere_gestor
+def api_seguimiento_detalle(nombre):
+    """Detalle de actividades de un responsable para el módulo de Seguimiento."""
+    db = get_db()
+    fecha_hoy = datetime.date.today().isoformat()
+    acts = db.execute("SELECT * FROM actividades WHERE proveedor=? OR departamento=?", (nombre, nombre)).fetchall()
+    resultado = []
+    for a in acts:
+        pend_val = a["avance_decl"] is not None and a["avance_decl"] > (a["avance"] or 0)
+        vencida = bool(a["f_fin"] and a["f_fin"] < fecha_hoy and a["estatus"] != "Terminada")
+        resultado.append({
+            "id": a["id"], "codigo": a["codigo"], "bloque": a["bloque"], "area": a["area"],
+            "giro": a["giro"], "partida": a["partida"], "avance": a["avance"] or 0,
+            "avance_decl": a["avance_decl"], "estatus": a["estatus"],
+            "reconocida": a["reconocida"], "f_fin": a["f_fin"],
+            "vencida": vencida, "pend_validar": pend_val,
+            "origen": a["origen"], "estado_val": a["estado_val"],
+            "actualizado": a["actualizado"],
+        })
+    return jsonify(resultado)
+
+
+@app.route("/api/seguimiento/whatsapp/<nombre>")
+@requiere_gestor
+def api_seguimiento_whatsapp(nombre):
+    """Genera mensaje de seguimiento por WhatsApp para un responsable."""
+    db = get_db()
+    fecha_hoy = datetime.date.today().isoformat()
+    acts = db.execute("SELECT * FROM actividades WHERE proveedor=? OR departamento=?", (nombre, nombre)).fetchall()
+    n_pend = sum(1 for a in acts if a["estatus"] != "Terminada" and (a["avance"] or 0) < 100)
+    n_atrasadas = sum(1 for a in acts if a["f_fin"] and a["f_fin"] < fecha_hoy and a["estatus"] != "Terminada")
+    n_sin_reco = sum(1 for a in acts if a["reconocida"] != "SÍ")
+    partes = [f"Buen día. Al corte del {fecha_hoy}, tienes {n_pend} actividades pendientes de actualización"]
+    if n_atrasadas:
+        partes.append(f"de las cuales {n_atrasadas} presentan atraso")
+    if n_sin_reco:
+        partes.append(f"y {n_sin_reco} continúan sin reconocer")
+    msg = ", ".join(partes) + ". Favor de ingresar a Control de Obra HAP, actualizar los avances y confirmar fechas compromiso."
+    return jsonify({"mensaje": msg, "nombre": nombre})
+
+
 if __name__ == "__main__":
     print("=" * 60)
 # ──── RUTA TEMPORAL: alta masiva mármol (borrar después de usar) ────
