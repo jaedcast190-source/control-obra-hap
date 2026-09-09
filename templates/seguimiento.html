@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Seguimiento y Cumplimiento — HAP</title>
+<link rel="stylesheet" href="/static/estilos.css">
+<style>
+:root{
+  --verde:#16a34a;--verde-bg:#dcfce7;
+  --amarillo:#ca8a04;--amarillo-bg:#fef9c3;
+  --rojo:#dc2626;--rojo-bg:#fee2e2;
+  --gris:#6b7280;--gris-bg:#f3f4f6;
+  --azul:#2563eb;--azul-bg:#dbeafe;
+  --fondo:#f8fafc;--borde:#e2e5ea;--texto:#1e293b;--texto2:#64748b;
+  --radio:10px;
+}
+.countdown{text-align:center;padding:10px 20px;background:linear-gradient(135deg,#1E7B4B 0%,#166534 100%);color:#fff}
+.countdown .dias{font-size:32px;font-weight:800;letter-spacing:-1px}
+.countdown .label{font-size:12px;opacity:.85}
+.tabs-mundo{display:flex;gap:0;padding:0;background:#fff;border-bottom:2px solid var(--borde)}
+.tab-m{flex:1;text-align:center;padding:14px 20px;font-size:14px;font-weight:700;cursor:pointer;color:var(--texto2);border-bottom:3px solid transparent;transition:.15s}
+.tab-m:hover{color:var(--texto);background:#fafbfc}
+.tab-m.activo{color:#1E7B4B;border-bottom-color:#1E7B4B;background:#f0fdf4}
+.tab-m .tab-label{font-size:11px;font-weight:400;display:block;margin-top:2px}
+.resumen-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;padding:16px 20px}
+.resumen-card{background:#fff;border:1px solid var(--borde);border-radius:var(--radio);padding:12px;text-align:center}
+.resumen-card .numero{font-size:24px;font-weight:800;line-height:1.1}
+.resumen-card .etiqueta{font-size:11px;color:var(--texto2);margin-top:4px}
+.resumen-card.destacar{border-left:4px solid}
+.rc-rojo{border-left-color:var(--rojo)}.rc-rojo .numero{color:var(--rojo)}
+.rc-amarillo{border-left-color:var(--amarillo)}.rc-amarillo .numero{color:var(--amarillo)}
+.rc-verde{border-left-color:var(--verde)}.rc-verde .numero{color:var(--verde)}
+.rc-azul{border-left-color:var(--azul)}.rc-azul .numero{color:var(--azul)}
+.rc-gris{border-left-color:var(--gris)}.rc-gris .numero{color:var(--gris)}
+.filtros{padding:10px 20px;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.filtros select,.filtros input{padding:7px 10px;border:1px solid var(--borde);border-radius:8px;font-size:13px;background:#fff}
+.filtros input[type=search]{width:220px}
+.sec-header{padding:12px 20px;display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;border-bottom:1px solid var(--borde);background:#fff}
+.sec-header:hover{background:#f8fafc}
+.sec-header .flecha{transition:transform .2s;font-size:12px;color:var(--texto2)}
+.sec-header.cerrada .flecha{transform:rotate(-90deg)}
+.sec-header .sec-titulo{font-size:14px;font-weight:700;flex:1}
+.sec-header .sec-count{font-size:12px;font-weight:600;padding:2px 10px;border-radius:12px}
+.sec-header.sem-rojo .sec-count{background:var(--rojo-bg);color:var(--rojo)}
+.sec-header.sem-amarillo .sec-count{background:var(--amarillo-bg);color:var(--amarillo)}
+.sec-header.sem-gris .sec-count{background:var(--gris-bg);color:var(--gris)}
+.sec-header.sem-verde .sec-count{background:var(--verde-bg);color:var(--verde)}
+.sec-body{padding:0 20px 8px;overflow:hidden;transition:max-height .3s ease}
+.sec-body.cerrada{max-height:0!important;padding:0 20px}
+.resp-card{background:#fff;border:1px solid var(--borde);border-radius:var(--radio);padding:14px 16px;margin-bottom:10px;transition:.15s}
+.resp-card:hover{border-color:#94a3b8;box-shadow:0 2px 8px rgba(0,0,0,.06)}
+.resp-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.resp-nombre{font-weight:700;font-size:15px}
+.resp-tipo{font-size:12px;color:var(--texto2)}
+.sem{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;white-space:nowrap}
+.sem-verde{background:var(--verde-bg);color:var(--verde)}
+.sem-amarillo{background:var(--amarillo-bg);color:var(--amarillo)}
+.sem-rojo{background:var(--rojo-bg);color:var(--rojo)}
+.sem-gris{background:var(--gris-bg);color:var(--gris)}
+.resp-stats{display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:6px;margin:8px 0}
+.rs-item{text-align:center;padding:6px;background:var(--fondo);border-radius:6px}
+.rs-item .n{font-size:18px;font-weight:700}.rs-item .l{font-size:10px;color:var(--texto2)}
+.rs-n-rojo{color:var(--rojo)}.rs-n-azul{color:var(--azul)}
+.barra-av{display:flex;align-items:center;gap:6px;margin:6px 0}
+.barra-av-track{flex:1;height:8px;background:#e5e7eb;border-radius:4px;overflow:hidden}
+.barra-av-fill{height:100%;border-radius:4px}.barra-av-num{font-size:13px;font-weight:700;min-width:40px;text-align:right}
+.resp-motivos{margin:8px 0 0;padding:0;list-style:none}
+.resp-motivos li{font-size:12.5px;color:var(--texto2);padding:2px 0 2px 16px;position:relative}
+.resp-motivos li::before{content:"•";position:absolute;left:0}
+.pend-admin{background:#FFF7ED;border:1px solid #FDBA74;border-radius:6px;padding:6px 10px;font-size:12px;color:#9A3412;margin-top:6px}
+.pend-admin strong{font-weight:700}
+.resp-accion{font-size:12.5px;color:var(--texto);font-weight:600;margin-top:6px;padding:6px 10px;background:#f0fdf4;border-radius:6px;border:1px solid #bbf7d0}
+.resp-btns{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.btn-det{padding:6px 14px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid var(--borde);background:#fff;color:var(--texto)}
+.btn-det:hover{background:#f1f5f9}
+.btn-wa{background:#25D366;color:#fff;border:none;padding:6px 14px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer}
+.btn-validar-prov{background:#2563eb;color:#fff;border:none;padding:6px 14px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer}
+.btn-validar-prov:hover{background:#1d4ed8}
+.overlay{position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:90;display:none}.overlay.visible{display:block}
+.panel-det{position:fixed;top:0;right:0;bottom:0;width:min(600px,100vw);background:#fff;z-index:100;display:none;flex-direction:column;box-shadow:-4px 0 20px rgba(0,0,0,.12)}
+.panel-det.visible{display:flex}
+.panel-cab{padding:14px 20px;border-bottom:1px solid var(--borde);display:flex;align-items:center;gap:10px}
+.panel-cab h2{font-size:16px;font-weight:700;flex:1}
+.panel-cab .cerrar{background:none;border:none;font-size:22px;cursor:pointer;color:var(--texto2);padding:4px 8px}
+.panel-cuerpo{flex:1;overflow-y:auto;padding:16px 20px}
+.det-stat{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px}
+.det-stat .item{background:var(--fondo);border-radius:8px;padding:10px;text-align:center}
+.det-stat .item .n{font-size:20px;font-weight:700}.det-stat .item .l{font-size:10px;color:var(--texto2)}
+.det-tabs{display:flex;gap:0;border-bottom:1px solid var(--borde);margin:10px 0;flex-wrap:wrap}
+.det-tab{padding:8px 14px;font-size:12px;font-weight:600;cursor:pointer;color:var(--texto2);border-bottom:2px solid transparent}
+.det-tab.activo{color:var(--azul);border-bottom-color:var(--azul)}
+.det-tab .badge{background:var(--rojo-bg);color:var(--rojo);font-size:10px;padding:1px 6px;border-radius:8px;margin-left:4px}
+.det-tab .badge-blue{background:var(--azul-bg);color:var(--azul)}
+.det-tabla{width:100%;font-size:12px;border-collapse:collapse;margin-top:10px}
+.det-tabla th{font-size:10px;padding:6px;text-align:left;border-bottom:2px solid var(--borde);color:var(--texto2);text-transform:uppercase;white-space:nowrap}
+.det-tabla td{padding:6px;border-bottom:1px solid #f1f5f9;font-size:12px}
+.det-vencida{color:var(--rojo);font-weight:600}
+.det-tabla .mono{font-family:monospace;font-size:11px}
+.det-acciones{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0;padding:10px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px}
+.det-acciones-label{font-size:12px;color:var(--texto2);width:100%;margin-bottom:4px;font-weight:600}
+.toast-wa{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#1e293b;color:#fff;padding:14px 20px;border-radius:12px;font-size:13px;z-index:200;display:none;max-width:90vw;width:420px;box-shadow:0 4px 20px rgba(0,0,0,.25)}
+.toast-wa.visible{display:block}
+.toast-wa .titulo-t{font-weight:700;margin-bottom:6px}
+.toast-wa textarea{width:100%;min-height:80px;margin:6px 0;padding:8px;border-radius:6px;border:none;font-size:13px;resize:vertical;color:var(--texto)}
+.toast-wa .btns{display:flex;gap:8px;justify-content:flex-end}
+.toast-wa .btns button{padding:6px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;border:none}
+.toast-wa .btn-enviar{background:#25D366;color:#fff}
+.toast-wa .btn-copiar{background:#fff;color:var(--texto)}
+.toast-wa .btn-cerrar-t{background:transparent;color:#94a3b8}
+.toast-confirm{position:fixed;top:20px;right:20px;background:#166534;color:#fff;padding:12px 18px;border-radius:10px;font-size:13px;font-weight:600;z-index:300;display:none;box-shadow:0 4px 16px rgba(0,0,0,.2)}
+.toast-confirm.visible{display:block}
+.cargando{text-align:center;padding:60px;color:var(--texto2);font-size:15px}
+@media(max-width:768px){
+  .resumen-grid{grid-template-columns:repeat(2,1fr);gap:8px;padding:12px}
+  .resumen-card .numero{font-size:20px}.resumen-card{padding:10px}
+  .filtros{padding:8px 12px}.sec-body{padding:0 12px 8px}.sec-body.cerrada{padding:0 12px}
+  .panel-det{width:100vw}.det-stat{grid-template-columns:repeat(2,1fr)}
+  .countdown .dias{font-size:26px}.tab-m{padding:10px 8px;font-size:13px}
+}
+</style>
+</head>
+<body>
+<header class="barra">
+  <div class="barra-izq">
+    <span class="logo">HAP</span>
+    <div><h1>Seguimiento y Cumplimiento</h1>
+    <p class="sub">¿Cómo va la obra? ¿Quién está atrasado? ¿A quién debo contactar hoy?</p></div>
+  </div>
+  <div class="barra-der">
+    <a href="/" class="btn-reporte btn-reportes-sec">← Volver a la obra</a>
+    <a href="/validacion" class="btn-reporte">Validación</a>
+  </div>
+</header>
+<div class="countdown" id="countdown"></div>
+<div class="tabs-mundo">
+  <div class="tab-m activo" data-m="obra">🔧 Obra<span class="tab-label">Proveedores externos</span></div>
+  <div class="tab-m" data-m="interno">🏥 Interno<span class="tab-label">Departamentos HAP</span></div>
+</div>
+<div id="resumen"><div class="cargando">Cargando datos…</div></div>
+<div class="filtros">
+  <select id="f-semaforo"><option value="">Todos los semáforos</option><option value="rojo">🔴 Rojo</option><option value="amarillo">🟡 Amarillo</option><option value="gris">⚪ Gris</option><option value="verde">🟢 Verde</option></select>
+  <input type="search" id="f-buscar" placeholder="Buscar…">
+</div>
+<div id="contenido"></div>
+<div class="overlay" id="overlay"></div>
+<aside class="panel-det" id="panel-det">
+  <div class="panel-cab"><h2 id="det-titulo">Detalle</h2><button class="cerrar" id="det-cerrar">✕</button></div>
+  <div class="panel-cuerpo" id="det-cuerpo"></div>
+</aside>
+<div class="toast-wa" id="toast-wa">
+  <div class="titulo-t">📱 Mensaje de seguimiento</div>
+  <textarea id="wa-texto"></textarea>
+  <div class="btns">
+    <button class="btn-cerrar-t" onclick="cerrarWA()">Cancelar</button>
+    <button class="btn-copiar" onclick="copiarWA()">📋 Copiar</button>
+    <button class="btn-enviar" onclick="enviarWA()">Enviar por WhatsApp</button>
+  </div>
+</div>
+<div class="toast-confirm" id="toast-confirm"></div>
+
+<script>
+let DATA=null;let mundoActual="obra";const secAbiertas={rojo:true,amarillo:true,gris:false,verde:false};
+
+async function init(){
+  const r=await fetch("/api/seguimiento");
+  if(!r.ok){location.href="/login";return}
+  DATA=await r.json();
+  renderCountdown();renderTodo();
+  document.querySelectorAll(".tab-m").forEach(t=>{t.onclick=()=>{
+    document.querySelectorAll(".tab-m").forEach(x=>x.classList.remove("activo"));
+    t.classList.add("activo");mundoActual=t.dataset.m;
+    secAbiertas.rojo=true;secAbiertas.amarillo=true;secAbiertas.gris=false;secAbiertas.verde=false;
+    renderTodo();
+  }});
+  document.getElementById("f-semaforo").onchange=renderContenido;
+  document.getElementById("f-buscar").oninput=renderContenido;
+  document.getElementById("det-cerrar").onclick=cerrarDetalle;
+  document.getElementById("overlay").onclick=cerrarDetalle;
+}
+function renderTodo(){renderResumen();renderContenido()}
+function renderCountdown(){
+  const d=DATA.totales.dias_para_entrega;
+  const color=d<30?"#dc2626":d<60?"#ca8a04":"#fff";
+  document.getElementById("countdown").innerHTML=`<span class="dias" style="color:${color}">${d} días</span> <span class="label">para la entrega — 31 de octubre de 2026</span>`;
+}
+function renderResumen(){
+  const t=DATA.totales[mundoActual];if(!t)return;
+  const resps=DATA.responsables.filter(r=>r.mundo===mundoActual);
+  let tActs=0,sAv=0;resps.forEach(r=>{tActs+=r.total;sAv+=r.av_oficial*r.total});
+  const avG=tActs>0?Math.round(sAv/tActs):0;
+  const lbl=mundoActual==="obra"?"Proveedores externos":"Departamentos HAP";
+  const sinR=resps.filter(r=>r.dias_sin_actualizar&&r.dias_sin_actualizar>7).length;
+  const sinU=resps.filter(r=>!r.tiene_usuario).length;
+  const cards=[
+    {n:t.total,l:"Total actividades",c:""},{n:t.terminadas,l:"Terminadas",c:"rc-verde"},
+    {n:t.proceso,l:"En proceso",c:"rc-azul"},{n:t.pendientes,l:"Pendientes",c:"rc-gris"},
+    {n:t.atrasadas,l:"Atrasadas",c:"rc-rojo"},{n:t.riesgo,l:"En riesgo",c:"rc-amarillo"},
+    {n:t.pend_validar,l:"Avances por validar",c:"rc-azul"},{n:t.sin_reconocer,l:"Sin reconocer",c:"rc-rojo"},
+    {n:sinU,l:"Sin usuario",c:"rc-gris"},{n:sinR,l:"Sin actividad reciente",c:"rc-amarillo"},
+    {n:avG+"%",l:"Avance global "+lbl,c:"rc-verde"},
+  ];
+  document.getElementById("resumen").innerHTML=`<div class="resumen-grid">${cards.map(c=>
+    `<div class="resumen-card destacar ${c.c}"><div class="numero">${c.n}</div><div class="etiqueta">${c.l}</div></div>`
+  ).join("")}</div>`;
+}
+function filtrar(){
+  const sem=document.getElementById("f-semaforo").value;
+  const b=document.getElementById("f-buscar").value.toLowerCase();
+  return DATA.responsables.filter(r=>{
+    if(r.mundo!==mundoActual)return false;
+    if(sem&&r.semaforo!==sem)return false;
+    if(b&&!r.nombre.toLowerCase().includes(b))return false;
+    return true;
+  });
+}
+function renderContenido(){
+  const l=filtrar();const p={rojo:[],amarillo:[],gris:[],verde:[]};
+  l.forEach(r=>p[r.semaforo]?.push(r));
+  let h="";
+  h+=renderSec("rojo","🔴 Prioridad Alta — Atención inmediata",p.rojo);
+  h+=renderSec("amarillo","🟡 Seguimiento — Pendientes menores",p.amarillo);
+  h+=renderSec("gris","⚪ Sin acceso — Crear usuario",p.gris);
+  h+=renderSec("verde","🟢 Al corriente",p.verde);
+  if(!l.length)h=`<div style="text-align:center;padding:40px;color:var(--texto2)">No hay resultados.</div>`;
+  document.getElementById("contenido").innerHTML=h;
+  document.querySelectorAll("[data-ver]").forEach(b=>b.onclick=e=>{e.stopPropagation();abrirDetalle(b.dataset.ver)});
+  document.querySelectorAll("[data-wa]").forEach(b=>b.onclick=e=>{e.stopPropagation();abrirWA(b.dataset.wa)});
+  document.querySelectorAll(".sec-header").forEach(h=>{h.onclick=()=>toggleSec(h.dataset.sec)});
+}
+function toggleSec(s){
+  secAbiertas[s]=!secAbiertas[s];
+  const h=document.querySelector(`.sec-header[data-sec="${s}"]`);
+  const b=document.querySelector(`.sec-body[data-sec="${s}"]`);
+  if(!h||!b)return;
+  if(secAbiertas[s]){h.classList.remove("cerrada");b.classList.remove("cerrada");b.style.maxHeight=b.scrollHeight+"px"}
+  else{h.classList.add("cerrada");b.classList.add("cerrada");b.style.maxHeight="0"}
+}
+function semHtml(s){const m={verde:"🟢",amarillo:"🟡",rojo:"🔴",gris:"⚪"};return `<span class="sem sem-${s}">${m[s]||""} ${s[0].toUpperCase()+s.slice(1)}</span>`}
+function barHtml(p){const c=p>=75?"var(--verde)":p>=40?"var(--amarillo)":p<10?"var(--gris)":"var(--rojo)";return `<div class="barra-av"><div class="barra-av-track"><div class="barra-av-fill" style="width:${p}%;background:${c}"></div></div><span class="barra-av-num">${p}%</span></div>`}
+function renderSec(sk,titulo,lista){
+  if(!lista.length)return "";
+  const ab=secAbiertas[sk];const cc=ab?"":"cerrada";
+  let h=`<div class="sec-header sem-${sk} ${cc}" data-sec="${sk}"><span class="flecha">▼</span><span class="sec-titulo">${titulo}</span><span class="sec-count">${lista.length}</span></div>
+  <div class="sec-body ${cc}" data-sec="${sk}" ${ab?`style="max-height:${lista.length*500}px"`:'style="max-height:0"'}>`;
+  for(const r of lista){
+    const lt=r.tiene_usuario?(r.ultimo_login?"Último acceso: "+r.ultimo_login.slice(0,10):"Nunca ha ingresado"):"Sin usuario";
+    const vb=r.pend_validar>0?`<button class="btn-validar-prov" data-ver="${r.nombre}">✅ Validar ${r.pend_validar} avances</button>`:"";
+    h+=`<div class="resp-card"><div class="resp-top"><span class="resp-nombre">${r.nombre}</span>${semHtml(r.semaforo)}<span class="resp-tipo">${r.funcion||""}</span></div>
+    <div class="resp-stats">
+      <div class="rs-item"><div class="n">${r.total}</div><div class="l">Asignadas</div></div>
+      <div class="rs-item"><div class="n">${r.reconocidas}/${r.total}</div><div class="l">Reconocidas</div></div>
+      <div class="rs-item"><div class="n">${r.terminadas}</div><div class="l">Terminadas</div></div>
+      <div class="rs-item"><div class="n ${r.atrasadas>0?'rs-n-rojo':''}">${r.atrasadas}</div><div class="l">Atrasadas</div></div>
+      <div class="rs-item"><div class="n ${r.pend_validar>0?'rs-n-azul':''}">${r.pend_validar}</div><div class="l">Por validar</div></div>
+      <div class="rs-item"><div class="n">${r.proceso}</div><div class="l">En proceso</div></div>
+    </div>
+    ${barHtml(r.av_oficial)}
+    <div style="font-size:11px;color:var(--texto2);margin-bottom:4px">${lt}</div>
+    <ul class="resp-motivos">${r.motivos.map(m=>`<li>${m}</li>`).join("")}</ul>
+    ${r.pend_admin.map(p=>`<div class="pend-admin"><strong>⚠️ Pendiente de Administración:</strong> ${p}</div>`).join("")}
+    ${r.accion?`<div class="resp-accion">→ ${r.accion}</div>`:""}
+    <div class="resp-btns"><button class="btn-det" data-ver="${r.nombre}">Ver actividades</button>${vb}<button class="btn-wa" data-wa="${r.nombre}">📱 WhatsApp</button></div></div>`;
+  }
+  return h+"</div>";
+}
+async function abrirDetalle(nombre){
+  document.getElementById("overlay").classList.add("visible");
+  document.getElementById("panel-det").classList.add("visible");
+  document.getElementById("det-titulo").textContent=nombre;
+  document.getElementById("det-cuerpo").innerHTML='<div class="cargando">Cargando…</div>';
+  const resp=DATA.responsables.find(r=>r.nombre===nombre);
+  const res=await fetch(`/api/seguimiento/detalle/${encodeURIComponent(nombre)}`);
+  const acts=await res.json();
+  const pv=acts.filter(a=>a.pend_validar);const at=acts.filter(a=>a.vencida);
+  const sr=acts.filter(a=>a.reconocida!=="SÍ");const pr=acts.filter(a=>a.origen==="propuesta");
+  let h=`<div class="det-stat">
+    <div class="item"><div class="n">${resp.total}</div><div class="l">Asignadas</div></div>
+    <div class="item"><div class="n">${resp.reconocidas}</div><div class="l">Reconocidas</div></div>
+    <div class="item"><div class="n">${resp.terminadas}</div><div class="l">Terminadas</div></div>
+    <div class="item"><div class="n" style="color:var(--rojo)">${resp.atrasadas}</div><div class="l">Atrasadas</div></div>
+    <div class="item"><div class="n">${resp.av_oficial}%</div><div class="l">Avance oficial</div></div>
+    <div class="item"><div class="n" style="color:var(--azul)">${resp.pend_validar}</div><div class="l">Por validar</div></div></div>`;
+  if(resp.pend_admin.length)h+=resp.pend_admin.map(p=>`<div class="pend-admin" style="margin-bottom:8px"><strong>⚠️</strong> ${p}</div>`).join("");
+  h+=`<div class="det-tabs"><div class="det-tab activo" data-panel="todas">Todas <span class="badge" style="background:var(--gris-bg);color:var(--gris)">${acts.length}</span></div>
+    ${pv.length?`<div class="det-tab" data-panel="validar">Por validar <span class="badge badge-blue">${pv.length}</span></div>`:""}
+    ${at.length?`<div class="det-tab" data-panel="atrasadas">Atrasadas <span class="badge">${at.length}</span></div>`:""}
+    ${sr.length?`<div class="det-tab" data-panel="sinreco">Sin reconocer <span class="badge">${sr.length}</span></div>`:""}
+    ${pr.length?`<div class="det-tab" data-panel="propuestas">Propuestas <span class="badge">${pr.length}</span></div>`:""}</div>`;
+  if(pv.length){
+    const ids=pv.map(a=>a.id);
+    h+=`<div class="det-panel" data-panel="validar" style="display:none">
+      <div class="det-acciones"><div class="det-acciones-label">Acciones masivas para ${nombre}:</div>
+      <button class="btn-pri" onclick="validarProv(${JSON.stringify(ids)},'aprobar')">✅ Firmar los ${pv.length} avances</button>
+      <button class="btn-sec" onclick="validarProv(${JSON.stringify(ids)},'rechazar')" style="color:var(--rojo);border-color:var(--rojo)">✕ Rechazar todos</button></div>
+      ${tblActs(pv,true)}</div>`;
+  }
+  if(at.length)h+=`<div class="det-panel" data-panel="atrasadas" style="display:none">${tblActs(at)}</div>`;
+  if(sr.length)h+=`<div class="det-panel" data-panel="sinreco" style="display:none">${tblActs(sr)}</div>`;
+  if(pr.length){
+    const ids=pr.map(a=>a.id);
+    h+=`<div class="det-panel" data-panel="propuestas" style="display:none">
+      <div class="det-acciones"><div class="det-acciones-label">Propuestas de ${nombre}:</div>
+      <button class="btn-pri" onclick="validarProv(${JSON.stringify(ids)},'aprobar')">✅ Aprobar las ${pr.length}</button>
+      <button class="btn-sec" onclick="validarProv(${JSON.stringify(ids)},'rechazar')" style="color:var(--rojo);border-color:var(--rojo)">✕ Rechazar todas</button></div>
+      ${tblActs(pr)}</div>`;
+  }
+  const ord=[...acts].sort((a,b)=>{if(a.vencida&&!b.vencida)return-1;if(!a.vencida&&b.vencida)return 1;return(a.avance||0)-(b.avance||0)});
+  h+=`<div class="det-panel" data-panel="todas">${tblActs(ord)}</div>`;
+  document.getElementById("det-cuerpo").innerHTML=h;
+  document.querySelectorAll(".det-tab").forEach(tab=>{tab.onclick=()=>{
+    document.querySelectorAll(".det-tab").forEach(t=>t.classList.remove("activo"));
+    tab.classList.add("activo");
+    document.querySelectorAll(".det-panel").forEach(p=>p.style.display="none");
+    const p=document.querySelector(`.det-panel[data-panel="${tab.dataset.panel}"]`);if(p)p.style.display="block";
+  }});
+}
+function tblActs(acts,sd){
+  let h=`<table class="det-tabla"><thead><tr><th>Código</th><th>Bloque</th><th>Área</th><th>Partida</th><th>Av.</th>`;
+  if(sd)h+=`<th>Decl.</th>`;
+  h+=`<th>Reco</th><th>F. fin</th><th>Estado</th></tr></thead><tbody>`;
+  for(const a of acts){const vc=a.vencida?"det-vencida":"";
+    h+=`<tr class="${vc}"><td class="mono">${a.codigo}</td><td>${a.bloque||""}</td><td>${a.area||""}</td>
+    <td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.partida||""}</td><td>${a.avance}%</td>`;
+    if(sd)h+=`<td style="color:var(--azul);font-weight:600">${a.avance_decl!=null?a.avance_decl+"%":"—"}</td>`;
+    h+=`<td>${a.reconocida==="SÍ"?"✅":"❌"}</td><td class="${vc}">${a.f_fin||"—"}</td><td>${a.estatus}</td></tr>`;
+  }return h+"</tbody></table>";
+}
+async function validarProv(ids,tipo){
+  if(!confirm(`¿${tipo==="aprobar"?"Firmar":"Rechazar"} ${ids.length} actividades?`))return;
+  const url=tipo==="aprobar"?"/api/validacion/aprobar_todas":null;
+  if(tipo==="aprobar"){
+    const r=await fetch("/api/validacion/aprobar_todas",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ids})});
+    const d=await r.json();
+    if(d.ok){mostrarConf(`${d.aprobadas} actividades firmadas`);cerrarDetalle();
+      const r2=await fetch("/api/seguimiento");DATA=await r2.json();renderTodo();}
+    else{alert(d.error||"Error")}
+  }else{
+    let ok=0;for(const id of ids){
+      const r=await fetch(`/api/validacion/rechazar/${id}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({motivo:"Rechazado desde Seguimiento"})});
+      if((await r.json()).ok)ok++;
+    }
+    mostrarConf(`${ok} actividades rechazadas`);cerrarDetalle();
+    const r2=await fetch("/api/seguimiento");DATA=await r2.json();renderTodo();
+  }
+}
+function cerrarDetalle(){document.getElementById("overlay").classList.remove("visible");document.getElementById("panel-det").classList.remove("visible")}
+async function abrirWA(nombre){
+  const r=await fetch(`/api/seguimiento/whatsapp/${encodeURIComponent(nombre)}`);
+  const d=await r.json();
+  document.getElementById("wa-texto").value=d.mensaje;
+  document.getElementById("toast-wa").classList.add("visible");
+}
+function cerrarWA(){document.getElementById("toast-wa").classList.remove("visible")}
+function copiarWA(){navigator.clipboard?.writeText(document.getElementById("wa-texto").value);mostrarConf("Mensaje copiado");cerrarWA()}
+function enviarWA(){window.open("https://wa.me/?text="+encodeURIComponent(document.getElementById("wa-texto").value),"_blank");cerrarWA()}
+function mostrarConf(m){const t=document.getElementById("toast-confirm");t.textContent="✅ "+m;t.classList.add("visible");setTimeout(()=>t.classList.remove("visible"),3000)}
+init();
+</script>
+</body>
+</html>
