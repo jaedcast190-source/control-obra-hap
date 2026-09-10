@@ -3,223 +3,440 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Validación — Control de Obra HAP</title>
+<title>Seguimiento y Cumplimiento — HAP</title>
 <link rel="stylesheet" href="/static/estilos.css">
-<link rel="stylesheet" href="/static/validacion.css">
+<style>
+:root{
+  --verde:#16a34a;--verde-bg:#dcfce7;
+  --amarillo:#ca8a04;--amarillo-bg:#fef9c3;
+  --rojo:#dc2626;--rojo-bg:#fee2e2;
+  --gris:#6b7280;--gris-bg:#f3f4f6;
+  --azul:#2563eb;--azul-bg:#dbeafe;
+  --fondo:#f8fafc;--borde:#e2e5ea;--texto:#1e293b;--texto2:#64748b;
+  --radio:10px;
+}
+.countdown{text-align:center;padding:10px 20px;background:linear-gradient(135deg,#1E7B4B 0%,#166534 100%);color:#fff}
+.countdown .dias{font-size:32px;font-weight:800;letter-spacing:-1px}
+.countdown .label{font-size:12px;opacity:.85}
+.tabs-mundo{display:flex;gap:0;padding:0;background:#fff;border-bottom:2px solid var(--borde)}
+.tab-m{flex:1;text-align:center;padding:14px 20px;font-size:14px;font-weight:700;cursor:pointer;color:var(--texto2);border-bottom:3px solid transparent;transition:.15s}
+.tab-m:hover{color:var(--texto);background:#fafbfc}
+.tab-m.activo{color:#1E7B4B;border-bottom-color:#1E7B4B;background:#f0fdf4}
+.tab-m .tab-label{font-size:11px;font-weight:400;display:block;margin-top:2px}
+.resumen-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;padding:16px 20px}
+.resumen-card{background:#fff;border:1px solid var(--borde);border-radius:var(--radio);padding:12px;text-align:center}
+.resumen-card .numero{font-size:24px;font-weight:800;line-height:1.1}
+.resumen-card .etiqueta{font-size:11px;color:var(--texto2);margin-top:4px}
+.resumen-card.destacar{border-left:4px solid}
+.rc-rojo{border-left-color:var(--rojo)}.rc-rojo .numero{color:var(--rojo)}
+.rc-amarillo{border-left-color:var(--amarillo)}.rc-amarillo .numero{color:var(--amarillo)}
+.rc-verde{border-left-color:var(--verde)}.rc-verde .numero{color:var(--verde)}
+.rc-azul{border-left-color:var(--azul)}.rc-azul .numero{color:var(--azul)}
+.rc-gris{border-left-color:var(--gris)}.rc-gris .numero{color:var(--gris)}
+.filtros{padding:10px 20px;display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.filtros select,.filtros input{padding:7px 10px;border:1px solid var(--borde);border-radius:8px;font-size:13px;background:#fff}
+.filtros input[type=search]{width:220px}
+.sec-header{padding:12px 20px;display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;border-bottom:1px solid var(--borde);background:#fff}
+.sec-header:hover{background:#f8fafc}
+.sec-header .flecha{transition:transform .2s;font-size:12px;color:var(--texto2)}
+.sec-header.cerrada .flecha{transform:rotate(-90deg)}
+.sec-header .sec-titulo{font-size:14px;font-weight:700;flex:1}
+.sec-header .sec-count{font-size:12px;font-weight:600;padding:2px 10px;border-radius:12px}
+.sec-header.sem-rojo .sec-count{background:var(--rojo-bg);color:var(--rojo)}
+.sec-header.sem-amarillo .sec-count{background:var(--amarillo-bg);color:var(--amarillo)}
+.sec-header.sem-gris .sec-count{background:var(--gris-bg);color:var(--gris)}
+.sec-header.sem-verde .sec-count{background:var(--verde-bg);color:var(--verde)}
+.sec-body{padding:0 20px 8px;overflow:hidden;transition:max-height .3s ease}
+.sec-body.cerrada{max-height:0!important;padding:0 20px}
+.resp-card{background:#fff;border:1px solid var(--borde);border-radius:var(--radio);padding:14px 16px;margin-bottom:10px;transition:.15s}
+.resp-card:hover{border-color:#94a3b8;box-shadow:0 2px 8px rgba(0,0,0,.06)}
+.resp-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.resp-nombre{font-weight:700;font-size:15px}
+.resp-tipo{font-size:12px;color:var(--texto2)}
+.sem{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:20px;font-size:12px;font-weight:600;white-space:nowrap}
+.sem-verde{background:var(--verde-bg);color:var(--verde)}
+.sem-amarillo{background:var(--amarillo-bg);color:var(--amarillo)}
+.sem-rojo{background:var(--rojo-bg);color:var(--rojo)}
+.sem-gris{background:var(--gris-bg);color:var(--gris)}
+.resp-stats{display:grid;grid-template-columns:repeat(auto-fill,minmax(90px,1fr));gap:6px;margin:8px 0}
+.rs-item{text-align:center;padding:6px;background:var(--fondo);border-radius:6px}
+.rs-item .n{font-size:18px;font-weight:700}.rs-item .l{font-size:10px;color:var(--texto2)}
+.rs-n-rojo{color:var(--rojo)}.rs-n-azul{color:var(--azul)}
+.barra-av{display:flex;align-items:center;gap:6px;margin:6px 0}
+.barra-av-track{flex:1;height:8px;background:#e5e7eb;border-radius:4px;overflow:hidden}
+.barra-av-fill{height:100%;border-radius:4px}.barra-av-num{font-size:13px;font-weight:700;min-width:40px;text-align:right}
+.resp-motivos{margin:8px 0 0;padding:0;list-style:none}
+.resp-motivos li{font-size:12.5px;color:var(--texto2);padding:2px 0 2px 16px;position:relative}
+.resp-motivos li::before{content:"•";position:absolute;left:0}
+.pend-admin{background:#FFF7ED;border:1px solid #FDBA74;border-radius:6px;padding:6px 10px;font-size:12px;color:#9A3412;margin-top:6px}
+.pend-admin strong{font-weight:700}
+.resp-accion{font-size:12.5px;color:var(--texto);font-weight:600;margin-top:6px;padding:6px 10px;background:#f0fdf4;border-radius:6px;border:1px solid #bbf7d0}
+.resp-btns{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.btn-det{padding:6px 14px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;border:1px solid var(--borde);background:#fff;color:var(--texto)}
+.btn-det:hover{background:#f1f5f9}
+.btn-wa{background:#25D366;color:#fff;border:none;padding:6px 14px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer}
+.btn-validar-prov{background:#2563eb;color:#fff;border:none;padding:6px 14px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer}
+.btn-validar-prov:hover{background:#1d4ed8}
+.panel-det{position:fixed;top:0;right:0;bottom:0;width:min(600px,100vw);background:#fff;z-index:100;flex-direction:column;box-shadow:-4px 0 20px rgba(0,0,0,.12)}
+.panel-det:not([hidden]){display:flex}
+.panel-cab{padding:14px 20px;border-bottom:1px solid var(--borde);display:flex;align-items:center;gap:10px}
+.panel-cab h2{font-size:16px;font-weight:700;flex:1}
+.panel-cab .cerrar{background:none;border:none;font-size:22px;cursor:pointer;color:var(--texto2);padding:4px 8px}
+.panel-cuerpo{flex:1;overflow-y:auto;padding:16px 20px}
+.det-stat{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px}
+.det-stat .item{background:var(--fondo);border-radius:8px;padding:10px;text-align:center}
+.det-stat .item .n{font-size:20px;font-weight:700}.det-stat .item .l{font-size:10px;color:var(--texto2)}
+.det-tabs{display:flex;gap:0;border-bottom:1px solid var(--borde);margin:10px 0;flex-wrap:wrap}
+.det-tab{padding:8px 14px;font-size:12px;font-weight:600;cursor:pointer;color:var(--texto2);border-bottom:2px solid transparent}
+.det-tab.activo{color:var(--azul);border-bottom-color:var(--azul)}
+.det-tab .badge{background:var(--rojo-bg);color:var(--rojo);font-size:10px;padding:1px 6px;border-radius:8px;margin-left:4px}
+.det-tab .badge-blue{background:var(--azul-bg);color:var(--azul)}
+.det-tabla{width:100%;font-size:12px;border-collapse:collapse;margin-top:10px}
+.det-tabla th{font-size:10px;padding:6px;text-align:left;border-bottom:2px solid var(--borde);color:var(--texto2);text-transform:uppercase;white-space:nowrap}
+.det-tabla td{padding:6px;border-bottom:1px solid #f1f5f9;font-size:12px}
+.det-vencida{color:var(--rojo);font-weight:600}
+.det-tabla .mono{font-family:monospace;font-size:11px}
+.det-acciones{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0;padding:10px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px}
+.det-acciones-label{font-size:12px;color:var(--texto2);width:100%;margin-bottom:4px;font-weight:600}
+.toast-wa{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#1e293b;color:#fff;padding:14px 20px;border-radius:12px;font-size:13px;z-index:200;display:none;max-width:90vw;width:420px;box-shadow:0 4px 20px rgba(0,0,0,.25)}
+.toast-wa.visible{display:block}
+.toast-wa .titulo-t{font-weight:700;margin-bottom:6px}
+.toast-wa textarea{width:100%;min-height:80px;margin:6px 0;padding:8px;border-radius:6px;border:none;font-size:13px;resize:vertical;color:var(--texto)}
+.toast-wa .btns{display:flex;gap:8px;justify-content:flex-end}
+.toast-wa .btns button{padding:6px 14px;border-radius:6px;font-size:12px;font-weight:600;cursor:pointer;border:none}
+.toast-wa .btn-enviar{background:#25D366;color:#fff}
+.toast-wa .btn-copiar{background:#fff;color:var(--texto)}
+.toast-wa .btn-cerrar-t{background:transparent;color:#94a3b8}
+.toast-confirm{position:fixed;top:20px;right:20px;background:#166534;color:#fff;padding:12px 18px;border-radius:10px;font-size:13px;font-weight:600;z-index:300;display:none;box-shadow:0 4px 16px rgba(0,0,0,.2)}
+.toast-confirm.visible{display:block}
+.cargando{text-align:center;padding:60px;color:var(--texto2);font-size:15px}
+@media(max-width:768px){
+  .resumen-grid{grid-template-columns:repeat(2,1fr);gap:8px;padding:12px}
+  .resumen-card .numero{font-size:20px}.resumen-card{padding:10px}
+  .filtros{padding:8px 12px}.sec-body{padding:0 12px 8px}.sec-body.cerrada{padding:0 12px}
+  .panel-det{width:100vw}.det-stat{grid-template-columns:repeat(2,1fr)}
+  .countdown .dias{font-size:26px}.tab-m{padding:10px 8px;font-size:13px}
+}
+.det-stat-click:hover{outline:2px solid var(--azul)!important;background:#f0f9ff}
+.fila-det:hover{background:#f0f9ff}
+</style>
 </head>
 <body>
-
 <header class="barra">
   <div class="barra-izq">
     <span class="logo">HAP</span>
-    <div>
-      <h1>Validación de lo reportado</h1>
-      <p class="sub">Revisa y firma lo que mandan los proveedores</p>
-    </div>
+    <div><h1>Seguimiento y Cumplimiento</h1>
+    <p class="sub">¿Cómo va la obra? ¿Quién está atrasado? ¿A quién debo contactar hoy?</p></div>
   </div>
   <div class="barra-der">
     <a href="/" class="btn-reporte btn-reportes-sec">← Volver a la obra</a>
-    <a href="/usuarios" class="btn-reporte btn-reportes-sec">Usuarios / accesos</a>
+    <a href="/validacion" class="btn-reporte">Validación</a>
   </div>
 </header>
-
-<!-- Búsqueda global -->
-<div class="v-busqueda-global">
-  <input type="search" id="busqueda-global" placeholder="🔍 Buscar actividad por código, partida, área, bloque o proveedor…">
+<div class="countdown" id="countdown"></div>
+<div class="tabs-mundo">
+  <div class="tab-m activo" data-m="obra">🔧 Obra<span class="tab-label">Proveedores externos</span></div>
+  <div class="tab-m" data-m="interno">🏥 Interno<span class="tab-label">Departamentos HAP</span></div>
 </div>
-
-<!-- Avances declarados en partidas oficiales -->
-<section class="v-seccion">
-  <h2>Avances reportados <span class="v-cont" id="cont-av">0</span></h2>
-  <p class="v-desc">Estas partidas ya eran tuyas. El proveedor dice que avanzaron. Al <b>firmar</b>, el avance oficial toma ese valor.</p>
-  <div class="v-filtros-av">
-    <label style="font-size:12px;font-weight:600;color:#6b7280">Agrupar por:</label>
-    <select id="agrupar-av">
-      <option value="proveedor">Proveedor</option>
-      <option value="bloque">Bloque</option>
-      <option value="area">Área</option>
-    </select>
-    <input type="search" id="filtro-av" placeholder="Buscar…" style="flex:1;max-width:280px">
-  </div>
-  <div class="v-tabla-wrap">
-    <table class="v-tabla" id="tabla-av">
-      <thead><tr>
-        <th>Proveedor</th><th>Código</th><th>Área</th><th>Partida</th>
-        <th>Avance oficial</th><th>Reportado</th><th>De dónde</th><th></th>
-      </tr></thead>
-      <tbody id="tbody-av"></tbody>
-    </table>
-    <p class="v-vacio" id="vacio-av" hidden>No hay avances por revisar.</p>
-  </div>
-  <div class="v-acciones-masa" id="masa-av" hidden>
-    <button class="btn-pri" id="btn-todos-av">Firmar todos los avances</button>
-  </div>
-</section>
-
-<!-- Actividades nuevas propuestas -->
-<section class="v-seccion">
-  <h2>Actividades nuevas propuestas <span class="v-cont" id="cont-prop">0</span></h2>
-  <p class="v-desc">Tareas que el proveedor agregó. No cuentan en el control hasta que las <b>apruebes</b>. Al aprobar, entran como oficiales.</p>
-  <div class="v-tabla-wrap">
-    <table class="v-tabla" id="tabla-prop">
-      <thead><tr>
-        <th>Proveedor</th><th>Bloque</th><th>Área</th><th>Partida</th>
-        <th>Avance</th><th>De dónde</th><th>Comentario</th><th></th>
-      </tr></thead>
-      <tbody id="tbody-prop"></tbody>
-    </table>
-    <p class="v-vacio" id="vacio-prop" hidden>No hay actividades nuevas por revisar.</p>
-  </div>
-</section>
-
-<!-- Necesitan tu atención: rechazadas y no reconocidas -->
-<section class="v-seccion">
-  <h2>Necesitan tu atención <span class="v-cont" id="cont-aten">0</span></h2>
-  <p class="v-desc">Actividades que un proveedor <b>no reconoce</b> como suyas, y las que <b>rechazaste</b>. Aquí las corriges o las reactivas — no se pierden.</p>
-  <div style="padding:8px 0">
-    <input type="search" id="filtro-atencion" placeholder="Buscar por proveedor, bloque, área, partida…" style="width:100%;max-width:400px;padding:8px 12px;border:1px solid #e2e5ea;border-radius:8px;font-size:13px">
-  </div>
-
-  <h3 class="v-sub">No reconocidas por el proveedor</h3>
-  <div class="v-tabla-wrap">
-    <table class="v-tabla" id="tabla-noreco">
-      <thead><tr>
-        <th>Proveedor</th><th>Código</th><th>Bloque</th><th>Área</th><th>Partida</th><th>Qué dijo</th><th></th>
-      </tr></thead>
-      <tbody id="tbody-noreco"></tbody>
-    </table>
-    <p class="v-vacio" id="vacio-noreco" hidden>Nada por aquí.</p>
-  </div>
-
-  <h3 class="v-sub">Rechazadas</h3>
-  <div class="v-tabla-wrap">
-    <table class="v-tabla" id="tabla-rech">
-      <thead><tr>
-        <th>Proveedor</th><th>Código</th><th>Bloque</th><th>Área</th><th>Partida</th><th>Motivo</th><th></th>
-      </tr></thead>
-      <tbody id="tbody-rech"></tbody>
-    </table>
-    <p class="v-vacio" id="vacio-rech" hidden>Nada rechazado.</p>
-  </div>
-</section>
-
-<!-- ===== Modal: editar y corregir (todos los campos de la actividad) ===== -->
-<div class="overlay" id="overlay-ed" hidden></div>
-<aside class="panel" id="panel-editar" hidden>
-  <div class="panel-cab">
-    <h2 id="ed-titulo">Corregir actividad</h2>
-    <button class="cerrar" id="btn-cerrar-editar">✕</button>
-  </div>
-  <div class="panel-cuerpo">
-    <input type="hidden" id="ed-id">
-    <input type="hidden" id="ed-contexto">
-    <input type="hidden" id="ed-mundo">
-    <p class="v-desc" id="ed-codigo" style="font-weight:600"></p>
-    <div class="campo"><label>Bloque</label>
-      <input list="dl-ed-bloque" id="ed-bloque" autocomplete="off">
-      <datalist id="dl-ed-bloque"></datalist>
-      <button type="button" class="mini-add" data-add="bloque">+ Agregar bloque</button>
-    </div>
-    <div class="campo"><label>Área</label>
-      <input list="dl-ed-area" id="ed-area" autocomplete="off">
-      <datalist id="dl-ed-area"></datalist>
-      <button type="button" class="mini-add" data-add="area">+ Agregar área nueva</button>
-    </div>
-    <div class="fila-2">
-      <div class="campo"><label>Especialidad</label>
-        <input list="dl-ed-giro" id="ed-giro" autocomplete="off">
-        <datalist id="dl-ed-giro"></datalist>
-        <button type="button" class="mini-add" data-add="especialidad">+ Agregar especialidad</button>
-      </div>
-    </div>
-    <div class="campo"><label id="ed-lbl-prov">Proveedor</label>
-      <input list="dl-ed-proveedor" id="ed-proveedor" autocomplete="off">
-      <datalist id="dl-ed-proveedor"></datalist>
-      <button type="button" class="mini-add" data-add="proveedor">+ Agregar proveedor nuevo</button>
-    </div>
-    <div class="campo"><label>Partida / Actividad</label>
-      <textarea id="ed-partida" rows="2"></textarea></div>
-    <div class="fila-2">
-      <div class="campo"><label>Tipo de partida</label>
-        <select id="ed-tipo-partida">
-          <option>Construcción</option><option>Mobiliario y equipo</option>
-          <option>Puesta en marcha</option><option>Detalles finales</option>
-        </select></div>
-      <div class="campo"><label>¿Definido / tiene plano?</label>
-        <select id="ed-definido"><option value="NO">No</option><option value="SÍ">Sí</option></select></div>
-    </div>
-    <div class="fila-2">
-      <div class="campo"><label>¿Aplica?</label>
-        <select id="ed-aplica"><option>SÍ</option><option>NO</option></select></div>
-      <div class="campo"><label>% Avance</label>
-        <input type="number" id="ed-avance" min="0" max="100" step="5"></div>
-    </div>
-    <div class="fila-2">
-      <div class="campo"><label>Fecha inicio</label><input type="date" id="ed-inicio"></div>
-      <div class="campo"><label>Fecha fin (compromiso)</label><input type="date" id="ed-fin"></div>
-    </div>
-    <div class="fila-2">
-      <div class="campo"><label>Duración (días)</label><input type="number" id="ed-duracion" min="0"></div>
-      <div class="campo"><label>Estatus</label>
-        <select id="ed-estatus">
-          <option>Pendiente</option><option>En proceso</option>
-          <option>Listo</option><option>Post-apertura</option>
-        </select></div>
-    </div>
-    <div class="campo"><label>Depende de (esta actividad no empieza hasta que la otra acabe)</label>
-      <select id="ed-depende"><option value="">— Ninguna —</option></select>
-    </div>
-    <div class="bloque-causa">
-      <div class="campo"><label>Causa de retraso <span class="op">(si va atrasada)</span></label>
-        <input list="dl-ed-causa" id="ed-causa" autocomplete="off" placeholder="— Sin causa —">
-        <datalist id="dl-ed-causa"></datalist>
-        <button type="button" class="mini-add" data-add="causa">+ Agregar causa nueva</button>
-      </div>
-      <div class="campo"><label>Lo que sostiene el proveedor <span class="op">(su versión)</span></label>
-        <textarea id="ed-nota-prov" rows="2"></textarea>
-      </div>
-    </div>
-    <div class="campo"><label>Notas</label><textarea id="ed-notas" rows="3"></textarea></div>
-  </div>
-  <div class="panel-pie">
-    <button id="btn-eliminar-editar" class="btn-borrar">Eliminar</button>
-    <span class="flex"></span>
-    <button id="btn-cancelar-editar" class="btn-sec">Cancelar</button>
-    <button id="btn-guardar-editar" class="btn-pri">Guardar corrección</button>
-  </div>
+<div id="resumen"><div class="cargando">Cargando datos…</div></div>
+<div class="filtros">
+  <select id="f-semaforo"><option value="">Todos los semáforos</option><option value="rojo">🔴 Rojo</option><option value="amarillo">🟡 Amarillo</option><option value="gris">⚪ Gris</option><option value="verde">🟢 Verde</option></select>
+  <input type="search" id="f-buscar" placeholder="Buscar…">
+</div>
+<div id="contenido"></div>
+<div class="overlay" id="overlay" hidden></div>
+<aside class="panel-det" id="panel-det" hidden>
+  <div class="panel-cab"><h2 id="det-titulo">Detalle</h2><button class="cerrar" id="det-cerrar">✕</button></div>
+  <div class="panel-cuerpo" id="det-cuerpo"></div>
 </aside>
-
-<div id="toast" class="toast" hidden></div>
-
-<!-- ===== Modal: motivo del rechazo ===== -->
-<div id="modal-rechazo" class="modal-overlay" hidden>
-  <div class="modal-caja">
-    <div class="modal-cab"><h3>Rechazar</h3>
-      <button class="cerrar" id="btn-cerrar-rechazo">✕</button></div>
-    <div class="modal-cuerpo">
-      <input type="hidden" id="rechazo-id">
-      <p class="v-desc">Escribe por qué lo rechazas. <b>El proveedor lo va a ver</b> en su pantalla, para que lo corrija.</p>
-      <textarea id="rechazo-motivo" rows="4" placeholder="ej. El porcentaje no coincide con lo que se ve en obra"></textarea>
-    </div>
-    <div class="modal-pie">
-      <button class="btn-sec" id="btn-cancelar-rechazo">Cancelar</button>
-      <button class="v-no" id="btn-confirmar-rechazo" style="padding:8px 16px;border-radius:8px;font-weight:600;cursor:pointer">Rechazar</button>
-    </div>
+<div class="toast-wa" id="toast-wa">
+  <div class="titulo-t">📱 Mensaje de seguimiento</div>
+  <textarea id="wa-texto"></textarea>
+  <div class="btns">
+    <button class="btn-cerrar-t" onclick="cerrarWA()">Cancelar</button>
+    <button class="btn-copiar" onclick="copiarWA()">📋 Copiar</button>
+    <button class="btn-enviar" onclick="enviarWA()">Enviar por WhatsApp</button>
   </div>
 </div>
+<div class="toast-confirm" id="toast-confirm"></div>
 
-<!-- ===== Panel: detalle de actividad al hacer clic ===== -->
-<div class="overlay" id="overlay-detalle" hidden></div>
-<aside class="panel" id="panel-detalle" hidden>
-  <div class="panel-cab">
-    <h2 id="panel-detalle-titulo">Detalle</h2>
-    <button class="cerrar" id="btn-cerrar-detalle">✕</button>
-  </div>
-  <div class="panel-cuerpo" id="panel-detalle-cuerpo"></div>
-</aside>
+<script>
+let DATA=null;let mundoActual="obra";const secAbiertas={rojo:true,amarillo:true,gris:false,verde:false};
 
-<!-- Script al final: el modal de rechazo ya existe cuando el JS engancha sus botones -->
-<script src="/static/validacion.js"></script>
+async function init(){
+  const r=await fetch("/api/seguimiento");
+  if(!r.ok){location.href="/login";return}
+  DATA=await r.json();
+  renderCountdown();renderTodo();
+  document.querySelectorAll(".tab-m").forEach(t=>{t.onclick=()=>{
+    document.querySelectorAll(".tab-m").forEach(x=>x.classList.remove("activo"));
+    t.classList.add("activo");mundoActual=t.dataset.m;
+    secAbiertas.rojo=true;secAbiertas.amarillo=true;secAbiertas.gris=false;secAbiertas.verde=false;
+    renderTodo();
+  }});
+  document.getElementById("f-semaforo").onchange=renderContenido;
+  document.getElementById("f-buscar").oninput=renderContenido;
+  document.getElementById("det-cerrar").onclick=cerrarDetalle;
+  document.getElementById("overlay").onclick=cerrarDetalle;
+}
+function renderTodo(){renderResumen();renderContenido()}
+function renderCountdown(){
+  const d=DATA.totales.dias_para_entrega;
+  const color=d<30?"#dc2626":d<60?"#ca8a04":"#fff";
+  document.getElementById("countdown").innerHTML=`<span class="dias" style="color:${color}">${d} días</span> <span class="label">para la entrega — 31 de octubre de 2026</span>`;
+}
+function renderResumen(){
+  const t=DATA.totales[mundoActual];if(!t)return;
+  const resps=DATA.responsables.filter(r=>r.mundo===mundoActual);
+  let tActs=0,sAv=0;resps.forEach(r=>{tActs+=r.total;sAv+=r.av_oficial*r.total});
+  const avG=tActs>0?Math.round(sAv/tActs):0;
+  const lbl=mundoActual==="obra"?"Proveedores externos":"Departamentos HAP";
+  const sinR=resps.filter(r=>r.dias_sin_actualizar&&r.dias_sin_actualizar>7).length;
+  const sinU=resps.filter(r=>!r.tiene_usuario).length;
+  const cards=[
+    {n:t.total,l:"Total actividades",c:""},{n:t.terminadas,l:"Terminadas",c:"rc-verde"},
+    {n:t.proceso,l:"En proceso",c:"rc-azul"},{n:t.pendientes,l:"Pendientes",c:"rc-gris"},
+    {n:t.atrasadas,l:"Atrasadas",c:"rc-rojo"},{n:t.riesgo,l:"En riesgo",c:"rc-amarillo"},
+    {n:t.pend_validar,l:"Avances por validar",c:"rc-azul"},{n:t.sin_reconocer,l:"Sin reconocer",c:"rc-rojo"},
+    {n:sinU,l:"Sin usuario",c:"rc-gris"},{n:sinR,l:"Sin actividad reciente",c:"rc-amarillo"},
+    {n:avG+"%",l:"Avance global "+lbl,c:"rc-verde"},
+  ];
+  document.getElementById("resumen").innerHTML=`<div class="resumen-grid">${cards.map(c=>
+    `<div class="resumen-card destacar ${c.c}"><div class="numero">${c.n}</div><div class="etiqueta">${c.l}</div></div>`
+  ).join("")}</div>`;
+}
+function filtrar(){
+  const sem=document.getElementById("f-semaforo").value;
+  const b=document.getElementById("f-buscar").value.toLowerCase();
+  return DATA.responsables.filter(r=>{
+    if(r.mundo!==mundoActual)return false;
+    if(sem&&r.semaforo!==sem)return false;
+    if(b&&!r.nombre.toLowerCase().includes(b))return false;
+    return true;
+  });
+}
+function renderContenido(){
+  const l=filtrar();const p={rojo:[],amarillo:[],gris:[],verde:[]};
+  l.forEach(r=>p[r.semaforo]?.push(r));
+  let h="";
+  h+=renderSec("rojo","🔴 Prioridad Alta — Atención inmediata",p.rojo);
+  h+=renderSec("amarillo","🟡 Seguimiento — Pendientes menores",p.amarillo);
+  h+=renderSec("gris","⚪ Sin acceso — Crear usuario",p.gris);
+  h+=renderSec("verde","🟢 Al corriente",p.verde);
+  if(!l.length)h=`<div style="text-align:center;padding:40px;color:var(--texto2)">No hay resultados.</div>`;
+  document.getElementById("contenido").innerHTML=h;
+  document.querySelectorAll("[data-ver]").forEach(b=>b.onclick=e=>{e.stopPropagation();abrirDetalle(b.dataset.ver)});
+  document.querySelectorAll("[data-wa]").forEach(b=>b.onclick=e=>{e.stopPropagation();abrirWA(b.dataset.wa)});
+  document.querySelectorAll(".sec-header").forEach(h=>{h.onclick=()=>toggleSec(h.dataset.sec)});
+}
+function toggleSec(s){
+  secAbiertas[s]=!secAbiertas[s];
+  const h=document.querySelector(`.sec-header[data-sec="${s}"]`);
+  const b=document.querySelector(`.sec-body[data-sec="${s}"]`);
+  if(!h||!b)return;
+  if(secAbiertas[s]){h.classList.remove("cerrada");b.classList.remove("cerrada");b.style.maxHeight=b.scrollHeight+"px"}
+  else{h.classList.add("cerrada");b.classList.add("cerrada");b.style.maxHeight="0"}
+}
+function semHtml(s){const m={verde:"🟢",amarillo:"🟡",rojo:"🔴",gris:"⚪"};return `<span class="sem sem-${s}">${m[s]||""} ${s[0].toUpperCase()+s.slice(1)}</span>`}
+function barHtml(p){const c=p>=75?"var(--verde)":p>=40?"var(--amarillo)":p<10?"var(--gris)":"var(--rojo)";return `<div class="barra-av"><div class="barra-av-track"><div class="barra-av-fill" style="width:${p}%;background:${c}"></div></div><span class="barra-av-num">${p}%</span></div>`}
+function renderSec(sk,titulo,lista){
+  if(!lista.length)return "";
+  const ab=secAbiertas[sk];const cc=ab?"":"cerrada";
+  let h=`<div class="sec-header sem-${sk} ${cc}" data-sec="${sk}"><span class="flecha">▼</span><span class="sec-titulo">${titulo}</span><span class="sec-count">${lista.length}</span></div>
+  <div class="sec-body ${cc}" data-sec="${sk}" ${ab?`style="max-height:${lista.length*500}px"`:'style="max-height:0"'}>`;
+  for(const r of lista){
+    const lt=r.tiene_usuario?(r.ultimo_login?"Último acceso: "+r.ultimo_login.slice(0,10):"Nunca ha ingresado"):"Sin usuario";
+    const vb=r.pend_validar>0?`<button class="btn-validar-prov" data-ver="${r.nombre}">✅ Validar ${r.pend_validar} avances</button>`:"";
+    h+=`<div class="resp-card"><div class="resp-top"><span class="resp-nombre">${r.nombre}</span>${semHtml(r.semaforo)}<span class="resp-tipo">${r.funcion||""}</span></div>
+    <div class="resp-stats">
+      <div class="rs-item"><div class="n">${r.total}</div><div class="l">Asignadas</div></div>
+      <div class="rs-item"><div class="n">${r.reconocidas}/${r.total}</div><div class="l">Reconocidas</div></div>
+      <div class="rs-item"><div class="n">${r.terminadas}</div><div class="l">Terminadas</div></div>
+      <div class="rs-item"><div class="n ${r.atrasadas>0?'rs-n-rojo':''}">${r.atrasadas}</div><div class="l">Atrasadas</div></div>
+      <div class="rs-item"><div class="n ${r.pend_validar>0?'rs-n-azul':''}">${r.pend_validar}</div><div class="l">Por validar</div></div>
+      <div class="rs-item"><div class="n">${r.proceso}</div><div class="l">En proceso</div></div>
+    </div>
+    ${barHtml(r.av_oficial)}
+    <div style="font-size:11px;color:var(--texto2);margin-bottom:4px">${lt}</div>
+    <ul class="resp-motivos">${r.motivos.map(m=>`<li>${m}</li>`).join("")}</ul>
+    ${r.pend_admin.map(p=>`<div class="pend-admin"><strong>⚠️ Pendiente de Administración:</strong> ${p}</div>`).join("")}
+    ${r.accion?`<div class="resp-accion">→ ${r.accion}</div>`:""}
+    <div class="resp-btns"><button class="btn-det" data-ver="${r.nombre}">Ver actividades</button>${vb}<button class="btn-wa" data-wa="${r.nombre}">📱 WhatsApp</button></div></div>`;
+  }
+  return h+"</div>";
+}
+async function abrirDetalle(nombre){
+  document.getElementById("overlay").removeAttribute("hidden");
+  document.getElementById("panel-det").removeAttribute("hidden");
+  document.getElementById("det-titulo").textContent=nombre;
+  document.getElementById("det-cuerpo").innerHTML='<div class="cargando">Cargando…</div>';
+  const resp=DATA.responsables.find(r=>r.nombre===nombre);
+  const res=await fetch(`/api/seguimiento/detalle/${encodeURIComponent(nombre)}`);
+  const allActs=await res.json();
+  const pv=allActs.filter(a=>a.pend_validar);const at=allActs.filter(a=>a.vencida);
+  const sr=allActs.filter(a=>a.reconocida!=="SÍ");const pr=allActs.filter(a=>a.origen==="propuesta");
+  const term=allActs.filter(a=>a.estatus==="Terminada");
+  const proc=allActs.filter(a=>a.estatus==="En proceso");
 
+  // Último acceso y alerta
+  let accesoHtml="";
+  if(resp.ultimo_login){
+    const dias=resp.dias_sin_login||0;
+    if(dias>1) accesoHtml=`<div style="padding:6px 10px;background:#fef2f2;border:1px solid #fca5a5;border-radius:6px;font-size:12px;color:#991b1b;margin-bottom:8px">⚠️ Último acceso: ${resp.ultimo_login.slice(0,10)} — <b>${dias} días sin ingresar</b></div>`;
+    else accesoHtml=`<div style="padding:6px 10px;background:#f0fdf4;border-radius:6px;font-size:12px;color:#166534;margin-bottom:8px">✅ Último acceso: ${resp.ultimo_login.slice(0,10)}</div>`;
+  } else if(resp.tiene_usuario){
+    accesoHtml=`<div style="padding:6px 10px;background:#fef2f2;border:1px solid #fca5a5;border-radius:6px;font-size:12px;color:#991b1b;margin-bottom:8px">🔴 Tiene usuario pero <b>nunca ha ingresado</b></div>`;
+  } else {
+    accesoHtml=`<div style="padding:6px 10px;background:#f3f4f6;border-radius:6px;font-size:12px;color:#6b7280;margin-bottom:8px">⚪ No tiene usuario en la plataforma</div>`;
+  }
+
+  // Stats clickeables
+  let h=accesoHtml;
+  h+=`<div class="det-stat">
+    <div class="item det-stat-click" data-filtro="todas"><div class="n">${resp.total}</div><div class="l">Asignadas</div></div>
+    <div class="item det-stat-click" data-filtro="reconocidas"><div class="n">${resp.reconocidas}/${resp.total}</div><div class="l">Reconocidas</div></div>
+    <div class="item det-stat-click" data-filtro="terminadas"><div class="n">${term.length}</div><div class="l">Terminadas</div></div>
+    <div class="item det-stat-click" data-filtro="atrasadas" ${at.length?'style="cursor:pointer;border:2px solid var(--rojo)"':''}><div class="n" style="color:var(--rojo)">${resp.atrasadas}</div><div class="l">Atrasadas</div></div>
+    <div class="item det-stat-click" data-filtro="validar" ${pv.length?'style="cursor:pointer;border:2px solid var(--azul)"':''}><div class="n" style="color:var(--azul)">${resp.pend_validar}</div><div class="l">Por validar</div></div>
+    <div class="item det-stat-click" data-filtro="proceso"><div class="n">${proc.length}</div><div class="l">En proceso</div></div>
+  </div>`;
+
+  if(resp.pend_admin.length)h+=resp.pend_admin.map(p=>`<div class="pend-admin" style="margin-bottom:8px"><strong>⚠️</strong> ${p}</div>`).join("");
+
+  // Botón que enlaza a Validación
+  if(pv.length){
+    h+=`<div style="margin:8px 0"><a href="/validacion" class="btn-pri" style="display:inline-block;text-decoration:none;padding:8px 16px;border-radius:8px;font-size:13px">✅ Ir a Validación para firmar ${pv.length} avances de ${nombre}</a></div>`;
+  }
+
+  // Contenedor de la tabla filtrable
+  h+=`<div id="det-tabla-container"></div>`;
+
+  // Panel de detalle individual de actividad
+  h+=`<div id="det-actividad" hidden style="margin-top:10px;padding:14px;background:#f8fafc;border:1px solid var(--borde);border-radius:10px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
+      <b id="det-act-titulo"></b>
+      <button onclick="document.getElementById('det-actividad').hidden=true" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--texto2)">✕</button>
+    </div>
+    <div id="det-act-cuerpo"></div>
+  </div>`;
+
+  document.getElementById("det-cuerpo").innerHTML=h;
+
+  // Guardar datos para filtros
+  window._detActs=allActs; window._detResp=resp; window._detNombre=nombre;
+  window._detSets={todas:allActs,reconocidas:allActs.filter(a=>a.reconocida==="SÍ"),terminadas:term,atrasadas:at,validar:pv,proceso:proc,sinreco:sr,propuestas:pr};
+
+  // Render tabla por defecto: todas
+  renderDetTabla("todas");
+
+  // Enlazar stats clickeables
+  document.querySelectorAll(".det-stat-click").forEach(s=>{
+    s.style.cursor="pointer";
+    s.onclick=()=>{
+      document.querySelectorAll(".det-stat-click").forEach(x=>x.style.outline="none");
+      s.style.outline="2px solid var(--azul)";
+      renderDetTabla(s.dataset.filtro);
+    };
+  });
+}
+
+function renderDetTabla(filtro){
+  const acts=window._detSets[filtro]||window._detActs;
+  const ord=[...acts].sort((a,b)=>{if(a.vencida&&!b.vencida)return-1;if(!a.vencida&&b.vencida)return 1;return(a.avance||0)-(b.avance||0)});
+  const showDecl=filtro==="validar";
+  const label={todas:"Todas",reconocidas:"Reconocidas",terminadas:"Terminadas",atrasadas:"Atrasadas",validar:"Por validar",proceso:"En proceso",sinreco:"Sin reconocer",propuestas:"Propuestas"};
+  let h=`<div style="font-size:12px;color:var(--texto2);margin:10px 0 4px;font-weight:600">${label[filtro]||"Todas"}: ${acts.length} actividades</div>`;
+  h+=tblActs(ord,showDecl,true);
+  document.getElementById("det-tabla-container").innerHTML=h;
+  // Ocultar detalle individual si estaba abierto
+  const da=document.getElementById("det-actividad");if(da)da.hidden=true;
+  // Enlazar clic en filas
+  document.querySelectorAll("#det-tabla-container .fila-det").forEach(fila=>{
+    fila.onclick=()=>{
+      const id=fila.dataset.actId;
+      const a=(window._detActs||[]).find(x=>String(x.id)===String(id));
+      if(a)mostrarDetActividad(a);
+    };
+  });
+}
+
+function mostrarDetActividad(a){
+  const da=document.getElementById("det-actividad");
+  if(!da)return;
+  da.hidden=false;
+  document.getElementById("det-act-titulo").textContent=a.codigo||"";
+  document.getElementById("det-act-cuerpo").innerHTML=`
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:13px">
+      <div><span style="color:var(--texto2);font-size:11px">BLOQUE</span><br><b>${a.bloque||"—"}</b></div>
+      <div><span style="color:var(--texto2);font-size:11px">ÁREA</span><br><b>${a.area||"—"}</b></div>
+      <div><span style="color:var(--texto2);font-size:11px">ESPECIALIDAD</span><br>${a.giro||"—"}</div>
+      <div><span style="color:var(--texto2);font-size:11px">ESTATUS</span><br>${a.estatus||"—"}</div>
+    </div>
+    <div style="margin:8px 0;padding:8px;background:#fff;border-radius:6px;border:1px solid var(--borde)">
+      <span style="color:var(--texto2);font-size:11px">PARTIDA / ACTIVIDAD</span><br>
+      <b>${a.partida||"—"}</b>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;font-size:13px">
+      <div><span style="color:var(--texto2);font-size:11px">AVANCE</span><br><b style="font-size:16px">${a.avance}%</b></div>
+      <div><span style="color:var(--texto2);font-size:11px">DECLARADO</span><br><b style="font-size:16px;color:var(--azul)">${a.avance_decl!=null?a.avance_decl+"%":"—"}</b></div>
+      <div><span style="color:var(--texto2);font-size:11px">RECONOCIDA</span><br>${a.reconocida==="SÍ"?"✅ Sí":"❌ No"}</div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:13px;margin-top:6px">
+      <div><span style="color:var(--texto2);font-size:11px">FECHA INICIO</span><br>${a.f_inicio||"—"}</div>
+      <div><span style="color:var(--texto2);font-size:11px">FECHA COMPROMISO</span><br><b ${a.vencida?'style="color:var(--rojo)"':''}>${a.f_fin||"—"}</b>${a.vencida?" 🔴 Vencida":""}</div>
+    </div>`;
+  da.scrollIntoView({behavior:"smooth",block:"nearest"});
+}
+
+function tblActs(acts,sd,clickable){
+  let h=`<table class="det-tabla"><thead><tr><th>Código</th><th>Bloque</th><th>Área</th><th>Partida</th><th>Av.</th>`;
+  if(sd)h+=`<th>Decl.</th>`;
+  h+=`<th>Reco</th><th>F. fin</th><th>Estado</th></tr></thead><tbody>`;
+  for(const a of acts){const vc=a.vencida?"det-vencida":"";
+    const clk=clickable?`class="${vc} fila-det" data-act-id="${a.id}" style="cursor:pointer"`:`class="${vc}"`;
+    h+=`<tr ${clk}><td class="mono">${a.codigo}</td><td>${a.bloque||""}</td><td>${a.area||""}</td>
+    <td style="max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.partida||""}</td><td>${a.avance}%</td>`;
+    if(sd)h+=`<td style="color:var(--azul);font-weight:600">${a.avance_decl!=null?a.avance_decl+"%":"—"}</td>`;
+    h+=`<td>${a.reconocida==="SÍ"?"✅":"❌"}</td><td class="${vc}">${a.f_fin||"—"}</td><td>${a.estatus}</td></tr>`;
+  }return h+"</tbody></table>";
+}
+async function validarProv(ids,tipo){
+  if(!confirm(`¿${tipo==="aprobar"?"Firmar":"Rechazar"} ${ids.length} actividades?`))return;
+  const url=tipo==="aprobar"?"/api/validacion/aprobar_todas":null;
+  if(tipo==="aprobar"){
+    const r=await fetch("/api/validacion/aprobar_todas",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({ids})});
+    const d=await r.json();
+    if(d.ok){mostrarConf(`${d.aprobadas} actividades firmadas`);cerrarDetalle();
+      const r2=await fetch("/api/seguimiento");DATA=await r2.json();renderTodo();}
+    else{alert(d.error||"Error")}
+  }else{
+    let ok=0;for(const id of ids){
+      const r=await fetch(`/api/validacion/rechazar/${id}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({motivo:"Rechazado desde Seguimiento"})});
+      if((await r.json()).ok)ok++;
+    }
+    mostrarConf(`${ok} actividades rechazadas`);cerrarDetalle();
+    const r2=await fetch("/api/seguimiento");DATA=await r2.json();renderTodo();
+  }
+}
+function cerrarDetalle(){document.getElementById("overlay").setAttribute("hidden","");document.getElementById("panel-det").setAttribute("hidden","")}
+async function abrirWA(nombre){
+  const r=await fetch(`/api/seguimiento/whatsapp/${encodeURIComponent(nombre)}`);
+  const d=await r.json();
+  document.getElementById("wa-texto").value=d.mensaje;
+  document.getElementById("toast-wa").classList.add("visible");
+}
+function cerrarWA(){document.getElementById("toast-wa").classList.remove("visible")}
+function copiarWA(){navigator.clipboard?.writeText(document.getElementById("wa-texto").value);mostrarConf("Mensaje copiado");cerrarWA()}
+function enviarWA(){
+  const txt=encodeURIComponent(document.getElementById("wa-texto").value);
+  // Intentar abrir la app nativa primero, si no, wa.me como fallback
+  const isMobile=/Android|iPhone|iPad/i.test(navigator.userAgent);
+  if(isMobile){window.location.href="whatsapp://send?text="+txt}
+  else{window.open("https://api.whatsapp.com/send?text="+txt,"_blank")}
+  cerrarWA();
+}
+function mostrarConf(m){const t=document.getElementById("toast-confirm");t.textContent="✅ "+m;t.classList.add("visible");setTimeout(()=>t.classList.remove("visible"),3000)}
+init();
+</script>
 </body>
 </html>
