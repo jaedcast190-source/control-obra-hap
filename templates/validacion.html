@@ -27,6 +27,15 @@
 <section class="v-seccion">
   <h2>Avances reportados <span class="v-cont" id="cont-av">0</span></h2>
   <p class="v-desc">Estas partidas ya eran tuyas. El proveedor dice que avanzaron. Al <b>firmar</b>, el avance oficial toma ese valor.</p>
+  <div class="v-filtros-av">
+    <label style="font-size:12px;font-weight:600;color:#6b7280">Agrupar por:</label>
+    <select id="agrupar-av">
+      <option value="proveedor">Proveedor</option>
+      <option value="bloque">Bloque</option>
+      <option value="area">Área</option>
+    </select>
+    <input type="search" id="filtro-av" placeholder="Buscar…" style="flex:1;max-width:280px">
+  </div>
   <div class="v-tabla-wrap">
     <table class="v-tabla" id="tabla-av">
       <thead><tr>
