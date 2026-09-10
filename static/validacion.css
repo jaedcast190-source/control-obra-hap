@@ -74,3 +74,8 @@
 .v-filtros-av{display:flex;align-items:center;gap:10px;padding:8px 0;flex-wrap:wrap}
 .v-filtros-av select{padding:7px 10px;border:1px solid #e2e5ea;border-radius:8px;font-size:13px;background:#fff}
 .v-filtros-av input[type=search]{padding:7px 12px;border:1px solid #e2e5ea;border-radius:8px;font-size:13px}
+
+/* Búsqueda global */
+.v-busqueda-global{padding:12px 20px;background:#fff;border-bottom:1px solid #e2e5ea;position:sticky;top:56px;z-index:10}
+.v-busqueda-global input{width:100%;padding:10px 16px;border:2px solid #e2e5ea;border-radius:10px;font-size:14px;background:#f8fafc;transition:border-color .15s}
+.v-busqueda-global input:focus{border-color:#1E7B4B;outline:none;background:#fff}
