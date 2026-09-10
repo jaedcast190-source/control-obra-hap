@@ -126,6 +126,8 @@ function render() {
     b.addEventListener("click", () => reconocer(b.dataset.id)));
   $$(".p-norecon").forEach(b =>
     b.addEventListener("click", () => noReconozco(b.dataset.id)));
+  $$(".p-desreconocer").forEach(b =>
+    b.addEventListener("click", () => desreconocer(b.dataset.id)));
 }
 
 function tarjetaHtml(a) {
@@ -168,7 +170,10 @@ function tarjetaHtml(a) {
         <button class="p-norecon" data-id="${a.id}">No lo reconozco</button>
       </div>`;
     } else {
-      boton = `<button class="p-reportar" data-id="${a.id}">Reportar avance</button>`;
+      boton = `<div class="p-reco-botones">
+        <button class="p-reportar" data-id="${a.id}">Reportar avance</button>
+        <button class="p-desreconocer" data-id="${a.id}" title="Ya no es mi trabajo">✕ No reconozco</button>
+      </div>`;
     }
 
     return `<div class="p-card ${a.estado_val} ${sinReconocer?'sin-reconocer':''}" data-id="${a.id}">
@@ -281,6 +286,17 @@ async function noReconozco(id) {
     body: JSON.stringify({ nota: nota || "" }),
   });
   toast("Se avisó al ingeniero");
+  await cargar();
+}
+
+async function desreconocer(id) {
+  const nota = prompt("¿Por qué ya no reconoces esta actividad?\nEsto le llega al ingeniero para corregir.");
+  if (nota === null) return;
+  await fetch("/api/portal/no_reconozco/" + id, {
+    method: "POST", headers: {"Content-Type":"application/json"},
+    body: JSON.stringify({ nota: nota || "Ya no reconoce esta actividad" }),
+  });
+  toast("Se notificó al ingeniero");
   await cargar();
 }
 
