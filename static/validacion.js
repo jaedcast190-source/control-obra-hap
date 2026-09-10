@@ -42,54 +42,402 @@ async function cargar() {
   await cargarAtencion();
 }
 
+/* ============================================================
+   AGRUPAR POR PROVEEDOR — función auxiliar
+   ============================================================ */
+function agruparPor(lista, campo) {
+  const grupos = {};
+  const orden = [];
+  for (const a of lista) {
+    const clave = (typeof campo === "function" ? campo(a) : a[campo]) || "Sin asignar";
+    if (!grupos[clave]) { grupos[clave] = []; orden.push(clave); }
+    grupos[clave].push(a);
+  }
+  return { grupos, orden };
+}
+
+/* ============================================================
+   RENDER AVANCES — agrupados por proveedor, contraíbles
+   ============================================================ */
+function renderAvances() {
+  $("#cont-av").textContent = AVANCES.length;
+  const contenedor = $("#tbody-av").parentElement.parentElement; // .v-tabla-wrap padre
+  const wrap = $("#zona-av") || contenedor;
+  
+  $("#vacio-av").hidden = AVANCES.length > 0;
+  $("#masa-av").hidden = AVANCES.length === 0;
+
+  if (!AVANCES.length) {
+    $("#tbody-av").innerHTML = "";
+    return;
+  }
+
+  const { grupos, orden } = agruparPor(AVANCES, getResponsable);
+  
+  // Reemplazar la tabla plana por grupos
+  let html = "";
+  for (const prov of orden) {
+    const acts = grupos[prov];
+    const ids = acts.map(a => a.id);
+    html += `<div class="v-grupo">
+      <div class="v-grupo-header" data-toggle="grupo">
+        <span class="v-grupo-flecha">▼</span>
+        <b>${esc(prov)}</b>
+        <span class="v-grupo-count">${acts.length}</span>
+        <span class="v-grupo-spacer"></span>
+        <button class="v-ok v-grupo-btn" data-firmar-grupo='${JSON.stringify(ids)}'>Firmar ${acts.length} de ${esc(prov)}</button>
+      </div>
+      <div class="v-grupo-body">
+        <table class="v-tabla"><thead><tr>
+          <th>Código</th><th>Bloque</th><th>Área</th><th>Partida</th>
+          <th>Oficial</th><th>Reportado</th><th>De dónde</th><th></th>
+        </tr></thead><tbody>`;
+    for (const a of acts) {
+      html += `<tr data-id="${a.id}" class="fila-click" data-ver-act='${JSON.stringify(a.id)}'>
+        <td class="mono">${esc(a.codigo||"")}</td>
+        <td>${esc(a.bloque||"")}</td>
+        <td>${esc(a.area||"")}</td>
+        <td class="v-part">${esc(a.partida||"")}</td>
+        <td class="v-cen">${a.avance||0}%</td>
+        <td class="v-cen v-nuevo">${a.avance_decl}%</td>
+        <td>${DEDONDE[a.definido_por]||"—"}</td>
+        <td class="v-btns">
+          <button class="v-ok" data-id="${a.id}">Firmar</button>
+          <button class="v-no" data-id="${a.id}">Rechazar</button>
+        </td>
+      </tr>`;
+    }
+    html += `</tbody></table></div></div>`;
+  }
+  
+  // Insertar en el DOM
+  // Usar un contenedor dedicado
+  let zona = document.getElementById("zona-av-grupos");
+  if (!zona) {
+    zona = document.createElement("div");
+    zona.id = "zona-av-grupos";
+    // Insertar justo después de la tabla original, que ocultamos
+    const tablaOrig = $("#tabla-av");
+    tablaOrig.style.display = "none";
+    tablaOrig.parentElement.appendChild(zona);
+  }
+  zona.innerHTML = html;
+  
+  enlazarGrupos();
+  enlazar();
+}
+
+/* ============================================================
+   RENDER PROPUESTAS — igual que antes pero agrupadas
+   ============================================================ */
+function renderPropuestas() {
+  $("#cont-prop").textContent = PROPUESTAS.length;
+  $("#vacio-prop").hidden = PROPUESTAS.length > 0;
+
+  if (!PROPUESTAS.length) {
+    $("#tbody-prop").innerHTML = "";
+    return;
+  }
+
+  const { grupos, orden } = agruparPor(PROPUESTAS, getResponsable);
+  
+  let html = "";
+  for (const prov of orden) {
+    const acts = grupos[prov];
+    const ids = acts.map(a => a.id);
+    html += `<div class="v-grupo">
+      <div class="v-grupo-header" data-toggle="grupo">
+        <span class="v-grupo-flecha">▼</span>
+        <b>${esc(prov)}</b>
+        <span class="v-grupo-count">${acts.length}</span>
+        <span class="v-grupo-spacer"></span>
+        <button class="v-ok v-grupo-btn" data-firmar-grupo='${JSON.stringify(ids)}'>Aprobar ${acts.length}</button>
+      </div>
+      <div class="v-grupo-body">
+        <table class="v-tabla"><thead><tr>
+          <th>Código</th><th>Bloque</th><th>Área</th><th>Partida</th>
+          <th>Avance</th><th>De dónde</th><th>Comentario</th><th></th>
+        </tr></thead><tbody>`;
+    for (const a of acts) {
+      const fueraBadge = a.fuera_zona ? `<span class="badge-fuera-zona">⚠️ FUERA DE ZONA</span>` : "";
+      const filaClase = a.fuera_zona ? `fila-fuera-zona` : "";
+      html += `<tr data-id="${a.id}" class="${filaClase} fila-click" data-ver-act='${JSON.stringify(a.id)}'>
+        <td class="mono">${esc(a.codigo||"")} ${fueraBadge}</td>
+        <td>${esc(a.bloque||"—")}</td>
+        <td>${esc(a.area||"—")}</td>
+        <td class="v-part">${esc(a.partida||"")}</td>
+        <td class="v-cen">${a.avance_decl||0}%</td>
+        <td>${DEDONDE[a.definido_por]||"—"}</td>
+        <td class="v-coment">${esc(a.nota_proveedor||"")}</td>
+        <td class="v-btns">
+          <button class="v-ok" data-id="${a.id}">Aprobar</button>
+          <button class="v-no" data-id="${a.id}">Rechazar</button>
+        </td>
+      </tr>`;
+    }
+    html += `</tbody></table></div></div>`;
+  }
+  
+  let zona = document.getElementById("zona-prop-grupos");
+  if (!zona) {
+    zona = document.createElement("div");
+    zona.id = "zona-prop-grupos";
+    const tablaOrig = $("#tabla-prop");
+    tablaOrig.style.display = "none";
+    tablaOrig.parentElement.appendChild(zona);
+  }
+  zona.innerHTML = html;
+  
+  enlazarGrupos();
+  enlazar();
+}
+
+/* ============================================================
+   NECESITAN ATENCIÓN — agrupados + búsqueda
+   ============================================================ */
 async function cargarAtencion() {
   const d = await (await fetch("/api/validacion/atencion")).json();
   NORECO = d.no_reconocidas || [];
   RECHAZADAS = d.rechazadas || [];
   $("#cont-aten").textContent = NORECO.length + RECHAZADAS.length;
+  renderAtencion();
+}
 
-  // no reconocidas
-  $("#vacio-noreco").hidden = NORECO.length > 0;
-  $("#tbody-noreco").innerHTML = NORECO.map(a => `
-    <tr>
-      <td>${esc(getResponsable(a))}</td>
-      <td class="mono">${esc(a.codigo||"")}</td>
-      <td>${esc(a.bloque||"—")}</td>
-      <td>${esc(a.area||"—")}</td>
-      <td class="v-part">${esc(a.partida||"")}</td>
-      <td class="v-coment">${esc(a.no_reconocida_nota||"")}</td>
-      <td class="v-btns">
-        <button class="v-editar" data-acc="editar" data-ctx="noreco" data-id="${a.id}">✎ Editar</button>
-        <button class="v-ok2" data-id="${a.id}">Ya lo corregí</button>
-      </td>
-    </tr>`).join("");
-  $$("#tbody-noreco .v-ok2").forEach(b => b.onclick = async () => {
+function renderAtencion() {
+  const filtro = (document.getElementById("filtro-atencion") || {}).value || "";
+  const fl = filtro.toLowerCase();
+  
+  // Filtrar no reconocidas
+  const norecoFilt = fl ? NORECO.filter(a =>
+    (a.proveedor||"").toLowerCase().includes(fl) ||
+    (a.departamento||"").toLowerCase().includes(fl) ||
+    (a.bloque||"").toLowerCase().includes(fl) ||
+    (a.area||"").toLowerCase().includes(fl) ||
+    (a.partida||"").toLowerCase().includes(fl) ||
+    (a.codigo||"").toLowerCase().includes(fl)
+  ) : NORECO;
+  
+  // Agrupar por proveedor
+  const { grupos: gNR, orden: oNR } = agruparPor(norecoFilt, getResponsable);
+  
+  let htmlNR = "";
+  for (const prov of oNR) {
+    const acts = gNR[prov];
+    htmlNR += `<div class="v-grupo">
+      <div class="v-grupo-header" data-toggle="grupo">
+        <span class="v-grupo-flecha">▼</span>
+        <b>${esc(prov)}</b>
+        <span class="v-grupo-count">${acts.length}</span>
+      </div>
+      <div class="v-grupo-body">
+        <table class="v-tabla"><thead><tr>
+          <th>Código</th><th>Bloque</th><th>Área</th><th>Partida</th><th>Qué dijo</th><th></th>
+        </tr></thead><tbody>`;
+    for (const a of acts) {
+      htmlNR += `<tr>
+        <td class="mono">${esc(a.codigo||"")}</td>
+        <td>${esc(a.bloque||"—")}</td>
+        <td>${esc(a.area||"—")}</td>
+        <td class="v-part">${esc(a.partida||"")}</td>
+        <td class="v-coment">${esc(a.no_reconocida_nota||"")}</td>
+        <td class="v-btns">
+          <button class="v-editar" data-acc="editar" data-ctx="noreco" data-id="${a.id}">✎ Editar</button>
+          <button class="v-ok2" data-id="${a.id}">Ya lo corregí</button>
+        </td>
+      </tr>`;
+    }
+    htmlNR += `</tbody></table></div></div>`;
+  }
+  
+  let zonaNR = document.getElementById("zona-noreco-grupos");
+  if (!zonaNR) {
+    zonaNR = document.createElement("div");
+    zonaNR.id = "zona-noreco-grupos";
+    const tablaOrig = $("#tabla-noreco");
+    tablaOrig.style.display = "none";
+    tablaOrig.parentElement.appendChild(zonaNR);
+  }
+  zonaNR.innerHTML = norecoFilt.length ? htmlNR : "";
+  $("#vacio-noreco").hidden = norecoFilt.length > 0;
+
+  // Rechazadas
+  const rechFilt = fl ? RECHAZADAS.filter(a =>
+    (a.proveedor||"").toLowerCase().includes(fl) ||
+    (a.departamento||"").toLowerCase().includes(fl) ||
+    (a.bloque||"").toLowerCase().includes(fl) ||
+    (a.area||"").toLowerCase().includes(fl) ||
+    (a.partida||"").toLowerCase().includes(fl) ||
+    (a.codigo||"").toLowerCase().includes(fl)
+  ) : RECHAZADAS;
+  
+  const { grupos: gR, orden: oR } = agruparPor(rechFilt, getResponsable);
+  
+  let htmlR = "";
+  for (const prov of oR) {
+    const acts = gR[prov];
+    htmlR += `<div class="v-grupo">
+      <div class="v-grupo-header" data-toggle="grupo">
+        <span class="v-grupo-flecha">▼</span>
+        <b>${esc(prov)}</b>
+        <span class="v-grupo-count">${acts.length}</span>
+      </div>
+      <div class="v-grupo-body">
+        <table class="v-tabla"><thead><tr>
+          <th>Código</th><th>Bloque</th><th>Área</th><th>Partida</th><th>Motivo</th><th></th>
+        </tr></thead><tbody>`;
+    for (const a of acts) {
+      htmlR += `<tr>
+        <td class="mono">${esc(a.codigo||"")}</td>
+        <td>${esc(a.bloque||"—")}</td>
+        <td>${esc(a.area||"—")}</td>
+        <td class="v-part">${esc(a.partida||"")}</td>
+        <td class="v-coment">${esc(a.rechazo_motivo||"Rechazado por administración")}</td>
+        <td class="v-btns">
+          <button class="v-editar" data-acc="editar" data-ctx="rechazada" data-id="${a.id}">✎ Editar</button>
+          <button class="v-ok2" data-id="${a.id}">Reactivar</button>
+        </td>
+      </tr>`;
+    }
+    htmlR += `</tbody></table></div></div>`;
+  }
+  
+  let zonaR = document.getElementById("zona-rech-grupos");
+  if (!zonaR) {
+    zonaR = document.createElement("div");
+    zonaR.id = "zona-rech-grupos";
+    const tablaOrig = $("#tabla-rech");
+    tablaOrig.style.display = "none";
+    tablaOrig.parentElement.appendChild(zonaR);
+  }
+  zonaR.innerHTML = rechFilt.length ? htmlR : "";
+  $("#vacio-rech").hidden = rechFilt.length > 0;
+
+  // Enlazar botones
+  enlazarGrupos();
+  
+  $$("#zona-noreco-grupos .v-ok2").forEach(b => b.onclick = async () => {
     await fetch("/api/validacion/limpiar_no_reconocida/" + b.dataset.id, {method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
     toast("Marca quitada"); await cargar();
   });
-  $$('#tbody-noreco [data-acc="editar"]').forEach(b => b.onclick = () => abrirEditar(b.dataset.id, "noreco", NORECO));
+  $$('#zona-noreco-grupos [data-acc="editar"]').forEach(b => b.onclick = () => abrirEditar(b.dataset.id, "noreco", NORECO));
 
-  // rechazadas
-  $("#vacio-rech").hidden = RECHAZADAS.length > 0;
-  $("#tbody-rech").innerHTML = RECHAZADAS.map(a => `
-    <tr>
-      <td>${esc(getResponsable(a))}</td>
-      <td class="mono">${esc(a.codigo||"")}</td>
-      <td>${esc(a.bloque||"—")}</td>
-      <td>${esc(a.area||"—")}</td>
-      <td class="v-part">${esc(a.partida||"")}</td>
-      <td class="v-coment">${esc(a.rechazo_motivo||"Rechazado por administración")}</td>
-      <td class="v-btns">
-        <button class="v-editar" data-acc="editar" data-ctx="rechazada" data-id="${a.id}">✎ Editar</button>
-        <button class="v-ok2" data-id="${a.id}">Reactivar</button>
-      </td>
-    </tr>`).join("");
-  $$("#tbody-rech .v-ok2").forEach(b => b.onclick = async () => {
+  $$("#zona-rech-grupos .v-ok2").forEach(b => b.onclick = async () => {
     await fetch("/api/validacion/reactivar/" + b.dataset.id, {method:"POST",headers:{"Content-Type":"application/json"},body:"{}"});
     toast("Reactivada — vuelve a propuestas"); await cargar();
   });
-  $$('#tbody-rech [data-acc="editar"]').forEach(b => b.onclick = () => abrirEditar(b.dataset.id, "rechazada", RECHAZADAS));
+  $$('#zona-rech-grupos [data-acc="editar"]').forEach(b => b.onclick = () => abrirEditar(b.dataset.id, "rechazada", RECHAZADAS));
 }
+
+/* ============================================================
+   GRUPOS — expandir/contraer + firmar por grupo
+   ============================================================ */
+function enlazarGrupos() {
+  $$("[data-toggle=grupo]").forEach(h => {
+    h.onclick = (e) => {
+      // No cerrar si clic en botón
+      if (e.target.closest("button")) return;
+      const body = h.nextElementSibling;
+      const flecha = h.querySelector(".v-grupo-flecha");
+      if (body.classList.contains("cerrado")) {
+        body.classList.remove("cerrado");
+        flecha.textContent = "▼";
+      } else {
+        body.classList.add("cerrado");
+        flecha.textContent = "▶";
+      }
+    };
+  });
+  
+  $$("[data-firmar-grupo]").forEach(b => {
+    b.onclick = async (e) => {
+      e.stopPropagation();
+      const ids = JSON.parse(b.dataset.firmarGrupo);
+      const prov = b.closest(".v-grupo-header").querySelector("b").textContent;
+      if (!confirm(`¿Firmar los ${ids.length} avances de ${prov}?`)) return;
+      await fetch("/api/validacion/aprobar_todas", {
+        method: "POST", headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({ ids }),
+      });
+      toast(`${ids.length} avances firmados ✓`);
+      await cargar();
+    };
+  });
+}
+
+function enlazar() {
+  $$(".v-ok:not(.v-grupo-btn)").forEach(b => b.onclick = (e) => { e.stopPropagation(); firmar(b.dataset.id); });
+  $$(".v-no").forEach(b => b.onclick = (e) => { e.stopPropagation(); abrirModalRechazo(b.dataset.id); });
+  
+  // Click en fila para ver detalle
+  $$(".fila-click").forEach(fila => {
+    fila.onclick = (e) => {
+      if (e.target.closest("button")) return;
+      const id = fila.dataset.verAct;
+      if (!id) return;
+      const a = [...AVANCES, ...PROPUESTAS].find(x => String(x.id) === String(id));
+      if (a) mostrarDetalle(a);
+    };
+  });
+}
+
+/* ============================================================
+   DETALLE DE ACTIVIDAD — panel lateral al hacer clic en fila
+   ============================================================ */
+function mostrarDetalle(a) {
+  const prov = getResponsable(a);
+  const html = `
+    <div style="margin-bottom:12px">
+      <span class="mono" style="font-size:16px;font-weight:700">${esc(a.codigo||"")}</span>
+      <span style="margin-left:8px;color:#64748b">${esc(prov)}</span>
+    </div>
+    <div class="det-grid">
+      <div class="det-item"><div class="det-label">Bloque</div><div>${esc(a.bloque||"—")}</div></div>
+      <div class="det-item"><div class="det-label">Área</div><div>${esc(a.area||"—")}</div></div>
+      <div class="det-item"><div class="det-label">Especialidad</div><div>${esc(a.giro||"—")}</div></div>
+      <div class="det-item"><div class="det-label">Tipo de partida</div><div>${esc(a.tipo_partida||"—")}</div></div>
+    </div>
+    <div style="margin:12px 0;padding:10px;background:#f8fafc;border-radius:8px">
+      <div class="det-label">Partida / Actividad</div>
+      <div style="font-weight:500">${esc(a.partida||"—")}</div>
+    </div>
+    <div class="det-grid">
+      <div class="det-item"><div class="det-label">Avance oficial</div><div style="font-size:18px;font-weight:700">${a.avance||0}%</div></div>
+      <div class="det-item"><div class="det-label">Reportado</div><div style="font-size:18px;font-weight:700;color:#2563eb">${a.avance_decl!=null?a.avance_decl+"%":"—"}</div></div>
+      <div class="det-item"><div class="det-label">Estatus</div><div>${esc(a.estatus||"—")}</div></div>
+      <div class="det-item"><div class="det-label">De dónde</div><div>${DEDONDE[a.definido_por]||"—"}</div></div>
+    </div>
+    <div class="det-grid" style="margin-top:8px">
+      <div class="det-item"><div class="det-label">Fecha inicio</div><div>${esc(a.f_inicio||"—")}</div></div>
+      <div class="det-item"><div class="det-label">Fecha compromiso</div><div>${esc(a.f_fin||"—")}</div></div>
+      <div class="det-item"><div class="det-label">Reconocida</div><div>${a.reconocida==="SÍ"?"✅ Sí":"❌ No"}</div></div>
+      <div class="det-item"><div class="det-label">Aplica</div><div>${esc(a.aplica||"—")}</div></div>
+    </div>
+    ${a.notas?`<div style="margin-top:12px;padding:10px;background:#fef9c3;border-radius:8px;font-size:13px"><div class="det-label">Notas</div>${esc(a.notas)}</div>`:""}
+    ${a.nota_proveedor?`<div style="margin-top:8px;padding:10px;background:#dbeafe;border-radius:8px;font-size:13px"><div class="det-label">Comentario del proveedor</div>${esc(a.nota_proveedor)}</div>`:""}
+    <div style="display:flex;gap:8px;margin-top:16px;padding-top:12px;border-top:1px solid #e5e7eb">
+      <button class="v-ok" onclick="firmarYCerrar(${a.id})" style="flex:1;padding:10px">✅ Firmar</button>
+      <button class="v-no" onclick="rechazarYCerrar(${a.id})" style="flex:1;padding:10px">Rechazar</button>
+    </div>`;
+  
+  $("#panel-detalle-cuerpo").innerHTML = html;
+  $("#panel-detalle-titulo").textContent = a.codigo || "Detalle";
+  $("#overlay-detalle").hidden = false;
+  $("#panel-detalle").hidden = false;
+}
+
+function cerrarPanelDetalle() {
+  $("#overlay-detalle").hidden = true;
+  $("#panel-detalle").hidden = true;
+}
+
+window.firmarYCerrar = async (id) => {
+  cerrarPanelDetalle();
+  await firmar(id);
+};
+window.rechazarYCerrar = (id) => {
+  cerrarPanelDetalle();
+  abrirModalRechazo(id);
+};
 
 /* ---------- editar y corregir (todos los campos, igual que el panel) ---------- */
 function llenarProveedorSegunMundo(mundo){
@@ -165,7 +513,7 @@ $("#ed-bloque").addEventListener("change", () => { llenarAreasSegunBloque(); lle
 $("#ed-bloque").addEventListener("input", () => { llenarAreasSegunBloque(); });
 $("#ed-area").addEventListener("change", () => llenarDependenciasEd($("#ed-id").value, $("#ed-depende").value, $("#ed-bloque").value, $("#ed-area").value));
 
-// mini "+ agregar" rapido: usa el mismo catalogo generico del panel principal
+// mini "+ agregar" rapido
 $$('#panel-editar [data-add]').forEach(btn => {
   btn.onclick = async () => {
     const clase = btn.dataset.add;
@@ -234,58 +582,6 @@ $("#btn-guardar-editar").onclick = async () => {
   await cargar();
 };
 
-function renderAvances() {
-  $("#cont-av").textContent = AVANCES.length;
-  const tb = $("#tbody-av");
-  $("#vacio-av").hidden = AVANCES.length > 0;
-  $("#masa-av").hidden = AVANCES.length === 0;
-  tb.innerHTML = AVANCES.map(a => `
-    <tr data-id="${a.id}">
-      <td><b>${esc(getResponsable(a))}</b></td>
-      <td class="mono">${esc(a.codigo||"")}</td>
-      <td>${esc(a.area||"")}</td>
-      <td class="v-part">${esc(a.partida||"")}</td>
-      <td class="v-cen">${a.avance||0}%</td>
-      <td class="v-cen v-nuevo">${a.avance_decl}%</td>
-      <td>${DEDONDE[a.definido_por]||"—"}</td>
-      <td class="v-btns">
-        <button class="v-ok" data-id="${a.id}">Firmar</button>
-        <button class="v-no" data-id="${a.id}">Rechazar</button>
-      </td>
-    </tr>`).join("");
-  enlazar();
-}
-
-function renderPropuestas() {
-  $("#cont-prop").textContent = PROPUESTAS.length;
-  const tb = $("#tbody-prop");
-  $("#vacio-prop").hidden = PROPUESTAS.length > 0;
-  tb.innerHTML = PROPUESTAS.map(a => {
-    const fueraBadge = a.fuera_zona ? `<span class="badge-fuera-zona">⚠️ FUERA DE ZONA</span>` : "";
-    const filaClase = a.fuera_zona ? `class="fila-fuera-zona"` : "";
-    return `
-    <tr data-id="${a.id}" ${filaClase}>
-      <td><b>${esc(getResponsable(a))}</b> ${fueraBadge}</td>
-      <td>${esc(a.bloque||"—")}</td>
-      <td>${esc(a.area||"—")}</td>
-      <td class="v-part">${esc(a.partida||"")}</td>
-      <td class="v-cen">${a.avance_decl||0}%</td>
-      <td>${DEDONDE[a.definido_por]||"—"}</td>
-      <td class="v-coment">${esc(a.nota_proveedor||"")}</td>
-      <td class="v-btns">
-        <button class="v-ok" data-id="${a.id}">Aprobar</button>
-        <button class="v-no" data-id="${a.id}">Rechazar</button>
-      </td>
-    </tr>`;
-  }).join("");
-  enlazar();
-}
-
-function enlazar() {
-  $$(".v-ok").forEach(b => b.onclick = () => firmar(b.dataset.id));
-  $$(".v-no").forEach(b => b.onclick = () => abrirModalRechazo(b.dataset.id));
-}
-
 async function firmar(id) {
   await fetch("/api/validacion/aprobar/" + id, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
   toast("Firmado ✓");
@@ -329,9 +625,22 @@ $("#btn-todos-av").addEventListener("click", async () => {
   await cargar();
 });
 
+// Inicializar buscador de atención si existe
+const filtroAten = document.getElementById("filtro-atencion");
+if (filtroAten) {
+  filtroAten.addEventListener("input", () => renderAtencion());
+}
+
+// Panel detalle: cerrar
+const overlayDet = document.getElementById("overlay-detalle");
+const panelDet = document.getElementById("panel-detalle");
+const btnCerrarDet = document.getElementById("btn-cerrar-detalle");
+if (overlayDet) overlayDet.onclick = cerrarPanelDetalle;
+if (btnCerrarDet) btnCerrarDet.onclick = cerrarPanelDetalle;
+
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
-  cerrarModalRechazo(); cerrarEditar();
+  cerrarModalRechazo(); cerrarEditar(); cerrarPanelDetalle();
 });
 
 // Eliminar actividad desde el panel de editar de Validación
