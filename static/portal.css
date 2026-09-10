@@ -96,3 +96,7 @@
 .modal-caja .modal-cab h3{margin:0;font-size:16px;color:#1E7B4B}
 .modal-caja .modal-cuerpo{padding:18px 20px}
 .modal-caja .modal-pie{padding:14px 20px;border-top:1px solid #eef1f4;display:flex;justify-content:flex-end;gap:10px}
+
+/* Botón desreconocer en actividades ya reconocidas */
+.p-desreconocer{background:none;border:1px solid #e5e7eb;color:#6b7280;padding:6px 12px;border-radius:8px;font-size:12px;cursor:pointer;font-weight:500}
+.p-desreconocer:hover{background:#fef2f2;border-color:#fca5a5;color:#dc2626}
