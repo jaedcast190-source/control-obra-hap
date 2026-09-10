@@ -148,10 +148,23 @@ function renderPropuestas() {
 
   if (!PROPUESTAS.length) {
     $("#tbody-prop").innerHTML = "";
+    const zona = document.getElementById("zona-prop-grupos");
+    if (zona) zona.innerHTML = "";
     return;
   }
 
-  const { grupos, orden } = agruparPor(PROPUESTAS, getResponsable);
+  // Filtrar
+  const filtro = (document.getElementById("filtro-av") || {}).value || "";
+  const fl = filtro.toLowerCase();
+  const propFilt = fl ? PROPUESTAS.filter(a =>
+    (getResponsable(a)).toLowerCase().includes(fl) ||
+    (a.bloque||"").toLowerCase().includes(fl) ||
+    (a.area||"").toLowerCase().includes(fl) ||
+    (a.partida||"").toLowerCase().includes(fl) ||
+    (a.codigo||"").toLowerCase().includes(fl)
+  ) : PROPUESTAS;
+
+  const { grupos, orden } = agruparPor(propFilt, getResponsable);
   
   let html = "";
   for (const prov of orden) {
@@ -376,8 +389,8 @@ function grupoHtml(clave, contenido, botones) {
 }
 
 function enlazar() {
-  $$(".v-ok:not(.v-grupo-btn)").forEach(b => b.onclick = (e) => { e.stopPropagation(); firmar(b.dataset.id); });
-  $$(".v-no").forEach(b => b.onclick = (e) => { e.stopPropagation(); abrirModalRechazo(b.dataset.id); });
+  $$(".v-grupo .v-ok:not(.v-grupo-btn)").forEach(b => b.onclick = (e) => { e.stopPropagation(); firmar(b.dataset.id); });
+  $$(".v-grupo .v-no").forEach(b => b.onclick = (e) => { e.stopPropagation(); abrirModalRechazo(b.dataset.id); });
   
   // Click en fila para ver detalle
   $$(".fila-click").forEach(fila => {
@@ -647,6 +660,21 @@ const filtroAv = document.getElementById("filtro-av");
 const agruparAv = document.getElementById("agrupar-av");
 if (filtroAv) filtroAv.addEventListener("input", () => renderAvances());
 if (agruparAv) agruparAv.addEventListener("change", () => renderAvances());
+
+// Búsqueda global — filtra las 3 secciones a la vez
+const busqGlobal = document.getElementById("busqueda-global");
+if (busqGlobal) {
+  busqGlobal.addEventListener("input", () => {
+    const val = busqGlobal.value.trim();
+    // Sincronizar con filtros locales
+    if (filtroAv) filtroAv.value = val;
+    const filtroAtenEl = document.getElementById("filtro-atencion");
+    if (filtroAtenEl) filtroAtenEl.value = val;
+    renderAvances();
+    renderPropuestas();
+    renderAtencion();
+  });
+}
 
 // Panel detalle: cerrar
 const overlayDet = document.getElementById("overlay-detalle");
