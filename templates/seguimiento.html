@@ -352,7 +352,14 @@ async function abrirWA(nombre){
 }
 function cerrarWA(){document.getElementById("toast-wa").classList.remove("visible")}
 function copiarWA(){navigator.clipboard?.writeText(document.getElementById("wa-texto").value);mostrarConf("Mensaje copiado");cerrarWA()}
-function enviarWA(){window.open("https://wa.me/?text="+encodeURIComponent(document.getElementById("wa-texto").value),"_blank");cerrarWA()}
+function enviarWA(){
+  const txt=encodeURIComponent(document.getElementById("wa-texto").value);
+  // Intentar abrir la app nativa primero, si no, wa.me como fallback
+  const isMobile=/Android|iPhone|iPad/i.test(navigator.userAgent);
+  if(isMobile){window.location.href="whatsapp://send?text="+txt}
+  else{window.open("https://api.whatsapp.com/send?text="+txt,"_blank")}
+  cerrarWA();
+}
 function mostrarConf(m){const t=document.getElementById("toast-confirm");t.textContent="✅ "+m;t.classList.add("visible");setTimeout(()=>t.classList.remove("visible"),3000)}
 init();
 </script>
