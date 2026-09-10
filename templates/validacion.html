@@ -62,6 +62,9 @@
 <section class="v-seccion">
   <h2>Necesitan tu atención <span class="v-cont" id="cont-aten">0</span></h2>
   <p class="v-desc">Actividades que un proveedor <b>no reconoce</b> como suyas, y las que <b>rechazaste</b>. Aquí las corriges o las reactivas — no se pierden.</p>
+  <div style="padding:8px 0">
+    <input type="search" id="filtro-atencion" placeholder="Buscar por proveedor, bloque, área, partida…" style="width:100%;max-width:400px;padding:8px 12px;border:1px solid #e2e5ea;border-radius:8px;font-size:13px">
+  </div>
 
   <h3 class="v-sub">No reconocidas por el proveedor</h3>
   <div class="v-tabla-wrap">
@@ -190,6 +193,16 @@
     </div>
   </div>
 </div>
+
+<!-- ===== Panel: detalle de actividad al hacer clic ===== -->
+<div class="overlay" id="overlay-detalle" hidden></div>
+<aside class="panel" id="panel-detalle" hidden>
+  <div class="panel-cab">
+    <h2 id="panel-detalle-titulo">Detalle</h2>
+    <button class="cerrar" id="btn-cerrar-detalle">✕</button>
+  </div>
+  <div class="panel-cuerpo" id="panel-detalle-cuerpo"></div>
+</aside>
 
 <!-- Script al final: el modal de rechazo ya existe cuando el JS engancha sus botones -->
 <script src="/static/validacion.js"></script>
