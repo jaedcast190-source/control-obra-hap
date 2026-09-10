@@ -3086,15 +3086,34 @@ def api_seguimiento_whatsapp(nombre):
     db = get_db()
     fecha_hoy = datetime.date.today().isoformat()
     acts = db.execute("SELECT * FROM actividades WHERE proveedor=? OR departamento=?", (nombre, nombre)).fetchall()
+    n_total = len(acts)
+    n_terminadas = sum(1 for a in acts if a["estatus"] == "Terminada")
     n_pend = sum(1 for a in acts if a["estatus"] != "Terminada" and (a["avance"] or 0) < 100)
     n_atrasadas = sum(1 for a in acts if a["f_fin"] and a["f_fin"] < fecha_hoy and a["estatus"] != "Terminada")
     n_sin_reco = sum(1 for a in acts if a["reconocida"] != "SÍ")
-    partes = [f"Buen día. Al corte del {fecha_hoy}, tienes {n_pend} actividades pendientes de actualización"]
+    av_global = round(sum(a["avance"] or 0 for a in acts) / n_total, 1) if n_total else 0
+
+    lineas = []
+    lineas.append(f"📋 *Control de Obra HAP*")
+    lineas.append(f"Seguimiento y Cumplimiento")
+    lineas.append(f"")
+    lineas.append(f"Buen día. Al corte del *{fecha_hoy}*, el estatus de tus actividades es el siguiente:")
+    lineas.append(f"")
+    lineas.append(f"📊 *Resumen de {nombre}:*")
+    lineas.append(f"• Total de actividades: *{n_total}*")
+    lineas.append(f"• Terminadas: ✅ *{n_terminadas}*")
+    lineas.append(f"• Pendientes de actualización: ⚠️ *{n_pend}*")
     if n_atrasadas:
-        partes.append(f"de las cuales {n_atrasadas} presentan atraso")
+        lineas.append(f"• Con atraso: 🔴 *{n_atrasadas}*")
     if n_sin_reco:
-        partes.append(f"y {n_sin_reco} continúan sin reconocer")
-    msg = ", ".join(partes) + ". Favor de ingresar a Control de Obra HAP, actualizar los avances y confirmar fechas compromiso."
+        lineas.append(f"• Sin reconocer: ❌ *{n_sin_reco}*")
+    lineas.append(f"• Avance global: *{av_global}%*")
+    lineas.append(f"")
+    lineas.append(f"Favor de ingresar a la plataforma, actualizar los avances y confirmar fechas compromiso.")
+    lineas.append(f"")
+    lineas.append(f"🔗 https://control-obra-hap.onrender.com/portal")
+
+    msg = "\n".join(lineas)
     return jsonify({"mensaje": msg, "nombre": nombre})
 
 
