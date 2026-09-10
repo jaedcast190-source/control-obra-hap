@@ -79,3 +79,6 @@
 .v-busqueda-global{padding:12px 20px;background:#fff;border-bottom:1px solid #e2e5ea;position:sticky;top:56px;z-index:10}
 .v-busqueda-global input{width:100%;padding:10px 16px;border:2px solid #e2e5ea;border-radius:10px;font-size:14px;background:#f8fafc;transition:border-color .15s}
 .v-busqueda-global input:focus{border-color:#1E7B4B;outline:none;background:#fff}
+
+/* Scroll horizontal en tablas de grupos (móvil) */
+.v-grupo-body{overflow-x:auto;-webkit-overflow-scrolling:touch}
