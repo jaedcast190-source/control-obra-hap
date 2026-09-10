@@ -10,6 +10,7 @@ function toast(m){const t=$("#toast");t.textContent=m;t.hidden=false;setTimeout(
 const DEDONDE = { plano:"Venía en plano", adicional:"Adicional en obra", comentario:"Comentario/indicación" };
 
 let AVANCES = [], PROPUESTAS = [], NORECO = [], RECHAZADAS = [];
+let GRUPOS_ABIERTOS = {}; // {clave: true} para recordar cuáles están abiertos
 let CATALOGOS = {}, CAUSAS_OBRA = [], CAUSAS_INTERNO = [];
 
 function llenarDatalist(sel, items){ $(sel).innerHTML = (items||[]).map(i=>`<option value="${esc(i)}">`).join(""); }
@@ -95,15 +96,8 @@ function renderAvances() {
   for (const clave of orden) {
     const acts = grupos[clave];
     const ids = acts.map(a => a.id);
-    html += `<div class="v-grupo">
-      <div class="v-grupo-header" data-toggle="grupo">
-        <span class="v-grupo-flecha">▶</span>
-        <b>${esc(clave)}</b>
-        <span class="v-grupo-count">${acts.length}</span>
-        <span class="v-grupo-spacer"></span>
-        <button class="v-ok v-grupo-btn" data-firmar-grupo='${JSON.stringify(ids)}'>Firmar ${acts.length}</button>
-      </div>
-      <div class="v-grupo-body cerrado">
+    const btnFirmar = `<button class="v-ok v-grupo-btn" data-firmar-grupo='${JSON.stringify(ids)}'>Firmar ${acts.length}</button>`;
+    html += grupoHtml(clave, acts, btnFirmar) + `
         <table class="v-tabla"><thead><tr>
           <th>Proveedor</th><th>Código</th><th>Bloque</th><th>Área</th><th>Partida</th>
           <th>Oficial</th><th>Reportado</th><th>De dónde</th><th></th>
@@ -163,15 +157,8 @@ function renderPropuestas() {
   for (const prov of orden) {
     const acts = grupos[prov];
     const ids = acts.map(a => a.id);
-    html += `<div class="v-grupo">
-      <div class="v-grupo-header" data-toggle="grupo">
-        <span class="v-grupo-flecha">▶</span>
-        <b>${esc(prov)}</b>
-        <span class="v-grupo-count">${acts.length}</span>
-        <span class="v-grupo-spacer"></span>
-        <button class="v-ok v-grupo-btn" data-firmar-grupo='${JSON.stringify(ids)}'>Aprobar ${acts.length}</button>
-      </div>
-      <div class="v-grupo-body cerrado">
+    const btnAprobar = `<button class="v-ok v-grupo-btn" data-firmar-grupo='${JSON.stringify(ids)}'>Aprobar ${acts.length}</button>`;
+    html += grupoHtml(prov, acts, btnAprobar) + `
         <table class="v-tabla"><thead><tr>
           <th>Código</th><th>Bloque</th><th>Área</th><th>Partida</th>
           <th>Avance</th><th>De dónde</th><th>Comentario</th><th></th>
@@ -241,13 +228,7 @@ function renderAtencion() {
   let htmlNR = "";
   for (const prov of oNR) {
     const acts = gNR[prov];
-    htmlNR += `<div class="v-grupo">
-      <div class="v-grupo-header" data-toggle="grupo">
-        <span class="v-grupo-flecha">▶</span>
-        <b>${esc(prov)}</b>
-        <span class="v-grupo-count">${acts.length}</span>
-      </div>
-      <div class="v-grupo-body cerrado">
+    htmlNR += grupoHtml(prov, acts) + `
         <table class="v-tabla"><thead><tr>
           <th>Código</th><th>Bloque</th><th>Área</th><th>Partida</th><th>Qué dijo</th><th></th>
         </tr></thead><tbody>`;
@@ -293,13 +274,7 @@ function renderAtencion() {
   let htmlR = "";
   for (const prov of oR) {
     const acts = gR[prov];
-    htmlR += `<div class="v-grupo">
-      <div class="v-grupo-header" data-toggle="grupo">
-        <span class="v-grupo-flecha">▶</span>
-        <b>${esc(prov)}</b>
-        <span class="v-grupo-count">${acts.length}</span>
-      </div>
-      <div class="v-grupo-body cerrado">
+    htmlR += grupoHtml(prov, acts) + `
         <table class="v-tabla"><thead><tr>
           <th>Código</th><th>Bloque</th><th>Área</th><th>Partida</th><th>Motivo</th><th></th>
         </tr></thead><tbody>`;
@@ -351,17 +326,19 @@ function renderAtencion() {
    ============================================================ */
 function enlazarGrupos() {
   $$("[data-toggle=grupo]").forEach(h => {
+    const clave = h.querySelector("b").textContent;
     h.onclick = (e) => {
-      // No cerrar si clic en botón
       if (e.target.closest("button")) return;
       const body = h.nextElementSibling;
       const flecha = h.querySelector(".v-grupo-flecha");
       if (body.classList.contains("cerrado")) {
         body.classList.remove("cerrado");
         flecha.textContent = "▼";
+        GRUPOS_ABIERTOS[clave] = true;
       } else {
         body.classList.add("cerrado");
         flecha.textContent = "▶";
+        delete GRUPOS_ABIERTOS[clave];
       }
     };
   });
@@ -380,6 +357,22 @@ function enlazarGrupos() {
       await cargar();
     };
   });
+}
+
+// Helper: genera HTML de grupo respetando estado abierto/cerrado guardado
+function grupoHtml(clave, contenido, botones) {
+  const abierto = GRUPOS_ABIERTOS[clave];
+  const flecha = abierto ? "▼" : "▶";
+  const bodyClass = abierto ? "v-grupo-body" : "v-grupo-body cerrado";
+  return `<div class="v-grupo">
+    <div class="v-grupo-header" data-toggle="grupo">
+      <span class="v-grupo-flecha">${flecha}</span>
+      <b>${esc(clave)}</b>
+      <span class="v-grupo-count">${contenido.length}</span>
+      <span class="v-grupo-spacer"></span>
+      ${botones || ""}
+    </div>
+    <div class="${bodyClass}">`;
 }
 
 function enlazar() {
@@ -449,12 +442,12 @@ function cerrarPanelDetalle() {
 }
 
 window.firmarYCerrar = async (id) => {
-  cerrarPanelDetalle();
   await firmar(id);
+  cerrarPanelDetalle();
 };
 window.rechazarYCerrar = (id) => {
   cerrarPanelDetalle();
-  abrirModalRechazo(id);
+  setTimeout(() => abrirModalRechazo(id), 100);
 };
 
 /* ---------- editar y corregir (todos los campos, igual que el panel) ---------- */
