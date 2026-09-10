@@ -77,9 +77,8 @@
 .btn-wa{background:#25D366;color:#fff;border:none;padding:6px 14px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer}
 .btn-validar-prov{background:#2563eb;color:#fff;border:none;padding:6px 14px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer}
 .btn-validar-prov:hover{background:#1d4ed8}
-.overlay{position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:90;display:none}.overlay.visible{display:block}
-.panel-det{position:fixed;top:0;right:0;bottom:0;width:min(600px,100vw);background:#fff;z-index:100;display:none;flex-direction:column;box-shadow:-4px 0 20px rgba(0,0,0,.12)}
-.panel-det.visible{display:flex}
+.panel-det{position:fixed;top:0;right:0;bottom:0;width:min(600px,100vw);background:#fff;z-index:100;flex-direction:column;box-shadow:-4px 0 20px rgba(0,0,0,.12)}
+.panel-det:not([hidden]){display:flex}
 .panel-cab{padding:14px 20px;border-bottom:1px solid var(--borde);display:flex;align-items:center;gap:10px}
 .panel-cab h2{font-size:16px;font-weight:700;flex:1}
 .panel-cab .cerrar{background:none;border:none;font-size:22px;cursor:pointer;color:var(--texto2);padding:4px 8px}
@@ -143,8 +142,8 @@
   <input type="search" id="f-buscar" placeholder="Buscar…">
 </div>
 <div id="contenido"></div>
-<div class="overlay" id="overlay"></div>
-<aside class="panel-det" id="panel-det">
+<div class="overlay" id="overlay" hidden></div>
+<aside class="panel-det" id="panel-det" hidden>
   <div class="panel-cab"><h2 id="det-titulo">Detalle</h2><button class="cerrar" id="det-cerrar">✕</button></div>
   <div class="panel-cuerpo" id="det-cuerpo"></div>
 </aside>
@@ -265,8 +264,8 @@ function renderSec(sk,titulo,lista){
   return h+"</div>";
 }
 async function abrirDetalle(nombre){
-  document.getElementById("overlay").classList.add("visible");
-  document.getElementById("panel-det").classList.add("visible");
+  document.getElementById("overlay").removeAttribute("hidden");
+  document.getElementById("panel-det").removeAttribute("hidden");
   document.getElementById("det-titulo").textContent=nombre;
   document.getElementById("det-cuerpo").innerHTML='<div class="cargando">Cargando…</div>';
   const resp=DATA.responsables.find(r=>r.nombre===nombre);
@@ -344,7 +343,7 @@ async function validarProv(ids,tipo){
     const r2=await fetch("/api/seguimiento");DATA=await r2.json();renderTodo();
   }
 }
-function cerrarDetalle(){document.getElementById("overlay").classList.remove("visible");document.getElementById("panel-det").classList.remove("visible")}
+function cerrarDetalle(){document.getElementById("overlay").setAttribute("hidden","");document.getElementById("panel-det").setAttribute("hidden","")}
 async function abrirWA(nombre){
   const r=await fetch(`/api/seguimiento/whatsapp/${encodeURIComponent(nombre)}`);
   const d=await r.json();
