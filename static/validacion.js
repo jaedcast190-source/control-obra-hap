@@ -57,43 +57,60 @@ function agruparPor(lista, campo) {
 }
 
 /* ============================================================
-   RENDER AVANCES — agrupados por proveedor, contraíbles
+   RENDER AVANCES — agrupados por proveedor/bloque/área, contraíbles
    ============================================================ */
 function renderAvances() {
   $("#cont-av").textContent = AVANCES.length;
-  const contenedor = $("#tbody-av").parentElement.parentElement; // .v-tabla-wrap padre
-  const wrap = $("#zona-av") || contenedor;
-  
   $("#vacio-av").hidden = AVANCES.length > 0;
   $("#masa-av").hidden = AVANCES.length === 0;
 
   if (!AVANCES.length) {
     $("#tbody-av").innerHTML = "";
+    const zona = document.getElementById("zona-av-grupos");
+    if (zona) zona.innerHTML = "";
     return;
   }
 
-  const { grupos, orden } = agruparPor(AVANCES, getResponsable);
+  // Filtrar
+  const filtro = (document.getElementById("filtro-av") || {}).value || "";
+  const fl = filtro.toLowerCase();
+  const avFilt = fl ? AVANCES.filter(a =>
+    (getResponsable(a)).toLowerCase().includes(fl) ||
+    (a.bloque||"").toLowerCase().includes(fl) ||
+    (a.area||"").toLowerCase().includes(fl) ||
+    (a.partida||"").toLowerCase().includes(fl) ||
+    (a.codigo||"").toLowerCase().includes(fl)
+  ) : AVANCES;
+
+  // Agrupar según selector
+  const agruparPorCampo = (document.getElementById("agrupar-av") || {}).value || "proveedor";
+  let campoFn;
+  if (agruparPorCampo === "bloque") campoFn = a => a.bloque || "Sin bloque";
+  else if (agruparPorCampo === "area") campoFn = a => a.area || "Sin área";
+  else campoFn = getResponsable;
+
+  const { grupos, orden } = agruparPor(avFilt, campoFn);
   
-  // Reemplazar la tabla plana por grupos
   let html = "";
-  for (const prov of orden) {
-    const acts = grupos[prov];
+  for (const clave of orden) {
+    const acts = grupos[clave];
     const ids = acts.map(a => a.id);
     html += `<div class="v-grupo">
       <div class="v-grupo-header" data-toggle="grupo">
-        <span class="v-grupo-flecha">▼</span>
-        <b>${esc(prov)}</b>
+        <span class="v-grupo-flecha">▶</span>
+        <b>${esc(clave)}</b>
         <span class="v-grupo-count">${acts.length}</span>
         <span class="v-grupo-spacer"></span>
-        <button class="v-ok v-grupo-btn" data-firmar-grupo='${JSON.stringify(ids)}'>Firmar ${acts.length} de ${esc(prov)}</button>
+        <button class="v-ok v-grupo-btn" data-firmar-grupo='${JSON.stringify(ids)}'>Firmar ${acts.length}</button>
       </div>
-      <div class="v-grupo-body">
+      <div class="v-grupo-body cerrado">
         <table class="v-tabla"><thead><tr>
-          <th>Código</th><th>Bloque</th><th>Área</th><th>Partida</th>
+          <th>Proveedor</th><th>Código</th><th>Bloque</th><th>Área</th><th>Partida</th>
           <th>Oficial</th><th>Reportado</th><th>De dónde</th><th></th>
         </tr></thead><tbody>`;
     for (const a of acts) {
       html += `<tr data-id="${a.id}" class="fila-click" data-ver-act='${JSON.stringify(a.id)}'>
+        <td><b>${esc(getResponsable(a))}</b></td>
         <td class="mono">${esc(a.codigo||"")}</td>
         <td>${esc(a.bloque||"")}</td>
         <td>${esc(a.area||"")}</td>
@@ -109,14 +126,15 @@ function renderAvances() {
     }
     html += `</tbody></table></div></div>`;
   }
+
+  if (!avFilt.length) {
+    html = `<p class="v-vacio">No hay resultados para "${esc(filtro)}".</p>`;
+  }
   
-  // Insertar en el DOM
-  // Usar un contenedor dedicado
   let zona = document.getElementById("zona-av-grupos");
   if (!zona) {
     zona = document.createElement("div");
     zona.id = "zona-av-grupos";
-    // Insertar justo después de la tabla original, que ocultamos
     const tablaOrig = $("#tabla-av");
     tablaOrig.style.display = "none";
     tablaOrig.parentElement.appendChild(zona);
@@ -147,13 +165,13 @@ function renderPropuestas() {
     const ids = acts.map(a => a.id);
     html += `<div class="v-grupo">
       <div class="v-grupo-header" data-toggle="grupo">
-        <span class="v-grupo-flecha">▼</span>
+        <span class="v-grupo-flecha">▶</span>
         <b>${esc(prov)}</b>
         <span class="v-grupo-count">${acts.length}</span>
         <span class="v-grupo-spacer"></span>
         <button class="v-ok v-grupo-btn" data-firmar-grupo='${JSON.stringify(ids)}'>Aprobar ${acts.length}</button>
       </div>
-      <div class="v-grupo-body">
+      <div class="v-grupo-body cerrado">
         <table class="v-tabla"><thead><tr>
           <th>Código</th><th>Bloque</th><th>Área</th><th>Partida</th>
           <th>Avance</th><th>De dónde</th><th>Comentario</th><th></th>
@@ -225,11 +243,11 @@ function renderAtencion() {
     const acts = gNR[prov];
     htmlNR += `<div class="v-grupo">
       <div class="v-grupo-header" data-toggle="grupo">
-        <span class="v-grupo-flecha">▼</span>
+        <span class="v-grupo-flecha">▶</span>
         <b>${esc(prov)}</b>
         <span class="v-grupo-count">${acts.length}</span>
       </div>
-      <div class="v-grupo-body">
+      <div class="v-grupo-body cerrado">
         <table class="v-tabla"><thead><tr>
           <th>Código</th><th>Bloque</th><th>Área</th><th>Partida</th><th>Qué dijo</th><th></th>
         </tr></thead><tbody>`;
@@ -277,11 +295,11 @@ function renderAtencion() {
     const acts = gR[prov];
     htmlR += `<div class="v-grupo">
       <div class="v-grupo-header" data-toggle="grupo">
-        <span class="v-grupo-flecha">▼</span>
+        <span class="v-grupo-flecha">▶</span>
         <b>${esc(prov)}</b>
         <span class="v-grupo-count">${acts.length}</span>
       </div>
-      <div class="v-grupo-body">
+      <div class="v-grupo-body cerrado">
         <table class="v-tabla"><thead><tr>
           <th>Código</th><th>Bloque</th><th>Área</th><th>Partida</th><th>Motivo</th><th></th>
         </tr></thead><tbody>`;
@@ -630,6 +648,12 @@ const filtroAten = document.getElementById("filtro-atencion");
 if (filtroAten) {
   filtroAten.addEventListener("input", () => renderAtencion());
 }
+
+// Filtro y agrupador de avances
+const filtroAv = document.getElementById("filtro-av");
+const agruparAv = document.getElementById("agrupar-av");
+if (filtroAv) filtroAv.addEventListener("input", () => renderAvances());
+if (agruparAv) agruparAv.addEventListener("change", () => renderAvances());
 
 // Panel detalle: cerrar
 const overlayDet = document.getElementById("overlay-detalle");
