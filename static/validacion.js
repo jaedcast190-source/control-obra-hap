@@ -246,7 +246,7 @@ function renderAtencion() {
           <th>Código</th><th>Bloque</th><th>Área</th><th>Partida</th><th>Qué dijo</th><th></th>
         </tr></thead><tbody>`;
     for (const a of acts) {
-      htmlNR += `<tr>
+      htmlNR += `<tr class="fila-click-aten" data-id-aten="${a.id}" data-ctx-aten="noreco" style="cursor:pointer">
         <td class="mono">${esc(a.codigo||"")}</td>
         <td>${esc(a.bloque||"—")}</td>
         <td>${esc(a.area||"—")}</td>
@@ -292,7 +292,7 @@ function renderAtencion() {
           <th>Código</th><th>Bloque</th><th>Área</th><th>Partida</th><th>Motivo</th><th></th>
         </tr></thead><tbody>`;
     for (const a of acts) {
-      htmlR += `<tr>
+      htmlR += `<tr class="fila-click-aten" data-id-aten="${a.id}" data-ctx-aten="rechazada" style="cursor:pointer">
         <td class="mono">${esc(a.codigo||"")}</td>
         <td>${esc(a.bloque||"—")}</td>
         <td>${esc(a.area||"—")}</td>
@@ -332,6 +332,17 @@ function renderAtencion() {
     toast("Reactivada — vuelve a propuestas"); await cargar();
   });
   $$('#zona-rech-grupos [data-acc="editar"]').forEach(b => b.onclick = () => abrirEditar(b.dataset.id, "rechazada", RECHAZADAS));
+
+  // Clic en fila abre editor directamente
+  $$(".fila-click-aten").forEach(fila => {
+    fila.onclick = (e) => {
+      if (e.target.closest("button")) return;
+      const id = fila.dataset.idAten;
+      const ctx = fila.dataset.ctxAten;
+      const lista = ctx === "noreco" ? NORECO : RECHAZADAS;
+      abrirEditar(id, ctx, lista);
+    };
+  });
 }
 
 /* ============================================================
