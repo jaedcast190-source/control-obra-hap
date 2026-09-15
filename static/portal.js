@@ -1,716 +1,84 @@
-/* === BLINDAJE v1.4 (2 sep 2026) — método seguro ===
-   Si un id no existe en el HTML, $ devuelve un elemento suelto (no visible)
-   en vez de null. Así el script NO se muere y el resto de la pantalla
-   sigue funcionando. No se modifica ninguna otra línea del código. */
-const $ = (s) => document.querySelector(s) || document.createElement("span");
-const $$ = (s) => document.querySelectorAll(s);
-let MIS = [];
-let ZONA_ACTS = [];
-let SOLO_NUEVAS = false;
-let MAPA_BA = {}; // bloque -> [áreas] del propio proveedor
-let BLOQUES_PROPIOS = null; // para interno: bloques donde ya tiene trabajo
+.v-seccion{background:#fff;margin:18px 24px;border-radius:14px;padding:20px 22px;box-shadow:0 1px 3px rgba(0,0,0,.05)}
+.v-seccion h2{margin:0 0 4px;font-size:18px;color:#1F2937;display:flex;align-items:center;gap:10px}
+.v-cont{background:#1F4E78;color:#fff;font-size:13px;padding:2px 10px;border-radius:20px;font-weight:700}
+.v-desc{color:#6b7280;font-size:14px;margin:0 0 14px;line-height:1.5}
+.v-tabla-wrap{overflow-x:auto}
+.v-tabla{width:100%;border-collapse:collapse;font-size:14px}
+.v-tabla th{background:#f4f6f8;text-align:left;padding:10px 12px;font-size:12px;color:#6b7280;text-transform:uppercase;border-bottom:2px solid #e3e6ea}
+.v-tabla td{padding:11px 12px;border-bottom:1px solid #eef1f4;vertical-align:top}
+.v-tabla .mono{font-family:monospace;font-size:12px;color:#8a94a3}
+.v-part{max-width:280px}
+.v-coment{max-width:200px;color:#6b7280;font-size:13px}
+.v-cen{text-align:center}
+.v-nuevo{font-weight:700;color:#1F4E78}
+.v-btns{white-space:nowrap;text-align:right}
+.v-btns button{border:none;border-radius:8px;padding:7px 14px;font-size:13px;font-weight:600;cursor:pointer;margin-left:6px}
+.v-ok{background:#1E7B4B;color:#fff}
+.v-ok:hover{background:#166638}
+.v-no{background:#fff;color:#B00020;border:1px solid #F0B4B4 !important}
+.v-no:hover{background:#FDECEC}
+.v-vacio{color:#8a94a3;font-style:italic;padding:16px 4px}
+.v-acciones-masa{margin-top:14px;text-align:right}
 
-function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
-function toast(m){const t=$("#toast");t.textContent=m;t.hidden=false;setTimeout(()=>t.hidden=true,2200);}
+.v-sub{font-size:14px;color:#6b7280;margin:16px 0 8px;text-transform:uppercase;letter-spacing:.3px;font-weight:700}
+.v-ok2{background:#1F4E78;color:#fff}
+.v-ok2:hover{background:#163a5c}
+.v-editar{background:#fff;color:#334155;border:1px solid #cbd2da !important}
+.v-editar:hover{background:#f1f5f9}
 
-async function inicio() {
-  const q = await (await fetch("/api/quien_soy")).json();
-  if (!q.login) { location.href = "/login"; return; }
-  // (se quitó la redirección automática del admin: causaba un bucle de recargas)
-  $("#titulo-prov").textContent = q.proveedor || "Mi avance";
-  await cargar();
+/* Fuera de zona */
+.badge-fuera-zona{display:inline-flex;align-items:center;gap:4px;background:#FDF0D5;color:#935800;border:1px solid #E6C280;padding:3px 8px;border-radius:12px;font-size:11px;font-weight:800;letter-spacing:.3px;white-space:nowrap;margin-left:6px}
+.fila-fuera-zona{background:#FFFDF7}
+.fila-fuera-zona td{border-bottom-color:#F5E2BE}
+
+/* Modal de Rechazo */
+.modal-overlay{position:fixed;inset:0;background:rgba(22,33,29,.45);z-index:300;display:flex;align-items:center;justify-content:center}
+.modal-overlay[hidden]{display:none !important}
+.modal-caja{background:#fff;border-radius:12px;width:440px;max-width:92vw;box-shadow:0 12px 40px rgba(0,0,0,.22);overflow:hidden}
+.modal-caja .modal-cab{padding:16px 20px;border-bottom:1px solid #eef1f4;display:flex;justify-content:space-between;align-items:center}
+.modal-caja .modal-cab h3{margin:0;font-size:16px;color:#B00020}
+.modal-caja .modal-cuerpo{padding:18px 20px}
+.modal-caja .modal-pie{padding:14px 20px;border-top:1px solid #eef1f4;display:flex;justify-content:flex-end;gap:10px}
+.modal-caja textarea{width:100%;box-sizing:border-box;padding:10px;border:1px solid #d4ddd9;border-radius:6px;font-family:inherit;font-size:13.5px}
+
+/* === GRUPOS POR PROVEEDOR === */
+.v-grupo{border:1px solid #e2e5ea;border-radius:10px;margin-bottom:10px;overflow:hidden;background:#fff}
+.v-grupo-header{display:flex;align-items:center;gap:10px;padding:12px 16px;cursor:pointer;user-select:none;background:#f8fafc;border-bottom:1px solid #e2e5ea;transition:background .15s}
+.v-grupo-header:hover{background:#f1f5f9}
+.v-grupo-flecha{font-size:12px;color:#6b7280;min-width:14px}
+.v-grupo-count{background:#1F4E78;color:#fff;font-size:12px;padding:2px 10px;border-radius:12px;font-weight:700}
+.v-grupo-spacer{flex:1}
+.v-grupo-btn{font-size:12px !important;padding:6px 14px !important}
+.v-grupo-body{overflow:hidden;transition:max-height .3s ease}
+.v-grupo-body.cerrado{max-height:0 !important;overflow:hidden;border-top:none}
+.v-grupo-body .v-tabla{border:none;margin:0}
+.v-grupo-body .v-tabla th{background:#fff;font-size:11px}
+
+/* Fila clickeable */
+.fila-click{cursor:pointer;transition:background .1s}
+.fila-click:hover{background:#f0f9ff}
+
+/* Panel detalle grid */
+.det-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.det-item{padding:8px 10px;background:#f8fafc;border-radius:6px}
+.det-label{font-size:11px;color:#6b7280;text-transform:uppercase;margin-bottom:2px;font-weight:600}
+
+@media(max-width:768px){
+  .v-seccion{margin:10px;padding:14px}
+  .v-grupo-header{padding:10px 12px;flex-wrap:wrap}
+  .v-grupo-btn{margin-top:4px;width:100%}
+  .det-grid{grid-template-columns:1fr}
 }
 
-async function cargar() {
-  MIS = await (await fetch("/api/portal/mis_actividades")).json();
-  // mapa bloque->áreas: externo solo lo suyo; interno todo el mapa de la obra
-  try {
-    const m = await (await fetch("/api/portal/mapa")).json();
-    MAPA_BA = m.mapa || {};
-    BLOQUES_PROPIOS = m.bloques_propios; // null para externo; lista para interno
-  } catch(e) {
-    MAPA_BA = {};
-    MIS.forEach(a => { if (a.bloque && a.area) { (MAPA_BA[a.bloque]=MAPA_BA[a.bloque]||[]); if(!MAPA_BA[a.bloque].includes(a.area)) MAPA_BA[a.bloque].push(a.area); } });
-  }
-  const bloques = Object.keys(MAPA_BA).sort();
-  $("#dl-p-bloque").innerHTML = bloques.map(b=>`<option value="${esc(b)}">`).join("");
-  filtrarAreasNueva();
-  // menú de filtro por bloque (arriba) = solo los bloques donde el usuario TIENE actividades
-  const bloquesConTrabajo = [...new Set(MIS.map(a=>a.bloque).filter(Boolean))].sort();
-  const selB = $("#p-bloque");
-  const actual = selB.value;
-  selB.innerHTML = `<option value="">Todos los bloques</option>` +
-    bloquesConTrabajo.map(b=>`<option value="${esc(b)}">${esc(b)}</option>`).join("");
-  if (actual) selB.value = actual;
-  llenarAreas();
-  render();
-  actualizarBotonNuevas();
-}
+/* Filtros de avances */
+.v-filtros-av{display:flex;align-items:center;gap:10px;padding:8px 0;flex-wrap:wrap}
+.v-filtros-av select{padding:7px 10px;border:1px solid #e2e5ea;border-radius:8px;font-size:13px;background:#fff}
+.v-filtros-av input[type=search]{padding:7px 12px;border:1px solid #e2e5ea;border-radius:8px;font-size:13px}
 
-// candado estricto en 'agregar actividad': el área solo muestra las del bloque elegido
-function filtrarAreasNueva() {
-  const b = $("#new-bloque").value;
-  const areas = (b && MAPA_BA[b]) ? MAPA_BA[b] : [];
-  $("#dl-p-area").innerHTML = areas.map(a=>`<option value="${esc(a)}">`).join("");
-  const areaActual = $("#new-area").value;
-  if (areaActual && b && !areas.includes(areaActual)) $("#new-area").value = "";
-}
+/* Búsqueda global */
+.v-busqueda-global{padding:12px 20px;background:#fff;border-bottom:1px solid #e2e5ea;position:sticky;top:56px;z-index:10}
+.v-busqueda-global input{width:100%;padding:10px 16px;border:2px solid #e2e5ea;border-radius:10px;font-size:14px;background:#f8fafc;transition:border-color .15s}
+.v-busqueda-global input:focus{border-color:#1E7B4B;outline:none;background:#fff}
 
-function llenarAreas() {
-  const b = $("#p-bloque").value;
-  const selA = $("#p-area");
-  const actual = selA.value;
-  const areas = [...new Set(MIS.filter(a=>!b || a.bloque===b).map(a=>a.area).filter(Boolean))].sort();
-  selA.innerHTML = `<option value="">Todas las áreas</option>` +
-    areas.map(a=>`<option value="${esc(a)}">${esc(a)}</option>`).join("");
-  if (actual && areas.includes(actual)) selA.value = actual;
-}
-
-function sinAcentos(s){return String(s==null?"":s).normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();}
-
-function render() {
-  const q = sinAcentos($("#p-buscar").value || "");
-  const fb = $("#p-bloque").value;
-  const fa = $("#p-area").value;
-  let lista = MIS.filter(a =>
-    (!fb || a.bloque===fb) && (!fa || a.area===fa) &&
-    (!q || sinAcentos(a.partida).includes(q) || sinAcentos(a.area).includes(q) || sinAcentos(a.bloque).includes(q) || sinAcentos(a.codigo).includes(q)));
-  if (SOLO_NUEVAS) {
-    lista = lista.filter(a => a.reconocida !== "SÍ" && a.estado_val !== "propuesta" && a.estado_val !== "rechazada");
-  }
-  // barra en modo nuevas: SIEMPRE visible mientras se esté en ese modo,
-  // para que el proveedor pueda regresar aunque ya no queden nuevas por reconocer.
-  const barraReco = $("#barra-reconocer");
-  if (barraReco) barraReco.hidden = !SOLO_NUEVAS;
-  // el botón de "reconocer todo" solo tiene sentido si hay algo que reconocer
-  const btnRecoLoteEl = $("#btn-reconocer-lote");
-  if (btnRecoLoteEl) btnRecoLoteEl.hidden = !(SOLO_NUEVAS && lista.length > 0);
-  // texto guía cuando ya no quedan nuevas
-  const brTextoEl = document.querySelector(".br-texto");
-  if (brTextoEl) brTextoEl.textContent = (SOLO_NUEVAS && lista.length === 0)
-    ? "Ya reconociste todo. Puedes volver a ver todas tus actividades."
-    : "Estas son las actividades que te asignaron y aún no reconoces. Confirma que son tu trabajo para poder reportar avance.";
-  $("#p-contador").textContent = lista.length + " actividades";
-  const cont = $("#p-lista");
-  if (!lista.length) { cont.innerHTML = `<p class="vacio">No hay actividades.</p>`; return; }
-
-  // recordar qué bloques estaban abiertos ANTES de redibujar, para no cerrarlos
-  const abiertosAntes = new Set(
-    [...$$("#p-lista details.p-grupo-bloque[open]")].map((d) => d.dataset.bloque)
-  );
-
-  // agrupar por bloque, respetando el orden en que aparecen
-  const grupos = new Map();
-  lista.forEach((a) => {
-    const b = a.bloque || "— Sin bloque —";
-    if (!grupos.has(b)) grupos.set(b, []);
-    grupos.get(b).push(a);
-  });
-
-  cont.innerHTML = [...grupos.entries()].map(([bloque, acts]) => {
-    const n = acts.length;
-    const tarjetas = acts.map((a) => tarjetaHtml(a)).join("");
-    const abierto = abiertosAntes.has(bloque) ? " open" : "";
-    return `<details class="p-grupo-bloque" data-bloque="${esc(bloque)}"${abierto}>
-      <summary class="p-grupo-resumen">
-        <span class="p-grupo-nombre">${esc(bloque)}</span>
-        <span class="p-grupo-cant">${n} ${n === 1 ? "actividad" : "actividades"}</span>
-      </summary>
-      <div class="p-grupo-cuerpo">${tarjetas}</div>
-    </details>`;
-  }).join("");
-
-  $$(".p-reportar").forEach(b =>
-    b.addEventListener("click", () => abrirReporte(b.dataset.id)));
-  $$(".p-reconocer").forEach(b =>
-    b.addEventListener("click", () => reconocer(b.dataset.id)));
-  $$(".p-norecon").forEach(b =>
-    b.addEventListener("click", () => noReconozco(b.dataset.id)));
-  $$(".p-desreconocer").forEach(b =>
-    b.addEventListener("click", () => desreconocer(b.dataset.id)));
-}
-
-function tarjetaHtml(a) {
-    const av = a.avance || 0;
-    const decl = a.avance_decl;
-    const enRevision = decl != null && decl !== av;
-    const sinReconocer = a.reconocida !== "SÍ" && a.estado_val !== "propuesta" && a.estado_val !== "rechazada";
-    let estado = "";
-    if (a.estado_val === "propuesta") estado = `<span class="p-tag p-prop">Esperando validación</span>`;
-    else if (a.estado_val === "rechazada") estado = `<span class="p-tag p-rech">Propuesta rechazada</span>`;
-    else if (sinReconocer) estado = `<span class="p-tag p-nueva">Nueva · por reconocer</span>`;
-    else if (enRevision) estado = `<span class="p-tag p-rev">Reportado: ${decl}% · en revisión</span>`;
-    else estado = `<span class="p-tag p-val">Validado: ${av}%</span>`;
-    const origen = a.origen === "propuesta" ? `<span class="p-origen">nueva</span>` : "";
-    
-    // Alerta de rechazo si el admin rechazó el avance declarado
-    let rechazoAlerta = "";
-    if (a.avance_decl_rechazado || (a.estado_val === "rechazada" && a.rechazo_motivo)) {
-      rechazoAlerta = `
-        <div class="p-alerta-rechazo">
-          <b>⚠️ Reporte rechazado por administración</b>
-          "${esc(a.rechazo_motivo || 'Favor de verificar avance')}" 
-          <span style="font-size:11px; opacity:.85;">— ${esc(a.rechazado_por||'Admin')} (${esc(a.rechazado_fecha||'')})</span>
-        </div>`;
-    }
-
-    // Indicador de dependencias
-    let depBadge = "";
-    if (a.dep_bloqueada) {
-      depBadge = `<div class="p-dep-badge p-dep-bloqueada" title="${esc(a.dep_detalle||'')}">🔒 ${esc(a.dep_estado)}</div>`;
-    } else if (a.dep_estado && a.dep_estado !== "Sin dependencias") {
-      depBadge = `<div class="p-dep-badge p-dep-liberada">🔓 ${esc(a.dep_estado)}</div>`;
-    }
-
-    // botón según estado
-    let boton = "";
-    if (sinReconocer) {
-      boton = `<div class="p-reco-botones">
-        <button class="p-reconocer" data-id="${a.id}">✓ Sí es mi trabajo</button>
-        <button class="p-norecon" data-id="${a.id}">No lo reconozco</button>
-      </div>`;
-    } else {
-      boton = `<div class="p-reco-botones">
-        <button class="p-reportar" data-id="${a.id}">Reportar avance</button>
-        <button class="p-desreconocer" data-id="${a.id}" title="Ya no es mi trabajo">✕ No reconozco</button>
-      </div>`;
-    }
-
-    const DEDONDE_MAP = { plano:"Venía en plano", adicional:"Adicional en obra", comentario:"Comentario/indicación" };
-
-    return `<div class="p-tarjeta p-card ${a.estado_val} ${sinReconocer?'sin-reconocer':''}" data-id="${a.id}">
-      <div class="p-card-top">
-        <span class="p-cod">${esc(a.codigo||"")}</span>
-        ${origen}
-        ${estado}
-      </div>
-      <div class="p-card-bloque"><span class="p-bloque-tag">${esc(a.bloque||"")}</span></div>
-      <div class="p-card-area"><span class="p-area-tag">${esc(a.area||"")}</span></div>
-      <div class="p-card-part"><span class="p-partida">${esc(a.partida||"")}</span></div>
-      <span class="p-giro-tag" hidden>${esc(a.giro||"")}</span>
-      <span class="p-origen-tag" hidden>${DEDONDE_MAP[a.definido_por]||""}</span>
-      ${depBadge}
-      ${rechazoAlerta}
-      ${sinReconocer ? "" : `<div class="p-barra"><div class="p-barra-fill" style="width:${enRevision?decl:av}%"></div></div>`}
-      ${boton}
-    </div>`;
-}
-
-// ---- Reportar avance ----
-function abrirReporte(id) {
-  const a = MIS.find(x => x.id == id);
-  if (!a) return;
-  $("#rep-id").value = a.id;
-  $("#rep-bloque").textContent = a.bloque || "—";
-  $("#rep-area").textContent = a.area || "";
-  $("#rep-partida").textContent = a.partida || "";
-  const av = a.avance_decl != null ? a.avance_decl : (a.avance || 0);
-  $("#rep-avance").value = av;
-  marcarBoton("#rep-botones", av);
-  $("#rep-inicio").value = a.f_inicio || "";
-  $("#rep-fin").value = a.f_fin || "";
-  $("#rep-definido-por").value = a.definido_por || "";
-  $("#rep-nota").value = a.nota_proveedor || "";
-  abrir("#ov-rep", "#panel-rep");
-}
-
-function marcarBoton(cont, v) {
-  $$(cont + " button").forEach(b =>
-    b.classList.toggle("sel", parseInt(b.dataset.v) === parseInt(v)));
-}
-
-$$("#rep-botones button").forEach(b =>
-  b.addEventListener("click", () => {
-    $("#rep-avance").value = b.dataset.v;
-    marcarBoton("#rep-botones", b.dataset.v);
-  }));
-
-async function guardarReporte() {
-  const id = $("#rep-id").value;
-  const cuerpo = {
-    avance_decl: parseInt($("#rep-avance").value || 0),
-    f_inicio: $("#rep-inicio").value || null,
-    f_fin: $("#rep-fin").value || null,
-    definido: (parseInt($("#rep-avance").value||0) > 0 || $("#rep-definido-por").value) ? "SÍ" : "NO",
-    definido_por: $("#rep-definido-por").value || null,
-    nota_proveedor: $("#rep-nota").value || null,
-  };
-  await fetch("/api/portal/reportar_avance/" + id, {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(cuerpo),
-  });
-  cerrar("#ov-rep", "#panel-rep");
-  toast("Avance enviado al ingeniero");
-  await cargar();
-}
-
-// ---- Proponer actividad nueva ----
-$$("#new-botones button").forEach(b =>
-  b.addEventListener("click", () => {
-    $("#new-avance").value = b.dataset.v;
-    marcarBoton("#new-botones", b.dataset.v);
-  }));
-
-async function enviarNueva() {
-  const partida = $("#new-partida").value.trim();
-  if (!partida) { toast("Escribe qué actividad es"); return; }
-  const cuerpo = {
-    bloque: $("#new-bloque").value || null,
-    area: $("#new-area").value || null,
-    partida,
-    avance_decl: parseInt($("#new-avance").value || 0),
-    definido_por: $("#new-definido-por").value || null,
-    nota_proveedor: $("#new-nota").value || null,
-  };
-  const r = await (await fetch("/api/portal/nueva", {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(cuerpo),
-  })).json();
-  if (r.error) { toast(r.error); return; }
-  cerrar("#ov-new", "#panel-new");
-  ["#new-bloque","#new-area","#new-partida","#new-nota"].forEach(s=>$(s).value="");
-  $("#new-avance").value = 0; marcarBoton("#new-botones", 0);
-  $("#new-definido-por").value = "";
-  toast("Actividad enviada para revisión");
-  await cargar();
-}
-
-// ---- Reconocimiento de actividades ----
-async function reconocer(id) {
-  // Buscar info de la actividad
-  const tarjeta = document.querySelector(`[data-id="${id}"]`);
-  const card = tarjeta ? tarjeta.closest(".p-tarjeta") : null;
-  const cod = card?.querySelector(".p-cod")?.textContent || "";
-  const partida = card?.querySelector(".p-partida")?.textContent || "";
-  const bloque = card?.querySelector(".p-bloque-tag")?.textContent || "";
-  const area = card?.querySelector(".p-area-tag")?.textContent || "";
-  const giro = card?.querySelector(".p-giro-tag")?.textContent || "";
-  const origen = card?.querySelector(".p-origen-tag")?.textContent || "";
-
-  document.getElementById("fr-partida").textContent = partida;
-  document.getElementById("fr-cod").textContent = cod;
-  document.getElementById("fr-bloque").textContent = bloque;
-  document.getElementById("fr-area").textContent = area;
-  document.getElementById("fr-giro").textContent = giro;
-  document.getElementById("fr-origen").textContent = origen || "—";
-  document.getElementById("modal-reconocer").classList.add("visible");
-
-  document.getElementById("btn-confirmar-reco").onclick = async () => {
-    cerrarModalReco("modal-reconocer");
-    await fetch("/api/portal/reconocer/" + id, { method: "POST", headers: {"Content-Type":"application/json"}, body: "{}" });
-    mostrarToastExito("Actividad reconocida", cod, partida, true, async () => {
-      await fetch("/api/portal/no_reconozco/" + id, {
-        method: "POST", headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({ nota: "Reconocimiento revertido por el proveedor" }),
-      });
-      toast("Reconocimiento revertido");
-      await cargar();
-    });
-    await cargar();
-  };
-}
-
-async function noReconozco(id) {
-  const tarjeta = document.querySelector(`[data-id="${id}"]`);
-  const card = tarjeta ? tarjeta.closest(".p-tarjeta") : null;
-  const cod = card?.querySelector(".p-cod")?.textContent || "";
-  const partida = card?.querySelector(".p-partida")?.textContent || "";
-  const bloque = card?.querySelector(".p-bloque-tag")?.textContent || "";
-  const area = card?.querySelector(".p-area-tag")?.textContent || "";
-  const giro = card?.querySelector(".p-giro-tag")?.textContent || "";
-
-  document.getElementById("fn-partida").textContent = partida;
-  document.getElementById("fn-cod").textContent = cod;
-  document.getElementById("fn-bloque").textContent = bloque;
-  document.getElementById("fn-area").textContent = area;
-  document.getElementById("fn-giro").textContent = giro;
-  document.getElementById("motivo-no-reco").value = "";
-  document.getElementById("motivo-error").style.display = "none";
-  document.getElementById("modal-no-reco").classList.add("visible");
-  setTimeout(() => document.getElementById("motivo-no-reco").focus(), 200);
-
-  document.getElementById("btn-confirmar-no-reco").onclick = async () => {
-    const motivo = document.getElementById("motivo-no-reco").value.trim();
-    if (!motivo) {
-      document.getElementById("motivo-error").style.display = "block";
-      document.getElementById("motivo-no-reco").focus();
-      return;
-    }
-    cerrarModalReco("modal-no-reco");
-    await fetch("/api/portal/no_reconozco/" + id, {
-      method: "POST", headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({ nota: motivo }),
-    });
-    mostrarToastExito("Se notificó al ingeniero", cod, partida, false, null);
-    await cargar();
-  };
-}
-
-async function desreconocer(id) {
-  const tarjeta = document.querySelector(`[data-id="${id}"]`);
-  const card = tarjeta ? tarjeta.closest(".p-tarjeta") : null;
-  const cod = card?.querySelector(".p-cod")?.textContent || "";
-  const partida = card?.querySelector(".p-partida")?.textContent || "";
-  const bloque = card?.querySelector(".p-bloque-tag")?.textContent || "";
-
-  document.getElementById("fd-partida").textContent = partida;
-  document.getElementById("fd-cod").textContent = cod;
-  document.getElementById("fd-bloque").textContent = bloque;
-  document.getElementById("motivo-desreco").value = "";
-  document.getElementById("motivo-desreco-error").style.display = "none";
-  document.getElementById("modal-desreco").classList.add("visible");
-  setTimeout(() => document.getElementById("motivo-desreco").focus(), 200);
-
-  document.getElementById("btn-confirmar-desreco").onclick = async () => {
-    const motivo = document.getElementById("motivo-desreco").value.trim();
-    if (!motivo) {
-      document.getElementById("motivo-desreco-error").style.display = "block";
-      document.getElementById("motivo-desreco").focus();
-      return;
-    }
-    cerrarModalReco("modal-desreco");
-    await fetch("/api/portal/no_reconozco/" + id, {
-      method: "POST", headers: {"Content-Type":"application/json"},
-      body: JSON.stringify({ nota: motivo }),
-    });
-    mostrarToastExito("Se notificó al ingeniero", cod, "Ya no reconoces: " + partida, false, null);
-    await cargar();
-  };
-}
-
-function cerrarModalReco(id) {
-  document.getElementById(id).classList.remove("visible");
-}
-
-// Toast éxito con cuenta regresiva
-let _exitoTimer = null, _countdownInt = null;
-function mostrarToastExito(titulo, codigo, detalle, conDeshacer, onDeshacer) {
-  const e = document.getElementById("toast-exito");
-  document.getElementById("te-titulo").textContent = titulo;
-  document.getElementById("te-codigo").textContent = codigo;
-  document.getElementById("te-msg").textContent = detalle;
-  document.getElementById("te-icono").textContent = conDeshacer ? "✅" : "📨";
-  e.style.display = "block";
-
-  const btnDeshacer = document.getElementById("te-deshacer");
-  btnDeshacer.style.display = conDeshacer ? "inline-block" : "none";
-  btnDeshacer.onclick = () => { cerrarToastExito(); if (onDeshacer) onDeshacer(); };
-
-  const barra = document.getElementById("te-progreso");
-  barra.style.transition = "none";
-  barra.style.width = "100%";
-  requestAnimationFrame(() => { requestAnimationFrame(() => {
-    barra.style.transition = "width 5s linear";
-    barra.style.width = "0%";
-  }); });
-
-  let seg = 5;
-  document.getElementById("te-countdown").textContent = seg;
-  if (_countdownInt) clearInterval(_countdownInt);
-  _countdownInt = setInterval(() => {
-    seg--;
-    document.getElementById("te-countdown").textContent = seg > 0 ? seg : "";
-    if (seg <= 0) clearInterval(_countdownInt);
-  }, 1000);
-
-  if (_exitoTimer) clearTimeout(_exitoTimer);
-  _exitoTimer = setTimeout(cerrarToastExito, 5000);
-  document.getElementById("te-cerrar-btn").onclick = cerrarToastExito;
-}
-function cerrarToastExito() {
-  document.getElementById("toast-exito").style.display = "none";
-  if (_exitoTimer) clearTimeout(_exitoTimer);
-  if (_countdownInt) clearInterval(_countdownInt);
-}
-
-// Cerrar modales con fondo
-document.querySelectorAll(".modal-fondo-reco").forEach(f => {
-  f.onclick = () => f.parentElement.classList.remove("visible");
-});
-
-async function noReconozco(id) {
-  const nota = prompt("¿Por qué no reconoces esta actividad? (opcional)\nEsto le llega al ingeniero para corregir.");
-  if (nota === null) return;
-  await fetch("/api/portal/no_reconozco/" + id, {
-    method: "POST", headers: {"Content-Type":"application/json"},
-    body: JSON.stringify({ nota: nota || "" }),
-  });
-  toast("Se avisó al ingeniero");
-  await cargar();
-}
-
-async function desreconocer(id) {
-  const nota = prompt("¿Por qué ya no reconoces esta actividad?\nEsto le llega al ingeniero para corregir.");
-  if (nota === null) return;
-  await fetch("/api/portal/no_reconozco/" + id, {
-    method: "POST", headers: {"Content-Type":"application/json"},
-    body: JSON.stringify({ nota: nota || "Ya no reconoce esta actividad" }),
-  });
-  toast("Se notificó al ingeniero");
-  await cargar();
-}
-
-async function reconocerBloque() {
-  const b = $("#p-bloque").value;
-  const texto = b ? `todas las actividades nuevas del bloque "${b}"` : "TODAS tus actividades nuevas";
-  if (!confirm(`¿Reconoces ${texto}? Confirmas que ese trabajo es tuyo.`)) return;
-  const r = await (await fetch("/api/portal/reconocer_bloque", {
-    method: "POST", headers: {"Content-Type":"application/json"},
-    body: JSON.stringify({ bloque: b || null }),
-  })).json();
-  toast(`${r.reconocidas} actividades reconocidas`);
-  await cargar();
-}
-
-async function actualizarBotonNuevas() {
-  const r = await (await fetch("/api/portal/pendientes_reconocer")).json();
-  const btn = $("#btn-nuevas");
-  if (!btn) return;
-  if (r.pendientes > 0) {
-    btn.textContent = `🔔 Nuevas asignadas (${r.pendientes})`;
-    btn.classList.add("con-nuevas");
-    btn.disabled = false;
-  } else {
-    btn.textContent = "Sin nuevas";
-    btn.classList.remove("con-nuevas");
-    btn.disabled = true;
-  }
-}
-
-// ---- Vista de Avance de Zona (Solo lectura) ----
-async function abrirZona() {
-  const m = $("#modal-zona");
-  if (m) {
-    m.hidden = false;
-    m.style.display = "flex";
-  }
-  hapProtegerHistorial();
-  try {
-    const res = await (await fetch("/api/portal/avance_zona")).json();
-    ZONA_ACTS = res.actividades || [];
-    const bDisp = res.bloques_disponibles || [];
-    $("#zona-filtro-bloque").innerHTML = `<option value="">Todos los bloques de tu zona</option>` +
-      bDisp.map(b => `<option value="${esc(b)}">${esc(b)}</option>`).join("");
-    renderZona();
-  } catch(e) {
-    toast("Error cargando avance de la zona");
-  }
-}
-
-function cerrarZona() {
-  const m = $("#modal-zona");
-  if (m) {
-    m.hidden = true;
-    m.style.display = "none";
-  }
-  hapLiberarHistorial();
-}
-
-function renderZona() {
-  const bFiltro = $("#zona-filtro-bloque").value;
-  const q = sinAcentos($("#zona-buscar").value || "");
-  const filas = ZONA_ACTS.filter(a => {
-    return (!bFiltro || a.bloque === bFiltro) &&
-      (!q || sinAcentos(a.partida).includes(q) || sinAcentos(a.area).includes(q) || sinAcentos(a.proveedor||a.departamento||"").includes(q) || sinAcentos(a.giro||"").includes(q));
-  });
-  
-  $("#vacio-zona").hidden = filas.length > 0;
-  const tb = $("#tbody-zona");
-  tb.innerHTML = filas.map(a => {
-    const provOdepto = a.departamento || a.proveedor || "—";
-    const av = a.avance || 0;
-    const est = a.estatus || "Pendiente";
-    let estClase = "b-pendiente";
-    if (av >= 100) estClase = "b-listo";
-    else if (av > 0) estClase = "b-proceso";
-    
-    return `
-      <tr>
-        <td><b>${esc(a.bloque||"—")}</b></td>
-        <td>${esc(a.area||"—")}</td>
-        <td><span class="giro-tag">${esc(provOdepto)}</span> <small style="color:#8a94a3;">(${esc(a.giro||a.tipo_partida||"")})</small></td>
-        <td>${esc(a.partida||"—")}</td>
-        <td style="font-weight:700; color:#1F4E78;">${av}%</td>
-        <td><span class="badge ${estClase}">${esc(est)}</span></td>
-        <td style="font-size:11.5px; color:#6b7280;">${esc(a.f_inicio||"")}${a.f_fin ? " → " + esc(a.f_fin) : ""}</td>
-      </tr>
-    `;
-  }).join("");
-}
-
-$("#btn-zona").onclick = abrirZona;
-$("#btn-cerrar-zona").onclick = cerrarZona;
-$("#modal-zona").onclick = (e) => {
-  if (e.target.id === "modal-zona") cerrarZona();
-};
-$("#zona-filtro-bloque").onchange = renderZona;
-$("#zona-buscar").oninput = renderZona;
-
-// ---- Cambio de Contraseña ----
-function abrirCambiarClave() {
-  $("#clave-actual").value = "";
-  $("#clave-nueva").value = "";
-  $("#clave-confirmar").value = "";
-  const m = $("#modal-clave");
-  if (m) {
-    m.hidden = false;
-    m.style.display = "flex";
-  }
-  hapProtegerHistorial();
-  setTimeout(() => $("#clave-actual").focus(), 50);
-}
-
-function cerrarCambiarClave() {
-  const m = $("#modal-clave");
-  if (m) {
-    m.hidden = true;
-    m.style.display = "none";
-  }
-  hapLiberarHistorial();
-}
-
-async function guardarNuevaClave() {
-  const actual = $("#clave-actual").value;
-  const nueva = $("#clave-nueva").value;
-  const conf = $("#clave-confirmar").value;
-  if (!actual || !nueva) { toast("Llena los campos"); return; }
-  if (nueva !== conf) { toast("La confirmación de contraseña no coincide"); return; }
-  if (nueva.length < 4) { toast("La contraseña debe tener al menos 4 caracteres"); return; }
-  
-  const r = await (await fetch("/api/cambiar_mi_clave", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ clave_actual: actual, clave_nueva: nueva })
-  })).json();
-  
-  if (r.ok) {
-    toast("Contraseña actualizada exitosamente");
-    cerrarCambiarClave();
-  } else {
-    toast(r.error || "Error al actualizar contraseña");
-  }
-}
-
-$("#btn-cambiar-clave").onclick = abrirCambiarClave;
-$("#btn-cerrar-clave").onclick = cerrarCambiarClave;
-$("#btn-cancelar-clave").onclick = cerrarCambiarClave;
-$("#modal-clave").onclick = (e) => {
-  if (e.target.id === "modal-clave") cerrarCambiarClave();
-};
-$("#btn-guardar-clave").onclick = guardarNuevaClave;
-
-// ---- Utilitarios de panel ----
-function abrir(ov, pn) {
-  const o = $(ov), p = $(pn);
-  if (o) { o.hidden = false; o.style.display = "block"; }
-  if (p) { p.hidden = false; p.style.display = "flex"; }
-  hapProtegerHistorial();
-}
-
-function cerrar(ov, pn) {
-  const o = $(ov), p = $(pn);
-  if (o) { o.hidden = true; o.style.display = "none"; }
-  if (p) { p.hidden = true; p.style.display = "none"; }
-  hapLiberarHistorial();
-}
-
-// ===== Protección del botón "atrás" (celular/tablet) =====
-// Sin esto, al dar "atrás" con un panel abierto el navegador sale de la
-// app y manda al login. Con esto, "atrás" solo cierra lo que esté abierto.
-let HAP_HIST_ABIERTO = false;
-function hapProtegerHistorial() {
-  if (!HAP_HIST_ABIERTO) {
-    history.pushState({ hapModal: true }, "", location.href);
-    HAP_HIST_ABIERTO = true;
-  }
-}
-function hapLiberarHistorial() {
-  if (HAP_HIST_ABIERTO) {
-    HAP_HIST_ABIERTO = false;
-    history.back();
-  }
-}
-window.addEventListener("popstate", () => {
-  if (!HAP_HIST_ABIERTO) return;
-  HAP_HIST_ABIERTO = false;
-  cerrar("#ov-rep", "#panel-rep");
-  cerrar("#ov-new", "#panel-new");
-  cerrarZona();
-  cerrarCambiarClave();
-});
-
-function abrirNuevaActividad() {
-  filtrarAreasNueva();
-  abrir("#ov-new", "#panel-new");
-}
-
-async function cerrarSesion() {
-  try {
-    await fetch("/api/logout", { method: "POST" });
-  } catch(e) {}
-  location.href = "/login";
-}
-
-$("#rep-cerrar").addEventListener("click", () => cerrar("#ov-rep", "#panel-rep"));
-$("#rep-cancelar").addEventListener("click", () => cerrar("#ov-rep", "#panel-rep"));
-$("#ov-rep").addEventListener("click", () => cerrar("#ov-rep", "#panel-rep"));
-$("#rep-guardar").addEventListener("click", guardarReporte);
-
-$("#btn-nueva-p").addEventListener("click", abrirNuevaActividad);
-$("#new-cerrar").addEventListener("click", () => cerrar("#ov-new", "#panel-new"));
-$("#new-cancelar").addEventListener("click", () => cerrar("#ov-new", "#panel-new"));
-$("#ov-new").addEventListener("click", () => cerrar("#ov-new", "#panel-new"));
-$("#new-enviar").addEventListener("click", enviarNueva);
-$("#new-bloque").addEventListener("change", filtrarAreasNueva);
-$("#new-bloque").addEventListener("input", filtrarAreasNueva);
-
-$("#p-buscar").addEventListener("input", render);
-$("#p-bloque").addEventListener("change", () => { llenarAreas(); render(); });
-$("#p-area").addEventListener("change", render);
-$("#btn-nuevas").addEventListener("click", () => {
-  SOLO_NUEVAS = true;
-  $("#p-buscar").value = "";
-  render();
-});
-const btnRecoLote = $("#btn-reconocer-lote");
-if (btnRecoLote) btnRecoLote.addEventListener("click", reconocerBloque);
-const btnVerTodo = $("#btn-ver-todo");
-if (btnVerTodo) btnVerTodo.addEventListener("click", () => { SOLO_NUEVAS = false; render(); });
-$("#btn-salir").addEventListener("click", cerrarSesion);
-
-document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") {
-    cerrar("#ov-rep", "#panel-rep");
-    cerrar("#ov-new", "#panel-new");
-    cerrarZona();
-    cerrarCambiarClave();
-  }
-});
-
-// Exponer en window para enlaces/botones inline
-window.abrirNuevaActividad = abrirNuevaActividad;
-window.abrirCambiarClave = abrirCambiarClave;
-window.cerrarCambiarClave = cerrarCambiarClave;
-window.guardarNuevaClave = guardarNuevaClave;
-window.abrirZona = abrirZona;
-window.cerrarZona = cerrarZona;
-window.cerrarSesion = cerrarSesion;
-window.cerrar = cerrar;
-window.abrir = abrir;
-window.guardarReporte = guardarReporte;
-window.enviarNueva = enviarNueva;
-
-// Cerrar todos los paneles y modales al arrancar
-cerrar("#ov-rep", "#panel-rep");
-cerrar("#ov-new", "#panel-new");
-cerrarZona();
-cerrarCambiarClave();
-
-// Botón X para limpiar campos del formulario 'agregar actividad'
-ponerBotonX("#new-bloque", () => {
-  $("#new-area").value = "";
-  filtrarAreasNueva();
-});
-ponerBotonX("#new-area");
-
-inicio();
+/* Scroll horizontal en tablas de grupos (móvil) */
+.v-grupo-body{overflow-x:auto;-webkit-overflow-scrolling:touch}
