@@ -144,3 +144,9 @@
 .te-barra{height:4px;background:#e5e7eb}
 .te-progreso{height:100%;background:#1E7B4B;width:100%}
 .te-contador{position:absolute;top:16px;right:16px;font-size:20px;font-weight:700;color:#d1d5db}
+
+/* Stats en encabezado de bloque */
+.p-grupo-stats{font-size:11px;color:#6b7280;font-weight:400;margin-left:auto;white-space:nowrap}
+@media(max-width:480px){
+  .p-grupo-stats{display:block;width:100%;margin-top:2px;margin-left:0}
+}
