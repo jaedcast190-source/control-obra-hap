@@ -97,6 +97,50 @@
 .modal-caja .modal-cuerpo{padding:18px 20px}
 .modal-caja .modal-pie{padding:14px 20px;border-top:1px solid #eef1f4;display:flex;justify-content:flex-end;gap:10px}
 
-/* Botón desreconocer en actividades ya reconocidas */
+/* Botón desreconocer */
 .p-desreconocer{background:none;border:1px solid #e5e7eb;color:#6b7280;padding:6px 12px;border-radius:8px;font-size:12px;cursor:pointer;font-weight:500}
 .p-desreconocer:hover{background:#fef2f2;border-color:#fca5a5;color:#dc2626}
+
+/* Modales de reconocimiento */
+.modal-bg{display:none;position:fixed;inset:0;z-index:200;align-items:center;justify-content:center;padding:16px}
+.modal-bg.visible{display:flex}
+.modal-fondo-reco{position:absolute;inset:0;background:rgba(0,0,0,.45)}
+.modal-caja-reco{position:relative;background:#fff;border-radius:16px;max-width:400px;width:100%;box-shadow:0 8px 30px rgba(0,0,0,.2);animation:mr-pop .2s ease;overflow:hidden}
+@keyframes mr-pop{from{transform:scale(.92);opacity:0}to{transform:scale(1);opacity:1}}
+.mr-header{padding:16px 20px;border-bottom:1px solid #e5e7eb;display:flex;align-items:center;gap:10px}
+.mr-header .mr-icono{font-size:28px}
+.mr-header h3{font-size:15px;flex:1}
+.mr-ficha{padding:16px 20px}
+.mr-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px}
+.mr-item{padding:8px 10px;background:#f8fafc;border-radius:8px}
+.mr-label{font-size:10px;color:#6b7280;text-transform:uppercase;font-weight:600;letter-spacing:.3px}
+.mr-valor{font-size:13px;font-weight:600;margin-top:2px}
+.mr-full{padding:10px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;margin-bottom:8px}
+.mr-full .mr-valor{font-size:14px}
+.mr-full-rojo{background:#fef2f2;border-color:#fca5a5}
+.mr-motivo{width:100%;padding:10px;border:1px solid #e2e5ea;border-radius:8px;font-size:13px;resize:vertical;min-height:60px;font-family:inherit;margin-top:6px}
+.mr-motivo:focus{border-color:#dc2626;outline:none}
+.mr-motivo-error{font-size:12px;color:#dc2626;margin-top:4px;display:none}
+.mr-pie{padding:14px 20px;border-top:1px solid #e5e7eb;display:flex;gap:10px;justify-content:flex-end}
+.mr-cancel{padding:10px 20px;border-radius:10px;border:1px solid #e2e5ea;background:#fff;font-size:14px;font-weight:600;cursor:pointer;color:#64748b}
+.mr-confirm{padding:10px 20px;border-radius:10px;border:none;background:#1E7B4B;color:#fff;font-size:14px;font-weight:600;cursor:pointer}
+.mr-confirm:hover{background:#166534}
+.mr-pie-rojo .mr-confirm{background:#dc2626}
+.mr-pie-rojo .mr-confirm:hover{background:#b91c1c}
+
+/* Toast éxito */
+#toast-exito{display:none;position:fixed;bottom:20px;left:50%;transform:translateX(-50%);width:92%;max-width:420px;background:#fff;border-radius:14px;box-shadow:0 4px 24px rgba(0,0,0,.18);z-index:210;overflow:hidden;animation:te-slide .3s ease}
+@keyframes te-slide{from{transform:translateX(-50%) translateY(20px);opacity:0}to{transform:translateX(-50%) translateY(0);opacity:1}}
+.te-contenido{display:flex;align-items:flex-start;gap:12px;padding:16px}
+.te-check{font-size:28px;line-height:1}
+.te-texto{flex:1}
+.te-titulo{display:block;font-size:14px;font-weight:700;color:#166534}
+.te-codigo{display:block;font-size:13px;font-weight:600;color:#1e293b;margin:2px 0}
+.te-msg{font-size:12px;color:#64748b}
+.te-acciones{display:flex;gap:8px;margin-top:8px}
+.te-deshacer{background:none;border:1px solid #fca5a5;padding:6px 14px;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;color:#dc2626}
+.te-deshacer:hover{background:#fef2f2}
+.te-cerrar-btn{background:none;border:1px solid #e2e5ea;padding:6px 14px;border-radius:8px;font-size:12px;cursor:pointer;color:#64748b}
+.te-barra{height:4px;background:#e5e7eb}
+.te-progreso{height:100%;background:#1E7B4B;width:100%}
+.te-contador{position:absolute;top:16px;right:16px;font-size:20px;font-weight:700;color:#d1d5db}
