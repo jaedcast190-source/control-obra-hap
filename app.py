@@ -860,6 +860,16 @@ def api_actualizar(aid):
     if "avance" in data and "estatus" not in data:
         updates.append("estatus=?")
         args.append(estatus_por_avance(int(data["avance"] or 0)))
+    # auto-reconocer si admin pone avance > 0 y no estaba reconocida
+    if "avance" in data and int(data["avance"] or 0) > 0 and actual["reconocida"] != "SÍ":
+        updates.append("reconocida=?")
+        args.append("SÍ")
+        updates.append("reconocida_por=?")
+        args.append("admin (avance)")
+        updates.append("reconocida_fecha=?")
+        args.append(datetime.date.today().isoformat())
+        updates.append("no_reconocida_nota=?")
+        args.append(None)
     updates.append("actualizado=?")
     args.append(datetime.datetime.now().isoformat(timespec="seconds"))
     args.append(aid)
