@@ -176,15 +176,19 @@ function tarjetaHtml(a) {
       </div>`;
     }
 
-    return `<div class="p-card ${a.estado_val} ${sinReconocer?'sin-reconocer':''}" data-id="${a.id}">
+    const DEDONDE_MAP = { plano:"Venía en plano", adicional:"Adicional en obra", comentario:"Comentario/indicación" };
+
+    return `<div class="p-tarjeta p-card ${a.estado_val} ${sinReconocer?'sin-reconocer':''}" data-id="${a.id}">
       <div class="p-card-top">
         <span class="p-cod">${esc(a.codigo||"")}</span>
         ${origen}
         ${estado}
       </div>
-      <div class="p-card-bloque">${esc(a.bloque||"")}</div>
-      <div class="p-card-area">${esc(a.area||"")}</div>
-      <div class="p-card-part">${esc(a.partida||"")}</div>
+      <div class="p-card-bloque"><span class="p-bloque-tag">${esc(a.bloque||"")}</span></div>
+      <div class="p-card-area"><span class="p-area-tag">${esc(a.area||"")}</span></div>
+      <div class="p-card-part"><span class="p-partida">${esc(a.partida||"")}</span></div>
+      <span class="p-giro-tag" hidden>${esc(a.giro||"")}</span>
+      <span class="p-origen-tag" hidden>${DEDONDE_MAP[a.definido_por]||""}</span>
       ${depBadge}
       ${rechazoAlerta}
       ${sinReconocer ? "" : `<div class="p-barra"><div class="p-barra-fill" style="width:${enRevision?decl:av}%"></div></div>`}
@@ -273,10 +277,156 @@ async function enviarNueva() {
 
 // ---- Reconocimiento de actividades ----
 async function reconocer(id) {
-  await fetch("/api/portal/reconocer/" + id, { method: "POST", headers: {"Content-Type":"application/json"}, body: "{}" });
-  toast("Actividad reconocida ✓");
-  await cargar();
+  // Buscar info de la actividad
+  const tarjeta = document.querySelector(`[data-id="${id}"]`);
+  const card = tarjeta ? tarjeta.closest(".p-tarjeta") : null;
+  const cod = card?.querySelector(".p-cod")?.textContent || "";
+  const partida = card?.querySelector(".p-partida")?.textContent || "";
+  const bloque = card?.querySelector(".p-bloque-tag")?.textContent || "";
+  const area = card?.querySelector(".p-area-tag")?.textContent || "";
+  const giro = card?.querySelector(".p-giro-tag")?.textContent || "";
+  const origen = card?.querySelector(".p-origen-tag")?.textContent || "";
+
+  document.getElementById("fr-partida").textContent = partida;
+  document.getElementById("fr-cod").textContent = cod;
+  document.getElementById("fr-bloque").textContent = bloque;
+  document.getElementById("fr-area").textContent = area;
+  document.getElementById("fr-giro").textContent = giro;
+  document.getElementById("fr-origen").textContent = origen || "—";
+  document.getElementById("modal-reconocer").classList.add("visible");
+
+  document.getElementById("btn-confirmar-reco").onclick = async () => {
+    cerrarModalReco("modal-reconocer");
+    await fetch("/api/portal/reconocer/" + id, { method: "POST", headers: {"Content-Type":"application/json"}, body: "{}" });
+    mostrarToastExito("Actividad reconocida", cod, partida, true, async () => {
+      await fetch("/api/portal/no_reconozco/" + id, {
+        method: "POST", headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({ nota: "Reconocimiento revertido por el proveedor" }),
+      });
+      toast("Reconocimiento revertido");
+      await cargar();
+    });
+    await cargar();
+  };
 }
+
+async function noReconozco(id) {
+  const tarjeta = document.querySelector(`[data-id="${id}"]`);
+  const card = tarjeta ? tarjeta.closest(".p-tarjeta") : null;
+  const cod = card?.querySelector(".p-cod")?.textContent || "";
+  const partida = card?.querySelector(".p-partida")?.textContent || "";
+  const bloque = card?.querySelector(".p-bloque-tag")?.textContent || "";
+  const area = card?.querySelector(".p-area-tag")?.textContent || "";
+  const giro = card?.querySelector(".p-giro-tag")?.textContent || "";
+
+  document.getElementById("fn-partida").textContent = partida;
+  document.getElementById("fn-cod").textContent = cod;
+  document.getElementById("fn-bloque").textContent = bloque;
+  document.getElementById("fn-area").textContent = area;
+  document.getElementById("fn-giro").textContent = giro;
+  document.getElementById("motivo-no-reco").value = "";
+  document.getElementById("motivo-error").style.display = "none";
+  document.getElementById("modal-no-reco").classList.add("visible");
+  setTimeout(() => document.getElementById("motivo-no-reco").focus(), 200);
+
+  document.getElementById("btn-confirmar-no-reco").onclick = async () => {
+    const motivo = document.getElementById("motivo-no-reco").value.trim();
+    if (!motivo) {
+      document.getElementById("motivo-error").style.display = "block";
+      document.getElementById("motivo-no-reco").focus();
+      return;
+    }
+    cerrarModalReco("modal-no-reco");
+    await fetch("/api/portal/no_reconozco/" + id, {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ nota: motivo }),
+    });
+    mostrarToastExito("Se notificó al ingeniero", cod, partida, false, null);
+    await cargar();
+  };
+}
+
+async function desreconocer(id) {
+  const tarjeta = document.querySelector(`[data-id="${id}"]`);
+  const card = tarjeta ? tarjeta.closest(".p-tarjeta") : null;
+  const cod = card?.querySelector(".p-cod")?.textContent || "";
+  const partida = card?.querySelector(".p-partida")?.textContent || "";
+  const bloque = card?.querySelector(".p-bloque-tag")?.textContent || "";
+
+  document.getElementById("fd-partida").textContent = partida;
+  document.getElementById("fd-cod").textContent = cod;
+  document.getElementById("fd-bloque").textContent = bloque;
+  document.getElementById("motivo-desreco").value = "";
+  document.getElementById("motivo-desreco-error").style.display = "none";
+  document.getElementById("modal-desreco").classList.add("visible");
+  setTimeout(() => document.getElementById("motivo-desreco").focus(), 200);
+
+  document.getElementById("btn-confirmar-desreco").onclick = async () => {
+    const motivo = document.getElementById("motivo-desreco").value.trim();
+    if (!motivo) {
+      document.getElementById("motivo-desreco-error").style.display = "block";
+      document.getElementById("motivo-desreco").focus();
+      return;
+    }
+    cerrarModalReco("modal-desreco");
+    await fetch("/api/portal/no_reconozco/" + id, {
+      method: "POST", headers: {"Content-Type":"application/json"},
+      body: JSON.stringify({ nota: motivo }),
+    });
+    mostrarToastExito("Se notificó al ingeniero", cod, "Ya no reconoces: " + partida, false, null);
+    await cargar();
+  };
+}
+
+function cerrarModalReco(id) {
+  document.getElementById(id).classList.remove("visible");
+}
+
+// Toast éxito con cuenta regresiva
+let _exitoTimer = null, _countdownInt = null;
+function mostrarToastExito(titulo, codigo, detalle, conDeshacer, onDeshacer) {
+  const e = document.getElementById("toast-exito");
+  document.getElementById("te-titulo").textContent = titulo;
+  document.getElementById("te-codigo").textContent = codigo;
+  document.getElementById("te-msg").textContent = detalle;
+  document.getElementById("te-icono").textContent = conDeshacer ? "✅" : "📨";
+  e.style.display = "block";
+
+  const btnDeshacer = document.getElementById("te-deshacer");
+  btnDeshacer.style.display = conDeshacer ? "inline-block" : "none";
+  btnDeshacer.onclick = () => { cerrarToastExito(); if (onDeshacer) onDeshacer(); };
+
+  const barra = document.getElementById("te-progreso");
+  barra.style.transition = "none";
+  barra.style.width = "100%";
+  requestAnimationFrame(() => { requestAnimationFrame(() => {
+    barra.style.transition = "width 5s linear";
+    barra.style.width = "0%";
+  }); });
+
+  let seg = 5;
+  document.getElementById("te-countdown").textContent = seg;
+  if (_countdownInt) clearInterval(_countdownInt);
+  _countdownInt = setInterval(() => {
+    seg--;
+    document.getElementById("te-countdown").textContent = seg > 0 ? seg : "";
+    if (seg <= 0) clearInterval(_countdownInt);
+  }, 1000);
+
+  if (_exitoTimer) clearTimeout(_exitoTimer);
+  _exitoTimer = setTimeout(cerrarToastExito, 5000);
+  document.getElementById("te-cerrar-btn").onclick = cerrarToastExito;
+}
+function cerrarToastExito() {
+  document.getElementById("toast-exito").style.display = "none";
+  if (_exitoTimer) clearTimeout(_exitoTimer);
+  if (_countdownInt) clearInterval(_countdownInt);
+}
+
+// Cerrar modales con fondo
+document.querySelectorAll(".modal-fondo-reco").forEach(f => {
+  f.onclick = () => f.parentElement.classList.remove("visible");
+});
 
 async function noReconozco(id) {
   const nota = prompt("¿Por qué no reconoces esta actividad? (opcional)\nEsto le llega al ingeniero para corregir.");
