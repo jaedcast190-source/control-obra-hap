@@ -182,6 +182,92 @@
   </div>
 </div>
 
+<!-- Modal: Confirmar reconocimiento -->
+<div class="modal-bg" id="modal-reconocer">
+  <div class="modal-fondo-reco"></div>
+  <div class="modal-caja-reco">
+    <div class="mr-header"><span class="mr-icono">✅</span><h3>¿Confirmas que esta actividad es tu trabajo?</h3><button class="cerrar" onclick="cerrarModalReco('modal-reconocer')">✕</button></div>
+    <div class="mr-ficha">
+      <div class="mr-full"><div class="mr-label">Partida / Actividad</div><div class="mr-valor" id="fr-partida"></div></div>
+      <div class="mr-grid">
+        <div class="mr-item"><div class="mr-label">Código</div><div class="mr-valor" id="fr-cod"></div></div>
+        <div class="mr-item"><div class="mr-label">De dónde</div><div class="mr-valor" id="fr-origen"></div></div>
+      </div>
+      <div class="mr-grid">
+        <div class="mr-item"><div class="mr-label">Bloque</div><div class="mr-valor" id="fr-bloque"></div></div>
+        <div class="mr-item"><div class="mr-label">Área</div><div class="mr-valor" id="fr-area"></div></div>
+      </div>
+      <div class="mr-grid">
+        <div class="mr-item"><div class="mr-label">Especialidad</div><div class="mr-valor" id="fr-giro"></div></div>
+      </div>
+    </div>
+    <div class="mr-pie"><button class="mr-cancel" onclick="cerrarModalReco('modal-reconocer')">Cancelar</button><button class="mr-confirm" id="btn-confirmar-reco">✓ Sí, confirmo</button></div>
+  </div>
+</div>
+
+<!-- Modal: No reconozco -->
+<div class="modal-bg" id="modal-no-reco">
+  <div class="modal-fondo-reco"></div>
+  <div class="modal-caja-reco">
+    <div class="mr-header" style="border-bottom-color:#fca5a5"><span class="mr-icono">❌</span><h3>¿Por qué no reconoces esta actividad?</h3><button class="cerrar" onclick="cerrarModalReco('modal-no-reco')">✕</button></div>
+    <div class="mr-ficha">
+      <div class="mr-full mr-full-rojo"><div class="mr-label" style="color:#991b1b">Partida / Actividad</div><div class="mr-valor" id="fn-partida"></div></div>
+      <div class="mr-grid">
+        <div class="mr-item"><div class="mr-label">Código</div><div class="mr-valor" id="fn-cod"></div></div>
+        <div class="mr-item"><div class="mr-label">Bloque</div><div class="mr-valor" id="fn-bloque"></div></div>
+      </div>
+      <div class="mr-grid">
+        <div class="mr-item"><div class="mr-label">Área</div><div class="mr-valor" id="fn-area"></div></div>
+        <div class="mr-item"><div class="mr-label">Especialidad</div><div class="mr-valor" id="fn-giro"></div></div>
+      </div>
+      <div style="margin-top:8px"><div class="mr-label">Motivo (obligatorio)</div>
+        <textarea class="mr-motivo" id="motivo-no-reco" placeholder="Ej: No está en mi cotización, eso lo hace otro proveedor…"></textarea>
+        <div class="mr-motivo-error" id="motivo-error">⚠️ Escribe el motivo para continuar</div>
+      </div>
+    </div>
+    <div class="mr-pie mr-pie-rojo"><button class="mr-cancel" onclick="cerrarModalReco('modal-no-reco')">Cancelar</button><button class="mr-confirm" id="btn-confirmar-no-reco">✕ No lo reconozco</button></div>
+  </div>
+</div>
+
+<!-- Modal: Desreconocer -->
+<div class="modal-bg" id="modal-desreco">
+  <div class="modal-fondo-reco"></div>
+  <div class="modal-caja-reco">
+    <div class="mr-header" style="background:#fef2f2;border-bottom-color:#fca5a5"><span class="mr-icono">⚠️</span><h3>¿Ya no reconoces esta actividad?</h3><button class="cerrar" onclick="cerrarModalReco('modal-desreco')">✕</button></div>
+    <div class="mr-ficha">
+      <div style="padding:8px 10px;background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;font-size:12px;color:#991b1b;margin-bottom:10px">Esto notificará al ingeniero y la actividad dejará de aparecer en tu lista de trabajo.</div>
+      <div class="mr-full mr-full-rojo"><div class="mr-label" style="color:#991b1b">Partida / Actividad</div><div class="mr-valor" id="fd-partida"></div></div>
+      <div class="mr-grid">
+        <div class="mr-item"><div class="mr-label">Código</div><div class="mr-valor" id="fd-cod"></div></div>
+        <div class="mr-item"><div class="mr-label">Bloque</div><div class="mr-valor" id="fd-bloque"></div></div>
+      </div>
+      <div style="margin-top:8px"><div class="mr-label">Motivo (obligatorio)</div>
+        <textarea class="mr-motivo" id="motivo-desreco" placeholder="Ej: Me equivoqué al aceptar, ese trabajo no es mío…"></textarea>
+        <div class="mr-motivo-error" id="motivo-desreco-error">⚠️ Escribe el motivo para continuar</div>
+      </div>
+    </div>
+    <div class="mr-pie mr-pie-rojo"><button class="mr-cancel" onclick="cerrarModalReco('modal-desreco')">Cancelar</button><button class="mr-confirm" id="btn-confirmar-desreco">⚠️ Sí, ya no es mi trabajo</button></div>
+  </div>
+</div>
+
+<!-- Toast éxito con cuenta regresiva -->
+<div id="toast-exito">
+  <span class="te-contador" id="te-countdown"></span>
+  <div class="te-contenido">
+    <div class="te-check" id="te-icono">✅</div>
+    <div class="te-texto">
+      <b class="te-titulo" id="te-titulo"></b>
+      <span class="te-codigo" id="te-codigo"></span>
+      <span class="te-msg" id="te-msg"></span>
+      <div class="te-acciones">
+        <button class="te-deshacer" id="te-deshacer">↩ Deshacer</button>
+        <button class="te-cerrar-btn" id="te-cerrar-btn">OK</button>
+      </div>
+    </div>
+  </div>
+  <div class="te-barra"><div class="te-progreso" id="te-progreso"></div></div>
+</div>
+
 <!-- Scripts al final: así ya existen TODOS los modales cuando el JS engancha los botones -->
 <script src="/static/limpiar_campos.js"></script>
 <script src="/static/portal.js"></script>
