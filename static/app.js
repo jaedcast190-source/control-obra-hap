@@ -298,7 +298,16 @@ function abrirPanel(id) {
   $("#e-giro").value = a.giro || "";
   $("#e-proveedor").value = a.proveedor || "";
   $("#e-partida").value = a.partida || "";
-  $("#e-tipo-partida").value = a.tipo_partida || "Construcción";
+  $("#e-tipo-partida").value = a.tipo_partida || "";
+  // Si el valor no está entre las opciones del dropdown, agregarlo
+  const selTipoP = $("#e-tipo-partida");
+  if (selTipoP.value !== (a.tipo_partida || "")) {
+    const opt = document.createElement("option");
+    opt.value = a.tipo_partida;
+    opt.textContent = a.tipo_partida;
+    selTipoP.insertBefore(opt, selTipoP.firstChild);
+    selTipoP.value = a.tipo_partida;
+  }
   $("#e-definido").value = a.definido || "NO";
   $("#e-aplica").value = a.aplica || "SÍ";
   $("#e-avance").value = a.avance || 0;
@@ -343,7 +352,7 @@ function nuevaActividad() {
   $("#e-nota-mod").value = "";
   $("#campo-nota-mod").hidden = true;
   $("#e-avance-decl-info").hidden = true;
-  $("#e-tipo-partida").value = "Construcción";
+  $("#e-tipo-partida").value = "";
   $("#e-definido").value = "NO";
   $("#e-estatus").value = "Pendiente";
   filtrarAreasPorBloque();
@@ -546,10 +555,10 @@ async function adaptarInterfazMundo() {
       if (!TIPOS_INTERNOS.length) {
         try { TIPOS_INTERNOS = await (await fetch("/api/tipos_internos")).json(); } catch(e){ TIPOS_INTERNOS = []; }
       }
-      selTipo.innerHTML = TIPOS_INTERNOS.map(t => `<option>${t}</option>`).join("");
+      selTipo.innerHTML = '<option value="">—</option>' + TIPOS_INTERNOS.map(t => `<option>${t}</option>`).join("");
       if ($("#lbl-tipo-partida")) $("#lbl-tipo-partida").textContent = "Tipo de trabajo";
     } else {
-      selTipo.innerHTML = `<option>Construcción</option><option>Mobiliario y equipo</option><option>Puesta en marcha</option><option>Detalles finales</option>`;
+      selTipo.innerHTML = `<option value="">—</option><option>Construcción</option><option>Mobiliario y equipo</option><option>Puesta en marcha</option><option>Detalles finales</option>`;
       if ($("#lbl-tipo-partida")) $("#lbl-tipo-partida").textContent = "Tipo de partida";
     }
   }
