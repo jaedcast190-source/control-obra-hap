@@ -1179,3 +1179,89 @@ $("#masiva-subir").addEventListener("click", async () => {
     toast(d.error || "Error en carga masiva");
   }
 });
+
+/* ============================================================
+   ACTIVIDADES ELIMINADAS — ver y restaurar
+   ============================================================ */
+let ELIMINADAS = [];
+
+$("#btn-ver-eliminadas").onclick = async () => {
+  $("#overlay-elim").hidden = false;
+  $("#panel-elim").hidden = false;
+  await cargarEliminadas();
+};
+$("#btn-cerrar-elim").onclick = cerrarElim;
+$("#overlay-elim").onclick = cerrarElim;
+
+function cerrarElim() {
+  $("#overlay-elim").hidden = true;
+  $("#panel-elim").hidden = true;
+}
+
+async function cargarEliminadas() {
+  try {
+    const r = await fetch("/api/actividades/eliminadas");
+    ELIMINADAS = await r.json();
+  } catch(e) { ELIMINADAS = []; }
+  renderEliminadas();
+}
+
+function renderEliminadas() {
+  const filtro = ($("#elim-buscar").value || "").toLowerCase();
+  const lista = filtro ? ELIMINADAS.filter(a =>
+    (a.codigo||"").toLowerCase().includes(filtro) ||
+    (a.partida||"").toLowerCase().includes(filtro) ||
+    (a.proveedor||"").toLowerCase().includes(filtro) ||
+    (a.departamento||"").toLowerCase().includes(filtro) ||
+    (a.bloque||"").toLowerCase().includes(filtro) ||
+    (a.area||"").toLowerCase().includes(filtro)
+  ) : ELIMINADAS;
+
+  $("#elim-vacio").hidden = lista.length > 0;
+
+  if (!lista.length) {
+    $("#elim-lista").innerHTML = "";
+    return;
+  }
+
+  let html = `<table style="width:100%;border-collapse:collapse;font-size:13px">
+    <thead><tr style="background:#f8fafc;border-bottom:2px solid #e2e5ea">
+      <th style="padding:8px;text-align:left;font-size:11px;color:#6b7280">CÓDIGO</th>
+      <th style="padding:8px;text-align:left;font-size:11px;color:#6b7280">BLOQUE</th>
+      <th style="padding:8px;text-align:left;font-size:11px;color:#6b7280">ÁREA</th>
+      <th style="padding:8px;text-align:left;font-size:11px;color:#6b7280">PARTIDA</th>
+      <th style="padding:8px;text-align:left;font-size:11px;color:#6b7280">PROVEEDOR</th>
+      <th style="padding:8px;text-align:left;font-size:11px;color:#6b7280">ELIMINADA</th>
+      <th style="padding:8px;text-align:left;font-size:11px;color:#6b7280">POR</th>
+      <th style="padding:8px"></th>
+    </tr></thead><tbody>`;
+
+  for (const a of lista) {
+    const resp = a.proveedor || a.departamento || "—";
+    html += `<tr style="border-bottom:1px solid #f1f5f9">
+      <td style="padding:8px;font-family:monospace;font-size:12px">${a.codigo||""}</td>
+      <td style="padding:8px">${a.bloque||"—"}</td>
+      <td style="padding:8px">${a.area||"—"}</td>
+      <td style="padding:8px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.partida||""}</td>
+      <td style="padding:8px">${resp}</td>
+      <td style="padding:8px;font-size:12px;color:#6b7280">${a.eliminada_fecha||"—"}</td>
+      <td style="padding:8px;font-size:12px;color:#6b7280">${a.eliminada_por||"—"}</td>
+      <td style="padding:8px"><button onclick="restaurarAct(${a.id})" style="background:#1E7B4B;color:#fff;border:none;padding:6px 12px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer">↩ Restaurar</button></td>
+    </tr>`;
+  }
+  html += "</tbody></table>";
+  $("#elim-lista").innerHTML = html;
+}
+
+window.restaurarAct = async (id) => {
+  if (!confirm("¿Restaurar esta actividad? Volverá a aparecer en la tabla principal.")) return;
+  const r = await fetch(`/api/actividad/${id}/restaurar`, { method: "POST", headers: {"Content-Type":"application/json"}, body: "{}" });
+  const d = await r.json();
+  if (d.ok) {
+    toast("Actividad restaurada ✓");
+    await cargarEliminadas();
+    await cargarTodo();
+  }
+};
+
+$("#elim-buscar").addEventListener("input", renderEliminadas);
