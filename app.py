@@ -404,6 +404,14 @@ def init_db():
     # todas arrancan SIN reconocer: el proveedor tiene que aceptarlas sí o sí
     con.execute("UPDATE actividades SET reconocida='NO' WHERE reconocida IS NULL")
 
+    # borrado suave: columna eliminada
+    if "eliminada" not in cols:
+        con.execute("ALTER TABLE actividades ADD COLUMN eliminada INTEGER DEFAULT 0")
+    if "eliminada_por" not in cols:
+        con.execute("ALTER TABLE actividades ADD COLUMN eliminada_por TEXT")
+    if "eliminada_fecha" not in cols:
+        con.execute("ALTER TABLE actividades ADD COLUMN eliminada_fecha TEXT")
+
     # historial: columna 'quien' si falta
     hcols = [r[1] for r in con.execute("PRAGMA table_info(historial)").fetchall()]
     if "quien" not in hcols:
@@ -755,7 +763,7 @@ def expediente_page():
 def api_actividades():
     db = get_db()
     q = "SELECT * FROM actividades"
-    cond = []
+    cond = ["(eliminada IS NULL OR eliminada=0)"]
     args = []
     bloque = request.args.get("bloque")
     area = request.args.get("area")
@@ -912,7 +920,8 @@ def api_crear():
 @requiere_admin
 def api_borrar(aid):
     db = get_db()
-    db.execute("DELETE FROM actividades WHERE id=?", (aid,))
+    db.execute("UPDATE actividades SET eliminada=1, eliminada_por=?, eliminada_fecha=? WHERE id=?",
+               (session.get("usuario", "admin"), datetime.date.today().isoformat(), aid))
     db.commit()
     return jsonify({"ok": True})
 
@@ -926,12 +935,34 @@ def api_borrar_multiple():
     if not ids:
         return jsonify({"error": "sin ids"}), 400
     marcas = ",".join("?" * len(ids))
-    db.execute(f"DELETE FROM actividades WHERE id IN ({marcas})", ids)
+    quien = session.get("usuario", "admin")
+    fecha = datetime.date.today().isoformat()
+    db.execute(f"UPDATE actividades SET eliminada=1, eliminada_por=?, eliminada_fecha=? WHERE id IN ({marcas})",
+               [quien, fecha] + ids)
     db.commit()
     return jsonify({"ok": True, "borradas": len(ids)})
 
 
 # ----------------------------------------------------------------------------
+@app.route("/api/actividades/eliminadas")
+@requiere_admin
+def api_eliminadas():
+    db = get_db()
+    rows = db.execute(
+        "SELECT * FROM actividades WHERE eliminada=1 ORDER BY eliminada_fecha DESC"
+    ).fetchall()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route("/api/actividad/<int:aid>/restaurar", methods=["POST"])
+@requiere_admin
+def api_restaurar(aid):
+    db = get_db()
+    db.execute("UPDATE actividades SET eliminada=0, eliminada_por=NULL, eliminada_fecha=NULL WHERE id=?", (aid,))
+    db.commit()
+    return jsonify({"ok": True})
+
+
 # API — Catálogos y resumen
 # ----------------------------------------------------------------------------
 @app.route("/api/catalogos")
@@ -2197,6 +2228,7 @@ def api_portal_mis():
     rows = db.execute(
         f"SELECT * FROM actividades WHERE {col}=? AND (mundo=? OR (mundo IS NULL AND ?='obra')) "
         "AND (reconocida IS NULL OR reconocida<>'RECHAZADA') "
+        "AND (eliminada IS NULL OR eliminada=0) "
         "ORDER BY estado_val DESC, area, id",
         (proveedor, mundo, mundo)).fetchall()
     
@@ -2381,10 +2413,10 @@ def api_val_atencion():
     """Actividades que necesitan tu atención: rechazadas y las que un proveedor no reconoce."""
     db = get_db()
     rechazadas = db.execute(
-        "SELECT * FROM actividades WHERE estado_val='rechazada' OR avance_decl_rechazado=1 ORDER BY proveedor, actualizado DESC").fetchall()
+        "SELECT * FROM actividades WHERE (estado_val='rechazada' OR avance_decl_rechazado=1) AND (eliminada IS NULL OR eliminada=0) ORDER BY proveedor, actualizado DESC").fetchall()
     no_recon = db.execute(
         "SELECT * FROM actividades WHERE no_reconocida_nota IS NOT NULL AND no_reconocida_nota<>'' "
-        "AND reconocida<>'SÍ' ORDER BY proveedor, actualizado DESC").fetchall()
+        "AND reconocida<>'SÍ' AND (eliminada IS NULL OR eliminada=0) ORDER BY proveedor, actualizado DESC").fetchall()
     return jsonify({
         "rechazadas": [dict(r) for r in rechazadas],
         "no_reconocidas": [dict(r) for r in no_recon],
@@ -2420,11 +2452,11 @@ def api_val_limpiar_noreco(aid):
 def api_val_pendientes():
     db = get_db()
     props = db.execute(
-        "SELECT * FROM actividades WHERE estado_val='propuesta' ORDER BY proveedor, actualizado DESC").fetchall()
+        "SELECT * FROM actividades WHERE estado_val='propuesta' AND (eliminada IS NULL OR eliminada=0) ORDER BY proveedor, actualizado DESC").fetchall()
     # partidas oficiales con avance declarado distinto al validado
     decl = db.execute(
         "SELECT * FROM actividades WHERE origen='oficial' AND avance_decl IS NOT NULL "
-        "AND avance_decl <> avance ORDER BY proveedor, actualizado DESC").fetchall()
+        "AND avance_decl <> avance AND (eliminada IS NULL OR eliminada=0) ORDER BY proveedor, actualizado DESC").fetchall()
     return jsonify({
         "propuestas": [dict(r) for r in props],
         "avances": [dict(r) for r in decl],
@@ -2907,9 +2939,9 @@ def api_seguimiento():
 
     # Todos los responsables (proveedores + departamentos)
     nombres = set()
-    for r in db.execute("SELECT DISTINCT proveedor FROM actividades WHERE proveedor IS NOT NULL AND proveedor<>''"):
+    for r in db.execute("SELECT DISTINCT proveedor FROM actividades WHERE proveedor IS NOT NULL AND proveedor<>'' AND (eliminada IS NULL OR eliminada=0)"):
         nombres.add((r[0], "obra"))
-    for r in db.execute("SELECT DISTINCT departamento FROM actividades WHERE departamento IS NOT NULL AND departamento<>''"):
+    for r in db.execute("SELECT DISTINCT departamento FROM actividades WHERE departamento IS NOT NULL AND departamento<>'' AND (eliminada IS NULL OR eliminada=0)"):
         nombres.add((r[0], "interno"))
 
     prov_info = {}
@@ -2930,7 +2962,7 @@ def api_seguimiento():
 
     for nombre, mundo in sorted(nombres, key=lambda x: x[0].lower()):
         col = "departamento" if mundo == "interno" else "proveedor"
-        acts = db.execute(f"SELECT * FROM actividades WHERE {col}=?", (nombre,)).fetchall()
+        acts = db.execute(f"SELECT * FROM actividades WHERE {col}=? AND (eliminada IS NULL OR eliminada=0)", (nombre,)).fetchall()
         if not acts:
             continue
 
