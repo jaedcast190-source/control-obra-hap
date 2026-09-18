@@ -30,6 +30,7 @@
     <a href="/reporte" class="btn-reporte perm-admin">Reporte para dirección →</a>
     <button id="btn-cambiar-clave-admin" class="btn-reporte btn-reportes-sec" type="button">🔑 Mi contraseña</button>
     <button id="btn-respaldo-rapido" class="btn-reporte btn-reportes-sec perm-admin" type="button">💾 Respaldo</button>
+    <button id="btn-ver-eliminadas" class="btn-reporte btn-reportes-sec perm-admin" type="button">🗑️ Eliminadas</button>
     <button id="btn-salir-admin" class="btn-reporte" type="button">Salir</button>
   </div>
 </header>
@@ -329,6 +330,23 @@
     <button class="btn-sec" id="masiva-cancelar">Cancelar</button>
     <a href="/api/plantilla_carga_masiva" class="btn-sec" download>⬇ Descargar plantilla</a>
     <button class="btn-pri" id="masiva-subir" disabled>Subir actividades</button>
+  </div>
+</div>
+
+<!-- Modal: Actividades eliminadas -->
+<div class="overlay" id="overlay-elim" hidden></div>
+<div class="panel" id="panel-elim" hidden style="width:min(700px,96vw)">
+  <div class="panel-cab">
+    <h2>🗑️ Actividades eliminadas</h2>
+    <button class="cerrar" id="btn-cerrar-elim">✕</button>
+  </div>
+  <div class="panel-cuerpo" id="panel-elim-cuerpo">
+    <p style="color:#64748b;font-size:13px;margin-bottom:12px">Actividades que se eliminaron. Puedes restaurarlas si fue un error.</p>
+    <div id="elim-buscador" style="margin-bottom:10px">
+      <input type="search" id="elim-buscar" placeholder="Buscar por código, partida, proveedor…" style="width:100%;padding:8px 12px;border:1px solid #e2e5ea;border-radius:8px;font-size:13px">
+    </div>
+    <div id="elim-lista"></div>
+    <p id="elim-vacio" hidden style="text-align:center;color:#94a3b8;padding:20px">No hay actividades eliminadas.</p>
   </div>
 </div>
 
