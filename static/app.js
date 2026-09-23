@@ -90,6 +90,43 @@ function llenarDatalist(sel, items) {
   $(sel).innerHTML = items.map((i) => `<option value="${escapa(i)}">`).join("");
 }
 
+// Actualiza el panel de editar (datalist de Responsable + opciones de Tipo)
+// según el mundo elegido AHÍ MISMO en el select "#e-mundo" — que puede ser
+// distinto a la pestaña activa, cuando el admin está moviendo una actividad
+// mal clasificada de Obra a Interno o viceversa (ej. "Compras HAP").
+async function actualizarPanelSegunMundo(mundo) {
+  const interno = mundo === "interno";
+  if ($("#e-proveedor")) $("#e-proveedor").placeholder = interno ? "ej. Biomédica, Sistemas…" : "ej. CEBSA, Longoria…";
+  const tipoBuscado = interno ? "Interno" : "Externo";
+  const deFicha = DIRECTORIO.filter(p => (p.tipo || "Externo") === tipoBuscado).map(p => p.nombre);
+  const deHistorial = interno ? (CATALOGOS.departamentos || []) : (CATALOGOS.proveedores || []);
+  const lista = [...new Set([...deFicha, ...deHistorial])].filter(Boolean).sort((a, b) => a.localeCompare(b));
+  llenarDatalist("#dl-proveedor-e", lista);
+
+  const selTipo = $("#e-tipo-partida");
+  if (selTipo && selTipo.tagName === "SELECT") {
+    if (interno) {
+      if (!TIPOS_INTERNOS.length) {
+        try { TIPOS_INTERNOS = await (await fetch("/api/tipos_internos")).json(); } catch (e) { TIPOS_INTERNOS = []; }
+      }
+      selTipo.innerHTML = '<option value="">—</option>' + TIPOS_INTERNOS.map(t => `<option>${t}</option>`).join("");
+      if ($("#lbl-tipo-partida")) $("#lbl-tipo-partida").textContent = "Tipo de trabajo";
+    } else {
+      selTipo.innerHTML = `<option value="">—</option><option>Construcción</option><option>Mobiliario y equipo</option><option>Puesta en marcha</option><option>Detalles finales</option>`;
+      if ($("#lbl-tipo-partida")) $("#lbl-tipo-partida").textContent = "Tipo de partida";
+    }
+  }
+}
+if ($("#e-mundo") && $("#e-mundo").tagName === "SELECT") {
+  $("#e-mundo").addEventListener("change", async () => {
+    const nuevoMundo = $("#e-mundo").value;
+    await actualizarPanelSegunMundo(nuevoMundo);
+    $("#e-proveedor").value = "";
+    $("#e-tipo-partida").value = "";
+    toast("Elige el responsable y el tipo para " + (nuevoMundo === "interno" ? "Interno" : "Obra"));
+  });
+}
+
 // Reduce las opciones de área y responsable según lo que ya esté filtrado
 function respDe(a) { return (MUNDO === "interno" ? a.departamento : a.proveedor) || ""; }
 function refrescarListasDependientes() {
@@ -154,6 +191,7 @@ function render() {
   if (!TODAS.length) {
     cont.innerHTML = "";
     $("#vacio").hidden = false;
+    renderResumenCategoria();
     return;
   }
   $("#vacio").hidden = true;
@@ -191,7 +229,55 @@ function render() {
   }).join("");
 
   enlazarFilas();
+  renderResumenCategoria();
 }
+
+// ====== Resumen de avance por categoría (Bloque/Área/Especialidad/Responsable/Tipo) ======
+// Se calcula sobre lo que hay AHORA MISMO en TODAS: ya respeta la pestaña
+// Obra/Interno y cualquier filtro que tengas puesto (mismo criterio que las
+// tarjetas de arriba, que también usan promedio simple de "avance").
+function claveResumen(a, campo) {
+  if (campo === "responsable") return respDe(a) || "— Sin responsable —";
+  return (a[campo] || "").trim() || "— Sin dato —";
+}
+
+function renderResumenCategoria() {
+  const panel = $("#panel-resumen-cat");
+  if (!panel || panel.hidden) return;
+  const cont = $("#resumen-cat-lista");
+  if (!TODAS.length) { cont.innerHTML = `<p class="vacio">No hay actividades que coincidan con el filtro.</p>`; return; }
+  const campo = $("#resumen-agrupar").value || "bloque";
+  const grupos = new Map();
+  TODAS.forEach((a) => {
+    const k = claveResumen(a, campo);
+    if (!grupos.has(k)) grupos.set(k, []);
+    grupos.get(k).push(a);
+  });
+  const filas = [...grupos.entries()].map(([nombre, acts]) => {
+    const n = acts.length;
+    const avg = Math.round(acts.reduce((s, a) => s + (a.avance || 0), 0) / n);
+    return { nombre, n, avg };
+  }).sort((a, b) => a.avg - b.avg || b.n - a.n);
+
+  cont.innerHTML = filas.map((f) => {
+    const color = f.avg < 40 ? "var(--rojo)" : (f.avg < 75 ? "var(--naranja)" : "var(--verde)");
+    return `<div class="rc-fila">
+      <div class="rc-nombre">${escapa(f.nombre)}<small>${f.n} ${f.n === 1 ? "actividad" : "actividades"}</small></div>
+      <div class="rc-barra"><div class="rc-barra-fill" style="width:${f.avg}%;background:${color}"></div></div>
+      <div class="rc-pct" style="color:${color}">${f.avg}%</div>
+    </div>`;
+  }).join("");
+}
+
+const btnResumenCat = $("#btn-resumen-cat");
+if (btnResumenCat) btnResumenCat.addEventListener("click", () => {
+  const panel = $("#panel-resumen-cat");
+  panel.hidden = !panel.hidden;
+  btnResumenCat.textContent = panel.hidden ? "📊 Ver avance por categoría" : "📊 Ocultar avance por categoría";
+  if (!panel.hidden) renderResumenCategoria();
+});
+const selResumenAgrupar = $("#resumen-agrupar");
+if (selResumenAgrupar) selResumenAgrupar.addEventListener("change", renderResumenCategoria);
 
 function filaHtml(a, hoy) {
   const av = a.avance || 0;
@@ -311,21 +397,24 @@ function escapa(s) {
 }
 
 // ====== Panel de edición ======
-function abrirPanel(id) {
+async function abrirPanel(id) {
   const a = TODAS.find((x) => x.id == id);
   if (!a) return;
   $("#panel-titulo").textContent = "Editar · " + (a.codigo || "actividad");
   $("#e-id").value = a.id;
+  const mundoAct = a.mundo || "obra";
+  if ($("#e-mundo") && $("#e-mundo").tagName === "SELECT") $("#e-mundo").value = mundoAct;
+  await actualizarPanelSegunMundo(mundoAct);
   $("#e-bloque").value = a.bloque || "";
   filtrarAreasPorBloque();
   $("#e-area").value = a.area || "";
   $("#e-giro").value = a.giro || "";
-  $("#e-proveedor").value = a.proveedor || "";
+  $("#e-proveedor").value = (mundoAct === "interno" ? a.departamento : a.proveedor) || "";
   $("#e-partida").value = a.partida || "";
   $("#e-tipo-partida").value = a.tipo_partida || "";
   // Si el valor no está entre las opciones del dropdown, agregarlo
   const selTipoP = $("#e-tipo-partida");
-  if (selTipoP.value !== (a.tipo_partida || "")) {
+  if (selTipoP.value !== (a.tipo_partida || "") && a.tipo_partida) {
     const opt = document.createElement("option");
     opt.value = a.tipo_partida;
     opt.textContent = a.tipo_partida;
@@ -368,10 +457,12 @@ function abrirPanel(id) {
   mostrarPanel();
 }
 
-function nuevaActividad() {
+async function nuevaActividad() {
   $("#panel-titulo").textContent = "Nueva actividad";
   ["e-id", "e-area", "e-bloque", "e-giro", "e-proveedor", "e-partida", "e-inicio", "e-fin", "e-duracion", "e-notas", "e-causa", "e-nota-prov"]
     .forEach((i) => ($("#" + i).value = ""));
+  if ($("#e-mundo") && $("#e-mundo").tagName === "SELECT") $("#e-mundo").value = MUNDO;
+  await actualizarPanelSegunMundo(MUNDO);
   $("#causa-sello").hidden = true;
   $("#e-aplica").value = "SÍ";
   $("#e-avance").value = 0;
@@ -475,7 +566,8 @@ window.addEventListener("popstate", () => {
 
 async function guardar() {
   const id = $("#e-id").value;
-  const interno = MUNDO === "interno";
+  const mundoPanel = ($("#e-mundo") && $("#e-mundo").tagName === "SELECT") ? $("#e-mundo").value : MUNDO;
+  const interno = mundoPanel === "interno";
   const nuevoAvance = parseInt($("#e-avance").value || 0);
   let notasFinal = $("#e-notas").value || "";
   // si el admin ajustó el % de avance, dejamos constancia con fecha, en Notas
@@ -488,7 +580,7 @@ async function guardar() {
   }
   const cuerpo = {
     area: $("#e-area").value, bloque: $("#e-bloque").value, giro: $("#e-giro").value,
-    proveedor: $("#e-proveedor").value, partida: $("#e-partida").value,
+    partida: $("#e-partida").value,
     tipo_partida: $("#e-tipo-partida").value, definido: $("#e-definido").value,
     aplica: $("#e-aplica").value, avance: nuevoAvance,
     f_inicio: $("#e-inicio").value || null, f_fin: $("#e-fin").value || null,
@@ -496,14 +588,20 @@ async function guardar() {
     depende_de: $("#e-depende").value || null, notas: notasFinal,
     causa_retraso: $("#e-causa").value || null,
     nota_proveedor: $("#e-nota-prov").value || null,
-    mundo: MUNDO,
+    mundo: mundoPanel,
     requiere_pruebas: $("#e-requiere-pruebas").checked ? "SÍ" : "NO",
     valida_depto: $("#e-requiere-pruebas").checked ? ($("#e-valida-depto").value.trim() || null) : null,
   };
-  // en interno, lo que se teclea en "proveedor" es el departamento; y el tipo va a tipo_interno
+  // en interno, lo que se teclea en "Responsable" es el departamento; en obra, es el proveedor.
+  // se limpia el campo del otro mundo para no dejar basura si la actividad se mueve de uno a otro.
   if (interno) {
     cuerpo.departamento = $("#e-proveedor").value;
+    cuerpo.proveedor = null;
     cuerpo.tipo_interno = $("#e-tipo-partida").value;
+  } else {
+    cuerpo.proveedor = $("#e-proveedor").value;
+    cuerpo.departamento = null;
+    cuerpo.tipo_interno = null;
   }
   let url = "/api/actividad", metodo = "POST";
   if (id) { url = "/api/actividad/" + id; metodo = "PUT"; }
@@ -512,7 +610,11 @@ async function guardar() {
     body: JSON.stringify(cuerpo),
   });
   ocultarPanel();
-  toast(id ? "Actividad actualizada" : "Actividad creada");
+  if (id && mundoPanel !== MUNDO) {
+    toast(`Movida a ${interno ? "Interno" : "Obra"} — cambia de pestaña para verla`);
+  } else {
+    toast(id ? "Actividad actualizada" : "Actividad creada");
+  }
   await cargarResumen();
   await cargarActividades();
 }
@@ -638,16 +740,28 @@ $("#duplicar-act").addEventListener("click", async () => {
   const id = $("#e-id").value;
   if (!id) return;
   if (!confirm("Se creará una copia de esta actividad con un nuevo código. ¿Continuar?")) return;
+  const mundoPanel = ($("#e-mundo") && $("#e-mundo").tagName === "SELECT") ? $("#e-mundo").value : MUNDO;
+  const interno = mundoPanel === "interno";
   const cuerpo = {
     area: $("#e-area").value, bloque: $("#e-bloque").value, giro: $("#e-giro").value,
-    proveedor: $("#e-proveedor").value, partida: $("#e-partida").value,
+    partida: $("#e-partida").value,
     tipo_partida: $("#e-tipo-partida").value, definido: $("#e-definido").value,
     aplica: $("#e-aplica").value, avance: 0,
     f_inicio: $("#e-inicio").value || null, f_fin: $("#e-fin").value || null,
     duracion_dias: $("#e-duracion").value || null, estatus: "Pendiente",
     depende_de: null, notas: "Duplicada de " + (TODAS.find(a => a.id == id)?.codigo || id),
-    causa_retraso: null, nota_proveedor: null, mundo: MUNDO,
+    causa_retraso: null, nota_proveedor: null, mundo: mundoPanel,
+    requiere_pruebas: $("#e-requiere-pruebas").checked ? "SÍ" : "NO",
+    valida_depto: $("#e-requiere-pruebas").checked ? ($("#e-valida-depto").value.trim() || null) : null,
   };
+  if (interno) {
+    cuerpo.departamento = $("#e-proveedor").value;
+    cuerpo.proveedor = null;
+    cuerpo.tipo_interno = $("#e-tipo-partida").value;
+  } else {
+    cuerpo.proveedor = $("#e-proveedor").value;
+    cuerpo.departamento = null;
+  }
   const r = await fetch("/api/actividad", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cuerpo) });
   const d = await r.json();
   if (d.id) {
