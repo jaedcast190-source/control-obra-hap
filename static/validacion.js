@@ -103,12 +103,14 @@ function renderAvances() {
           <th>Oficial</th><th>Reportado</th><th>De dónde</th><th></th>
         </tr></thead><tbody>`;
     for (const a of acts) {
+      const pruebasBadge = a.requiere_pruebas === "SÍ"
+        ? `<span class="badge-pruebas" title="Requiere pruebas de funcionamiento — valida: ${esc(a.valida_depto||'sin asignar')}">🧪 Pruebas</span>` : "";
       html += `<tr data-id="${a.id}" class="fila-click" data-ver-act='${JSON.stringify(a.id)}'>
         <td><b>${esc(getResponsable(a))}</b></td>
         <td class="mono">${esc(a.codigo||"")}</td>
         <td>${esc(a.bloque||"")}</td>
         <td>${esc(a.area||"")}</td>
-        <td class="v-part">${esc(a.partida||"")}</td>
+        <td class="v-part">${esc(a.partida||"")} ${pruebasBadge}</td>
         <td class="v-cen">${a.avance||0}%</td>
         <td class="v-cen v-nuevo">${a.avance_decl}%</td>
         <td>${DEDONDE[a.definido_por]||"—"}</td>
@@ -178,12 +180,14 @@ function renderPropuestas() {
         </tr></thead><tbody>`;
     for (const a of acts) {
       const fueraBadge = a.fuera_zona ? `<span class="badge-fuera-zona">⚠️ FUERA DE ZONA</span>` : "";
+      const pruebasBadge = a.requiere_pruebas === "SÍ"
+        ? `<span class="badge-pruebas" title="Requiere pruebas de funcionamiento — valida: ${esc(a.valida_depto||'sin asignar')}">🧪 Pruebas</span>` : "";
       const filaClase = a.fuera_zona ? `fila-fuera-zona` : "";
       html += `<tr data-id="${a.id}" class="${filaClase} fila-click" data-ver-act='${JSON.stringify(a.id)}'>
         <td class="mono">${esc(a.codigo||"")} ${fueraBadge}</td>
         <td>${esc(a.bloque||"—")}</td>
         <td>${esc(a.area||"—")}</td>
-        <td class="v-part">${esc(a.partida||"")}</td>
+        <td class="v-part">${esc(a.partida||"")} ${pruebasBadge}</td>
         <td class="v-cen">${a.avance_decl||0}%</td>
         <td>${DEDONDE[a.definido_por]||"—"}</td>
         <td class="v-coment">${esc(a.nota_proveedor||"")}</td>
@@ -618,8 +622,11 @@ $("#btn-guardar-editar").onclick = async () => {
 };
 
 async function firmar(id) {
+  const act = [...AVANCES, ...PROPUESTAS].find(a => a.id == id);
+  const avResultante = act ? (act.avance_decl != null ? act.avance_decl : act.avance) : 0;
+  const conPruebas = act && avResultante >= 100 && act.requiere_pruebas === "SÍ" && (act.valida_depto || "").trim();
   await fetch("/api/validacion/aprobar/" + id, { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" });
-  toast("Firmado ✓");
+  toast(conPruebas ? `Firmado ✓ — se creó la tarea de validación para ${act.valida_depto}` : "Firmado ✓");
   await cargar();
 }
 
