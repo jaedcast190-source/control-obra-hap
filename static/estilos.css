@@ -398,3 +398,10 @@ body.mundo-interno .logo{background:#7a4fb0}
   .barra-der .btn-reporte{flex:1 1 calc(50% - 4px);font-size:11px;padding:9px 3px}
   .h-kpis{grid-template-columns:1fr}
 }
+
+/* Pruebas de funcionamiento / revisión y entrega (validada por interno) */
+.campo-pruebas{background:#FEF9EC;border:1px solid #F0DFA8;border-radius:9px;padding:10px 12px}
+.lbl-check{display:flex;align-items:flex-start;gap:8px;font-weight:600;cursor:pointer}
+.lbl-check input[type="checkbox"]{margin-top:3px;flex-shrink:0}
+.ayuda-inline{display:block;font-weight:400;font-size:12px;color:#8a7440;margin-top:2px}
+.badge-pruebas{display:inline-flex;align-items:center;gap:4px;background:#FEF3C7;color:#92400E;border:1px solid #F0DFA8;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:800;letter-spacing:.2px;white-space:nowrap;margin-left:6px}
