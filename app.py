@@ -32,6 +32,7 @@ Luego abre en tu navegador:  http://localhost:5000
 """
 
 import os
+import re
 import sqlite3
 import datetime
 import json
@@ -579,12 +580,16 @@ def crear_validacion_interna_si_aplica(db, actividad_id):
         return
     ahora = datetime.datetime.now().isoformat(timespec="seconds")
     partida_val = "Validar: " + (a["partida"] or a["codigo"] or f"actividad #{actividad_id}")
+    # Mismo consecutivo que la actividad original, con sufijo "-V" (ej. ACT-1051 -> ACT-1051-V),
+    # para que en cualquier pantalla (portal, listas, reportes) se vea clarísimo que es
+    # la validación de esa actividad y no una actividad nueva sin relación.
+    codigo_val = (a["codigo"].strip() + "-V") if a["codigo"] else None
     db.execute(
         """INSERT INTO actividades
-        (bloque,area,giro,departamento,mundo,tipo_interno,partida,tipo_partida,aplica,avance,
+        (codigo,bloque,area,giro,departamento,mundo,tipo_interno,partida,tipo_partida,aplica,avance,
          estatus,definido,origen,estado_val,reconocida,origen_actividad_id,actualizado)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-        (a["bloque"], a["area"], a["giro"], depto, "interno", "Validación",
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (codigo_val, a["bloque"], a["area"], a["giro"], depto, "interno", "Validación",
          partida_val, "Puesta en marcha", "SÍ", 0, "Pendiente", "NO",
          "oficial", "validado", "NO", actividad_id, ahora))
     db.commit()
@@ -2931,12 +2936,16 @@ def api_carga_masiva():
     if not acts:
         return jsonify({"error": "No hay actividades para subir"}), 400
 
-    # Obtener siguiente código
-    ult = db.execute("SELECT codigo FROM actividades ORDER BY id DESC LIMIT 1").fetchone()
-    if ult:
-        num = int(ult["codigo"].replace("ACT-","").replace("PROP-","")) + 1
-    else:
-        num = 1
+    # Obtener siguiente código: se busca el número más alto entre TODOS los
+    # códigos con forma ACT-#### o PROP-####, ignorando filas sin código o con
+    # sufijo (como las tareas de validación interna, que llevan "-V" al final:
+    # ACT-1051-V). Antes se tomaba ciegamente el último registro insertado y
+    # tronaba si esa última fila era justo una de esas tareas de validación.
+    num = 1
+    for fila in db.execute("SELECT codigo FROM actividades WHERE codigo IS NOT NULL"):
+        m = re.match(r"^(?:ACT|PROP)-(\d+)$", (fila["codigo"] or "").strip())
+        if m:
+            num = max(num, int(m.group(1)) + 1)
 
     ahora = datetime.datetime.now().isoformat(timespec="seconds")
     codigos = []
