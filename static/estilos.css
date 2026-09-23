@@ -405,3 +405,21 @@ body.mundo-interno .logo{background:#7a4fb0}
 .lbl-check input[type="checkbox"]{margin-top:3px;flex-shrink:0}
 .ayuda-inline{display:block;font-weight:400;font-size:12px;color:#8a7440;margin-top:2px}
 .badge-pruebas{display:inline-flex;align-items:center;gap:4px;background:#FEF3C7;color:#92400E;border:1px solid #F0DFA8;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:800;letter-spacing:.2px;white-space:nowrap;margin-left:6px}
+
+/* Resumen de avance por categoría (Bloque/Área/Especialidad/Responsable/Tipo) */
+.resumen-cat{margin:0 14px 10px}
+.resumen-cat-cab{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:10px 0 8px}
+.resumen-cat-cab label{font-weight:600;font-size:13px}
+.resumen-cat-cab select{padding:7px 10px;border:1px solid var(--linea);border-radius:8px;font-size:13px;background:#fff}
+.resumen-cat-cab .ayuda{margin:0;flex-basis:100%}
+#panel-resumen-cat{background:var(--blanco);border:1px solid var(--linea);border-radius:10px;padding:10px 14px 14px}
+.rc-fila{display:grid;grid-template-columns:1fr 90px 60px;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--acero-claro)}
+.rc-fila:last-child{border-bottom:none}
+.rc-nombre{font-size:13.5px;font-weight:600;color:var(--tinta)}
+.rc-nombre small{display:block;font-weight:400;color:var(--gris-texto);font-size:11.5px}
+.rc-barra{height:8px;background:var(--acero-claro);border-radius:4px;overflow:hidden}
+.rc-barra-fill{height:100%;border-radius:4px}
+.rc-pct{font-size:13.5px;font-weight:800;text-align:right}
+@media (max-width: 640px){
+  .rc-fila{grid-template-columns:1fr 60px 48px;gap:6px}
+}
