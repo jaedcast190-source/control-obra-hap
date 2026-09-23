@@ -397,6 +397,17 @@ def init_db():
     for c, tipo in portal_cols.items():
         if c not in cols:
             con.execute(f"ALTER TABLE actividades ADD COLUMN {c} {tipo}")
+    # Pruebas de funcionamiento / revisión y entrega validada por interno
+    # (ej. contacto con polaridad y tierra, apagador que prenda, llave que saque agua)
+    pruebas_cols = {
+        "requiere_pruebas": "TEXT DEFAULT 'NO'",   # 'SÍ' | 'NO'
+        "valida_depto": "TEXT",                    # a quién (interno) le toca validar
+        "origen_actividad_id": "INTEGER",           # solo en la actividad de validación auto-creada: liga a la original
+    }
+    for c, tipo in pruebas_cols.items():
+        if c not in cols:
+            con.execute(f"ALTER TABLE actividades ADD COLUMN {c} {tipo}")
+    con.execute("UPDATE actividades SET requiere_pruebas='NO' WHERE requiere_pruebas IS NULL")
     con.execute("UPDATE actividades SET mundo='obra' WHERE mundo IS NULL")
     # las partidas que ya existían son oficiales y validadas
     con.execute("UPDATE actividades SET origen='oficial' WHERE origen IS NULL")
@@ -543,6 +554,40 @@ def estatus_por_avance(av):
     if av >= 100:
         return "Listo"
     return "En proceso"
+
+
+def crear_validacion_interna_si_aplica(db, actividad_id):
+    """Si la actividad llegó a 100% y tiene marcado 'requiere pruebas de
+    funcionamiento / revisión y entrega' con un departamento asignado para
+    validarla (ej. Biomédica revisa que un contacto tenga polaridad y tierra,
+    que un apagador prenda y apague, que una llave saque agua), se crea UNA
+    actividad interna ligada a ella para que ese departamento la trabaje y
+    la marque como terminada cuando de verdad ya funcione. No duplica si ya
+    existe una ligada a esta misma actividad."""
+    a = db.execute("SELECT * FROM actividades WHERE id=?", (actividad_id,)).fetchone()
+    if not a or (a["avance"] or 0) < 100:
+        return
+    if (a["requiere_pruebas"] or "NO") != "SÍ":
+        return
+    depto = (a["valida_depto"] or "").strip()
+    if not depto:
+        return
+    ya = db.execute(
+        "SELECT id FROM actividades WHERE origen_actividad_id=? AND (eliminada IS NULL OR eliminada=0)",
+        (actividad_id,)).fetchone()
+    if ya:
+        return
+    ahora = datetime.datetime.now().isoformat(timespec="seconds")
+    partida_val = "Validar: " + (a["partida"] or a["codigo"] or f"actividad #{actividad_id}")
+    db.execute(
+        """INSERT INTO actividades
+        (bloque,area,giro,departamento,mundo,tipo_interno,partida,tipo_partida,aplica,avance,
+         estatus,definido,origen,estado_val,reconocida,origen_actividad_id,actualizado)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (a["bloque"], a["area"], a["giro"], depto, "interno", "Validación",
+         partida_val, "Puesta en marcha", "SÍ", 0, "Pendiente", "NO",
+         "oficial", "validado", "NO", actividad_id, ahora))
+    db.commit()
 
 
 def dias_restantes():
@@ -774,6 +819,8 @@ def api_actividades():
     buscar = request.args.get("buscar")
     # mundo: 'obra' (default), 'interno' o 'todos'
     mundo = request.args.get("mundo", "obra")
+    # en 'interno' el responsable vive en la columna departamento, no proveedor
+    col_resp = "departamento" if mundo == "interno" else "proveedor"
     if mundo != "todos":
         cond.append("(mundo = ? OR (mundo IS NULL AND ? = 'obra'))")
         args += [mundo, mundo]
@@ -784,14 +831,14 @@ def api_actividades():
     if giro:
         cond.append("giro = ?"); args.append(giro)
     if proveedor:
-        cond.append("proveedor = ?"); args.append(proveedor)
+        cond.append(f"{col_resp} = ?"); args.append(proveedor)
     if tipo_partida:
         cond.append("tipo_partida = ?"); args.append(tipo_partida)
     if estatus:
         cond.append("estatus = ?"); args.append(estatus)
     if buscar:
         b = "%" + sin_acentos(buscar) + "%"
-        cond.append("(sinac(partida) LIKE ? OR sinac(area) LIKE ? OR sinac(proveedor) LIKE ? OR sinac(bloque) LIKE ? OR sinac(codigo) LIKE ?)")
+        cond.append(f"(sinac(partida) LIKE ? OR sinac(area) LIKE ? OR sinac({col_resp}) LIKE ? OR sinac(bloque) LIKE ? OR sinac(codigo) LIKE ?)")
         args += [b] * 5
     # por defecto no mostramos las rechazadas en la tabla principal
     if request.args.get("incluir_rechazadas") != "1":
@@ -845,7 +892,8 @@ def api_actualizar(aid):
               "f_fin", "duracion_dias", "estatus", "depende_de", "notas", "tipo",
               "area", "bloque", "tipo_partida", "definido",
               "causa_retraso", "nota_proveedor",
-              "mundo", "departamento", "tipo_interno"]
+              "mundo", "departamento", "tipo_interno",
+              "requiere_pruebas", "valida_depto"]
     # si mandan causa_retraso, sellamos quién y cuándo
     if "causa_retraso" in data and (data.get("causa_retraso") or "").strip():
         data["causa_por"] = data.get("causa_por") or "Registrado en plataforma"
@@ -883,6 +931,7 @@ def api_actualizar(aid):
     args.append(aid)
     db.execute(f"UPDATE actividades SET {','.join(updates)} WHERE id=?", args)
     db.commit()
+    crear_validacion_interna_si_aplica(db, aid)
     r = db.execute("SELECT * FROM actividades WHERE id=?", (aid,)).fetchone()
     return jsonify(dict(r))
 
@@ -896,8 +945,8 @@ def api_crear():
         """INSERT INTO actividades
         (codigo,bloque,area,giro,proveedor,partida,tipo,tipo_partida,aplica,avance,
          f_inicio,f_fin,duracion_dias,estatus,depende_de,definido,causa_retraso,notas,
-         mundo,departamento,tipo_interno,actualizado)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+         mundo,departamento,tipo_interno,requiere_pruebas,valida_depto,actualizado)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (
             data.get("codigo"), data.get("bloque"), data.get("area"),
             data.get("giro"), data.get("proveedor"), data.get("partida"),
@@ -908,10 +957,12 @@ def api_crear():
             data.get("estatus", "Pendiente"), data.get("depende_de"),
             data.get("definido", "NO"), data.get("causa_retraso"), data.get("notas"),
             data.get("mundo", "obra"), data.get("departamento"), data.get("tipo_interno"),
+            data.get("requiere_pruebas", "NO"), data.get("valida_depto"),
             datetime.datetime.now().isoformat(timespec="seconds"),
         ),
     )
     db.commit()
+    crear_validacion_interna_si_aplica(db, cur.lastrowid)
     r = db.execute("SELECT * FROM actividades WHERE id=?", (cur.lastrowid,)).fetchone()
     return jsonify(dict(r))
 
@@ -2498,6 +2549,7 @@ def api_val_aprobar(aid):
                    (av, estatus_por_avance(av),
                     datetime.datetime.now().isoformat(timespec="seconds"), aid))
     db.commit()
+    crear_validacion_interna_si_aplica(db, aid)
     return jsonify({"ok": True})
 
 
@@ -2558,6 +2610,8 @@ def api_val_aprobar_todas():
                         datetime.datetime.now().isoformat(timespec="seconds"), aid))
         n += 1
     db.commit()
+    for aid in ids:
+        crear_validacion_interna_si_aplica(db, aid)
     return jsonify({"ok": True, "aprobadas": n})
 
 
@@ -3159,8 +3213,6 @@ def api_seguimiento_whatsapp(nombre):
     return jsonify({"mensaje": msg, "nombre": nombre})
 
 
-if __name__ == "__main__":
-    print("=" * 60)
 # ──── RUTA TEMPORAL: alta masiva mármol (borrar después de usar) ────
 @app.route("/api/migrar_marmol")
 @requiere_admin
@@ -3200,6 +3252,8 @@ def migrar_marmol():
     return jsonify({"ok": True, "creadas": creadas, "total": len(creadas)})
 
 
+if __name__ == "__main__":
+    print("=" * 60)
     print("  PLATAFORMA DE CONTROL DE OBRA — HAP")
     print("  Base de datos:", DB_PATH)
     print("  Abre en tu navegador:  http://localhost:5000")
