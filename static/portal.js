@@ -129,6 +129,10 @@ function render() {
     b.addEventListener("click", () => noReconozco(b.dataset.id)));
   $$(".p-desreconocer").forEach(b =>
     b.addEventListener("click", () => desreconocer(b.dataset.id)));
+  $$(".p-valida-ok").forEach(b =>
+    b.addEventListener("click", () => marcarValidacionOk(b.dataset.id)));
+  $$(".p-valida-no").forEach(b =>
+    b.addEventListener("click", () => abrirValidacionNo(b.dataset.id)));
 }
 
 function tarjetaHtml(a) {
@@ -163,12 +167,21 @@ function tarjetaHtml(a) {
       depBadge = `<div class="p-dep-badge p-dep-liberada">🔓 ${esc(a.dep_estado)}</div>`;
     }
 
+    // Tarea de validación / pruebas de funcionamiento (interno): botones
+    // simples de Funciona / No funciona, en vez del % de avance normal.
+    const esValidacion = a.tipo_interno === "Validación";
+
     // botón según estado
     let boton = "";
     if (sinReconocer) {
       boton = `<div class="p-reco-botones">
         <button class="p-reconocer" data-id="${a.id}">✓ Sí es mi trabajo</button>
         <button class="p-norecon" data-id="${a.id}">No lo reconozco</button>
+      </div>`;
+    } else if (esValidacion) {
+      boton = `<div class="p-reco-botones">
+        <button class="p-valida-ok" data-id="${a.id}">✅ Funciona correctamente</button>
+        <button class="p-valida-no" data-id="${a.id}">❌ No funciona</button>
       </div>`;
     } else {
       boton = `<div class="p-reco-botones">
@@ -192,7 +205,7 @@ function tarjetaHtml(a) {
       <span class="p-origen-tag" hidden>${DEDONDE_MAP[a.definido_por]||""}</span>
       ${depBadge}
       ${rechazoAlerta}
-      ${sinReconocer ? "" : `<div class="p-barra"><div class="p-barra-fill" style="width:${enRevision?decl:av}%"></div></div>`}
+      ${(sinReconocer || esValidacion) ? "" : `<div class="p-barra"><div class="p-barra-fill" style="width:${enRevision?decl:av}%"></div></div>`}
       ${boton}
     </div>`;
 }
@@ -381,6 +394,61 @@ async function desreconocer(id) {
 
 function cerrarModalReco(id) {
   document.getElementById(id).classList.remove("visible");
+}
+
+// ---- Validación / pruebas de funcionamiento (interno) ----
+async function marcarValidacionOk(id) {
+  const tarjeta = document.querySelector(`[data-id="${id}"]`);
+  const card = tarjeta ? tarjeta.closest(".p-tarjeta") : null;
+  const cod = card?.querySelector(".p-cod")?.textContent || "";
+  const partida = card?.querySelector(".p-partida")?.textContent || "";
+  await fetch("/api/portal/reportar_avance/" + id, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ avance_decl: 100, nota_proveedor: "Prueba realizada: funciona correctamente" }),
+  });
+  mostrarToastExito("Validado ✓", cod, partida, true, async () => {
+    await fetch("/api/portal/reportar_avance/" + id, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ avance_decl: 0, nota_proveedor: "" }),
+    });
+    toast("Deshecho");
+    await cargar();
+  });
+  await cargar();
+}
+
+function abrirValidacionNo(id) {
+  const tarjeta = document.querySelector(`[data-id="${id}"]`);
+  const card = tarjeta ? tarjeta.closest(".p-tarjeta") : null;
+  const cod = card?.querySelector(".p-cod")?.textContent || "";
+  const partida = card?.querySelector(".p-partida")?.textContent || "";
+  const bloque = card?.querySelector(".p-bloque-tag")?.textContent || "";
+  const area = card?.querySelector(".p-area-tag")?.textContent || "";
+
+  document.getElementById("fv-partida").textContent = partida;
+  document.getElementById("fv-cod").textContent = cod;
+  document.getElementById("fv-bloque").textContent = bloque;
+  document.getElementById("fv-area").textContent = area;
+  document.getElementById("motivo-valida-no").value = "";
+  document.getElementById("motivo-valida-error").style.display = "none";
+  document.getElementById("modal-valida-no").classList.add("visible");
+  setTimeout(() => document.getElementById("motivo-valida-no").focus(), 200);
+
+  document.getElementById("btn-confirmar-valida-no").onclick = async () => {
+    const motivo = document.getElementById("motivo-valida-no").value.trim();
+    if (!motivo) {
+      document.getElementById("motivo-valida-error").style.display = "block";
+      document.getElementById("motivo-valida-no").focus();
+      return;
+    }
+    cerrarModalReco("modal-valida-no");
+    await fetch("/api/portal/reportar_avance/" + id, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ avance_decl: 0, nota_proveedor: motivo }),
+    });
+    mostrarToastExito("Se guardó el recado", cod, "Queda anotado para atenderlo", false, null);
+    await cargar();
+  };
 }
 
 // Toast éxito con cuenta regresiva
