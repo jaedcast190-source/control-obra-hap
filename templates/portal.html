@@ -250,6 +250,30 @@
   </div>
 </div>
 
+<!-- Modal: Validación — no funciona (deja el recado para que se atienda después) -->
+<div class="modal-bg" id="modal-valida-no">
+  <div class="modal-fondo-reco"></div>
+  <div class="modal-caja-reco">
+    <div class="mr-header" style="border-bottom-color:#fca5a5"><span class="mr-icono">❌</span><h3>¿Qué encontraste en la prueba?</h3><button class="cerrar" onclick="cerrarModalReco('modal-valida-no')">✕</button></div>
+    <div class="mr-ficha">
+      <div class="mr-full mr-full-rojo"><div class="mr-label" style="color:#991b1b">Partida / Actividad</div><div class="mr-valor" id="fv-partida"></div></div>
+      <div class="mr-grid">
+        <div class="mr-item"><div class="mr-label">Código</div><div class="mr-valor" id="fv-cod"></div></div>
+        <div class="mr-item"><div class="mr-label">Bloque</div><div class="mr-valor" id="fv-bloque"></div></div>
+      </div>
+      <div class="mr-grid">
+        <div class="mr-item"><div class="mr-label">Área</div><div class="mr-valor" id="fv-area"></div></div>
+      </div>
+      <div style="margin-top:8px"><div class="mr-label">Qué falló (obligatorio)</div>
+        <textarea class="mr-motivo" id="motivo-valida-no" placeholder="Ej: El contacto no tiene tierra, hay que revisar la instalación…"></textarea>
+        <div class="mr-motivo-error" id="motivo-valida-error">⚠️ Escribe qué falló para continuar</div>
+      </div>
+      <div style="padding:8px 10px;background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;font-size:12px;color:#991b1b;margin-top:8px">Esta nota queda guardada para que se atienda cuando se pueda, sin depender de quien hizo la prueba.</div>
+    </div>
+    <div class="mr-pie mr-pie-rojo"><button class="mr-cancel" onclick="cerrarModalReco('modal-valida-no')">Cancelar</button><button class="mr-confirm" id="btn-confirmar-valida-no">❌ Guardar y avisar</button></div>
+  </div>
+</div>
+
 <!-- Toast éxito con cuenta regresiva -->
 <div id="toast-exito">
   <span class="te-contador" id="te-countdown"></span>
