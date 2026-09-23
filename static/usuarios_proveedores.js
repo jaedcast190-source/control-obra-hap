@@ -3,6 +3,12 @@
 const $ = (s) => document.querySelector(s) || document.createElement("span");
 const $$ = (s) => document.querySelectorAll(s);
 let PROVS = [];
+let mundoFiltro = "obra";
+let fichaFunciones = [];
+
+function funcionesDesdeTexto(txt){
+  return String(txt||"").split(",").map(s=>s.trim()).filter(Boolean);
+}
 
 function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
 function toast(m){const t=$("#toast");t.textContent=m;t.hidden=false;setTimeout(()=>t.hidden=true,2200);}
@@ -71,7 +77,12 @@ async function cargarProveedores(){
 
 function render(){
   const q = ($("#buscar-prov").value || "").toLowerCase();
-  const lista = PROVS.filter(p => !q || p.nombre.toLowerCase().includes(q) || (p.empresa||"").toLowerCase().includes(q));
+  const lista = PROVS.filter(p => {
+    const esInterno = p.tipo === "Interno";
+    if (mundoFiltro === "interno" && !esInterno) return false;
+    if (mundoFiltro === "obra" && esInterno) return false;
+    return !q || p.nombre.toLowerCase().includes(q) || (p.empresa||"").toLowerCase().includes(q);
+  });
   const cont = $("#lista-proveedores");
   if (!lista.length){ cont.innerHTML = `<p class="vacio">Sin proveedores todavía.</p>`; return; }
   cont.innerHTML = lista.map(p => {
@@ -80,6 +91,10 @@ function render(){
     const fichaTxt = fichaLlena
       ? `${esc(p.empresa||p.nombre)}${p.contacto?' · '+esc(p.contacto):''}${p.telefono?' · '+esc(p.telefono):''}`
       : `<span class="falta">Ficha sin llenar</span>`;
+    const funciones = funcionesDesdeTexto(p.funcion);
+    const funcionTxt = funciones.length
+      ? `<div class="u-funcion-linea">${funciones.map(f=>`<span class="chip">${esc(f)}</span>`).join(" ")}</div>`
+      : "";
     const accesos = p.usuarios.map(u => {
       const activo = (u.activo===undefined||u.activo===null) ? 1 : u.activo;
       const ult = u.ultimo_login ? (" · último " + esc(String(u.ultimo_login).slice(0,10))) : "";
@@ -109,6 +124,7 @@ function render(){
         <button class="u-btn-mini" data-acc="toggleprov" data-nombre="${esc(p.nombre)}" data-activo="${p.activo}">${p.activo?'Desactivar proveedor':'Activar proveedor'}</button>
       </div>
       <div class="u-prov-meta">${p.partidas} partidas · ${p.avance||0}% avance</div>
+      ${funcionTxt}
       <div class="u-prov-ficha">${fichaTxt}</div>
       <div class="u-acceso-box">${cajaAcceso}</div>
     </div>`;
@@ -170,6 +186,15 @@ $("#np-agregar").addEventListener("click", async () => {
 
 $("#buscar-prov").addEventListener("input", render);
 
+$$(".tabs-mundo .tab-m").forEach(t => {
+  t.addEventListener("click", () => {
+    $$(".tabs-mundo .tab-m").forEach(x => x.classList.remove("activo"));
+    t.classList.add("activo");
+    mundoFiltro = t.dataset.m;
+    render();
+  });
+});
+
 /* ---------- modal: crear acceso ---------- */
 function abrirAcceso(nombreProveedor, mundo){
   $("#ac-titulo").textContent = "Crear acceso · " + nombreProveedor;
@@ -198,6 +223,38 @@ $("#btn-guardar-acceso").onclick = async () => {
 };
 
 /* ---------- modal: ficha del proveedor ---------- */
+function renderChipsFuncion(){
+  const cont = $("#f-funcion-chips");
+  cont.innerHTML = fichaFunciones.map((f, i) =>
+    `<span class="chip">${esc(f)}<button type="button" data-i="${i}" title="Quitar">×</button></span>`
+  ).join("");
+  $$("#f-funcion-chips button").forEach(b => {
+    b.onclick = () => {
+      fichaFunciones.splice(Number(b.dataset.i), 1);
+      renderChipsFuncion();
+    };
+  });
+  $("#f-funcion").value = fichaFunciones.join(", ");
+}
+
+function agregarFuncionDesdeInput(){
+  const inp = $("#f-funcion-input");
+  const v = inp.value.trim().replace(/,+$/, "").trim();
+  if (v && !fichaFunciones.some(f => f.toLowerCase() === v.toLowerCase())) {
+    fichaFunciones.push(v);
+    renderChipsFuncion();
+  }
+  inp.value = "";
+}
+
+$("#f-funcion-input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" || e.key === ",") {
+    e.preventDefault();
+    agregarFuncionDesdeInput();
+  }
+});
+$("#f-funcion-input").addEventListener("blur", agregarFuncionDesdeInput);
+
 function abrirFicha(nombre){
   const p = PROVS.find(x => x.nombre === nombre) || { nombre };
   $("#f-titulo").textContent = "Ficha · " + nombre;
@@ -205,7 +262,9 @@ function abrirFicha(nombre){
   $("#f-nombre-vis").value = nombre;
   $("#f-empresa").value = p.empresa || "";
   $("#f-tipo").value = p.tipo || "Externo";
-  $("#f-funcion").value = p.funcion || "";
+  fichaFunciones = funcionesDesdeTexto(p.funcion);
+  $("#f-funcion-input").value = "";
+  renderChipsFuncion();
   $("#f-contacto").value = p.contacto || "";
   $("#f-telefono").value = p.telefono || "";
   $("#f-correo").value = p.correo || "";
@@ -221,6 +280,7 @@ $("#f-cerrar").addEventListener("click", cerrarFicha);
 $("#f-cancelar").addEventListener("click", cerrarFicha);
 $("#overlay-f").addEventListener("click", cerrarFicha);
 $("#f-guardar").addEventListener("click", async () => {
+  agregarFuncionDesdeInput();
   const cuerpo = {
     nombre: $("#f-nombre").value, empresa: $("#f-empresa").value, tipo: $("#f-tipo").value,
     funcion: $("#f-funcion").value, contacto: $("#f-contacto").value,
