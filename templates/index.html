@@ -54,6 +54,24 @@
   <div class="kpi alerta"><span class="kpi-lbl">En riesgo (≤7 días)</span><span class="kpi-val naranja" id="kpi-riesgo">—</span></div>
 </section>
 
+<section class="resumen-cat">
+  <button type="button" id="btn-resumen-cat" class="btn-sec">📊 Ver avance por categoría</button>
+  <div id="panel-resumen-cat" hidden>
+    <div class="resumen-cat-cab">
+      <label>Agrupar por:</label>
+      <select id="resumen-agrupar">
+        <option value="bloque">Bloque</option>
+        <option value="area">Área</option>
+        <option value="giro">Especialidad</option>
+        <option value="responsable">Responsable</option>
+        <option value="tipo_partida">Tipo</option>
+      </select>
+      <span class="ayuda">Del avance de lo que ves ahora mismo en esta pestaña (con los filtros que tengas puestos), ordenado del más atrasado al más avanzado.</span>
+    </div>
+    <div id="resumen-cat-lista"></div>
+  </div>
+</section>
+
 <section class="controles">
   <input type="search" id="buscar" placeholder="Buscar partida, área o responsable…">
   <div class="filtro-combo">
@@ -128,6 +146,13 @@
         <datalist id="dl-giro-e"></datalist>
         <button type="button" class="mini-add" data-add="giro">+ Agregar especialidad</button>
       </div>
+    </div>
+    <div class="campo"><label>Mundo</label>
+      <select id="e-mundo">
+        <option value="obra">🔧 Obra (externos)</option>
+        <option value="interno">🏥 Interno (departamentos)</option>
+      </select>
+      <p class="ayuda">Si esta actividad está en la pestaña equivocada (ej. una compra de mobiliario que hace el hospital, no un proveedor externo), cámbiala aquí.</p>
     </div>
     <div class="campo"><label id="lbl-proveedor">Responsable</label>
       <input list="dl-proveedor-e" id="e-proveedor" autocomplete="off">
