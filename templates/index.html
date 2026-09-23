@@ -55,7 +55,7 @@
 </section>
 
 <section class="controles">
-  <input type="search" id="buscar" placeholder="Buscar partida, área o proveedor…">
+  <input type="search" id="buscar" placeholder="Buscar partida, área o responsable…">
   <div class="filtro-combo">
     <input list="dl-bloque" id="f-bloque" placeholder="Bloque" autocomplete="off">
     <datalist id="dl-bloque"></datalist>
@@ -69,7 +69,7 @@
     <datalist id="dl-giro"></datalist>
   </div>
   <div class="filtro-combo">
-    <input list="dl-proveedor" id="f-proveedor" placeholder="Proveedor" autocomplete="off">
+    <input list="dl-proveedor" id="f-proveedor" placeholder="Responsable" autocomplete="off">
     <datalist id="dl-proveedor"></datalist>
   </div>
   <div class="filtro-combo">
@@ -129,10 +129,10 @@
         <button type="button" class="mini-add" data-add="giro">+ Agregar especialidad</button>
       </div>
     </div>
-    <div class="campo"><label id="lbl-proveedor">Proveedor</label>
+    <div class="campo"><label id="lbl-proveedor">Responsable</label>
       <input list="dl-proveedor-e" id="e-proveedor" autocomplete="off">
       <datalist id="dl-proveedor-e"></datalist>
-      <button type="button" class="mini-add" id="btn-add-prov" data-add="proveedor">+ Agregar proveedor nuevo</button>
+      <button type="button" class="mini-add" id="btn-add-prov" data-add="proveedor">+ Agregar responsable nuevo</button>
     </div>
     <div class="campo"><label>Partida / Actividad</label><textarea id="e-partida" rows="2"></textarea></div>
     <div class="fila-2">
@@ -151,6 +151,15 @@
         <input type="number" id="e-avance" min="0" max="100" step="5">
         <p class="ayuda" id="e-avance-decl-info" hidden></p>
       </div>
+    </div>
+    <div class="campo campo-pruebas">
+      <label class="lbl-check"><input type="checkbox" id="e-requiere-pruebas"> Requiere pruebas de funcionamiento / revisión y entrega
+        <span class="ayuda-inline">(ej. contacto con polaridad y tierra, apagador que prenda y apague, llave que saque agua — lo valida alguien de adentro, no el proveedor)</span></label>
+    </div>
+    <div class="campo" id="wrap-valida-depto" hidden>
+      <label>¿Quién valida? (interno)</label>
+      <input list="dl-valida-depto" id="e-valida-depto" placeholder="ej. Biomédica, Mantenimiento…" autocomplete="off">
+      <datalist id="dl-valida-depto"></datalist>
     </div>
     <div class="campo" id="campo-nota-mod" hidden>
       <label>Nota de este cambio de avance <small style="font-weight:400;color:#8a94a3;">(por qué lo ajustaste)</small></label>
