@@ -101,6 +101,12 @@
 .p-desreconocer{background:none;border:1px solid #e5e7eb;color:#6b7280;padding:6px 12px;border-radius:8px;font-size:12px;cursor:pointer;font-weight:500}
 .p-desreconocer:hover{background:#fef2f2;border-color:#fca5a5;color:#dc2626}
 
+/* Tarjeta de validación / pruebas de funcionamiento (interno): dos botones simples en vez del formulario de % de avance */
+.p-valida-ok{flex:1;padding:10px;background:#1E7B4B;color:#fff;border:none;border-radius:9px;font-size:14px;font-weight:600;cursor:pointer}
+.p-valida-ok:hover{background:#166638}
+.p-valida-no{flex:1;padding:10px;background:#fff;color:#C62828;border:1px solid #F0B4B4;border-radius:9px;font-size:14px;font-weight:600;cursor:pointer}
+.p-valida-no:hover{background:#FDECEC}
+
 /* Modales de reconocimiento */
 .modal-bg{display:none;position:fixed;inset:0;z-index:200;align-items:center;justify-content:center;padding:16px}
 .modal-bg.visible{display:flex}
