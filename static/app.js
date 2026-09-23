@@ -1,6 +1,7 @@
 // ====== Estado ======
 let TODAS = [];
 let CATALOGOS = {};
+let DIRECTORIO = []; // ficha de proveedores/departamentos (/api/proveedores) — mismo directorio que "Usuarios y proveedores"
 let CAUSAS = [];
 let SELECCION = new Set();
 let MUNDO = "obra"; // 'obra' o 'interno'
@@ -44,9 +45,9 @@ async function cargarConteoValidacion() {
 
 async function cargarCatalogos() {
   CATALOGOS = await (await fetch("/api/catalogos")).json();
+  try { DIRECTORIO = await (await fetch("/api/proveedores")).json(); } catch (e) { DIRECTORIO = []; }
   llenarDatalist("#dl-bloque", CATALOGOS.bloques);
   llenarDatalist("#dl-area", CATALOGOS.areas);
-  llenarDatalist("#dl-proveedor", CATALOGOS.proveedores);
   llenarDatalist("#dl-giro", CATALOGOS.giros);
   llenarDatalist("#dl-tipo", CATALOGOS.tipos_partida);
   llenarDatalist("#dl-estatus", CATALOGOS.estatus);
@@ -54,8 +55,30 @@ async function cargarCatalogos() {
   llenarDatalist("#dl-bloque-e", CATALOGOS.bloques);
   llenarDatalist("#dl-area-e", CATALOGOS.areas);
   llenarDatalist("#dl-giro-e", CATALOGOS.giros);
-  llenarDatalist("#dl-proveedor-e", CATALOGOS.proveedores);
+  llenarListaResponsables();
+  llenarListaValidaDepto();
   await cargarCausas();
+}
+
+// Lista de "quién valida" (siempre departamentos internos, sin importar en qué
+// mundo estés parado — una actividad de Obra la valida alguien de Interno).
+function llenarListaValidaDepto() {
+  const deFicha = DIRECTORIO.filter(p => (p.tipo || "Externo") === "Interno").map(p => p.nombre);
+  const deHistorial = CATALOGOS.departamentos || [];
+  const lista = [...new Set([...deFicha, ...deHistorial])].filter(Boolean).sort((a, b) => a.localeCompare(b));
+  llenarDatalist("#dl-valida-depto", lista);
+}
+
+// Lista de responsables para el mundo actual (Obra=externos / Interno=departamentos):
+// junta la ficha de "Usuarios y proveedores" (mismo directorio) con los nombres que ya
+// se usaron en actividades pero todavía no tienen ficha, para no perder historial.
+function llenarListaResponsables() {
+  const tipoBuscado = MUNDO === "interno" ? "Interno" : "Externo";
+  const deFicha = DIRECTORIO.filter(p => (p.tipo || "Externo") === tipoBuscado).map(p => p.nombre);
+  const deHistorial = MUNDO === "interno" ? (CATALOGOS.departamentos || []) : (CATALOGOS.proveedores || []);
+  const lista = [...new Set([...deFicha, ...deHistorial])].filter(Boolean).sort((a, b) => a.localeCompare(b));
+  llenarDatalist("#dl-proveedor", lista);
+  llenarDatalist("#dl-proveedor-e", lista);
 }
 
 async function cargarCausas() {
@@ -67,7 +90,8 @@ function llenarDatalist(sel, items) {
   $(sel).innerHTML = items.map((i) => `<option value="${escapa(i)}">`).join("");
 }
 
-// Reduce las opciones de área y proveedor según lo que ya esté filtrado
+// Reduce las opciones de área y responsable según lo que ya esté filtrado
+function respDe(a) { return (MUNDO === "interno" ? a.departamento : a.proveedor) || ""; }
 function refrescarListasDependientes() {
   const area = $("#f-area").value.trim();
   const prov = $("#f-proveedor").value.trim();
@@ -76,15 +100,15 @@ function refrescarListasDependientes() {
   const filtra = (a) =>
     (!bloque || a.bloque === bloque) &&
     (!area || a.area === area) &&
-    (!prov || a.proveedor === prov) &&
+    (!prov || respDe(a) === prov) &&
     (!giro || a.giro === giro);
-  // áreas disponibles dado proveedor/giro/bloque (sin fijar el propio área)
+  // áreas disponibles dado responsable/giro/bloque (sin fijar el propio área)
   const areasDisp = [...new Set(TODAS.filter((a) =>
-    (!bloque || a.bloque === bloque) && (!prov || a.proveedor === prov) && (!giro || a.giro === giro)
+    (!bloque || a.bloque === bloque) && (!prov || respDe(a) === prov) && (!giro || a.giro === giro)
   ).map((a) => a.area).filter(Boolean))].sort();
   const provDisp = [...new Set(TODAS.filter((a) =>
     (!bloque || a.bloque === bloque) && (!area || a.area === area) && (!giro || a.giro === giro)
-  ).map((a) => a.proveedor).filter(Boolean))].sort();
+  ).map((a) => respDe(a)).filter(Boolean))].sort();
   if (areasDisp.length) llenarDatalist("#dl-area", areasDisp);
   if (provDisp.length) llenarDatalist("#dl-proveedor", provDisp);
 }
@@ -157,7 +181,7 @@ function render() {
       <table>
         <thead><tr>
           <th class="col-check"></th>
-          <th>Código</th><th>Área</th><th>Especialidad</th><th class="th-proveedor">Proveedor</th>
+          <th>Código</th><th>Área</th><th>Especialidad</th><th class="th-proveedor">Responsable</th>
           <th>Partida</th><th>Tipo</th><th class="col-av">Avance</th>
           <th>Depende</th><th>Fecha compromiso</th><th>Estatus</th><th></th>
         </tr></thead>
@@ -336,6 +360,9 @@ function abrirPanel(id) {
     sello.hidden = true; sello.textContent = "";
   }
   $("#e-notas").value = a.notas || "";
+  $("#e-requiere-pruebas").checked = (a.requiere_pruebas === "SÍ");
+  $("#e-valida-depto").value = a.valida_depto || "";
+  $("#wrap-valida-depto").hidden = !(a.requiere_pruebas === "SÍ");
   llenarDependencias(a.id, a.depende_de, a.bloque, a.area);
   $("#borrar-act").style.display = "inline-block";
   mostrarPanel();
@@ -357,9 +384,16 @@ function nuevaActividad() {
   $("#e-estatus").value = "Pendiente";
   filtrarAreasPorBloque();
   llenarDependencias(null, null, "", "");
+  $("#e-requiere-pruebas").checked = false;
+  $("#e-valida-depto").value = "";
+  $("#wrap-valida-depto").hidden = true;
   $("#borrar-act").style.display = "none";
   mostrarPanel();
 }
+
+$("#e-requiere-pruebas").addEventListener("change", () => {
+  $("#wrap-valida-depto").hidden = !$("#e-requiere-pruebas").checked;
+});
 
 // al cambiar bloque o área en el formulario, recalcular las dependencias posibles
 function recalcularDependencias() {
@@ -463,6 +497,8 @@ async function guardar() {
     causa_retraso: $("#e-causa").value || null,
     nota_proveedor: $("#e-nota-prov").value || null,
     mundo: MUNDO,
+    requiere_pruebas: $("#e-requiere-pruebas").checked ? "SÍ" : "NO",
+    valida_depto: $("#e-requiere-pruebas").checked ? ($("#e-valida-depto").value.trim() || null) : null,
   };
   // en interno, lo que se teclea en "proveedor" es el departamento; y el tipo va a tipo_interno
   if (interno) {
@@ -526,7 +562,7 @@ $("#btn-limpiar").addEventListener("click", () => {
   ["#f-bloque", "#f-area", "#f-proveedor", "#f-giro", "#f-tipo-partida", "#f-estatus"].forEach((s) => ($(s).value = ""));
   $("#buscar").value = "";
   llenarDatalist("#dl-area", CATALOGOS.areas);
-  llenarDatalist("#dl-proveedor", CATALOGOS.proveedores);
+  llenarListaResponsables();
   cargarActividades();
 });
 $("#btn-nueva").addEventListener("click", nuevaActividad);
@@ -534,15 +570,15 @@ $("#btn-nueva").addEventListener("click", nuevaActividad);
 let TIPOS_INTERNOS = [];
 async function adaptarInterfazMundo() {
   const interno = MUNDO === "interno";
-  const palabra = interno ? "Departamento" : "Proveedor";
+  const palabra = "Responsable"; // mismo concepto en Obra e Interno: un solo directorio, un solo filtro
   // encabezado de la tabla
   $$(".th-proveedor").forEach((th) => (th.textContent = palabra));
   // label y filtro
   if ($("#lbl-proveedor")) $("#lbl-proveedor").textContent = palabra;
   if ($("#f-proveedor")) $("#f-proveedor").placeholder = palabra;
-  if ($("#e-proveedor")) $("#e-proveedor").placeholder = interno ? "¿Qué departamento atiende?" : "";
-  if ($("#btn-add-prov")) $("#btn-add-prov").textContent = interno ? "+ Agregar departamento" : "+ Agregar proveedor nuevo";
-  if ($("#buscar")) $("#buscar").placeholder = interno ? "Buscar partida, área o departamento…" : "Buscar partida, área o proveedor…";
+  if ($("#e-proveedor")) $("#e-proveedor").placeholder = interno ? "ej. Biomédica, Sistemas…" : "ej. CEBSA, Longoria…";
+  if ($("#btn-add-prov")) $("#btn-add-prov").textContent = "+ Agregar responsable nuevo";
+  if ($("#buscar")) $("#buscar").placeholder = "Buscar partida, área o responsable…";
   // nota del proveedor -> del departamento
   if ($("#e-nota-prov")) $("#e-nota-prov").placeholder = interno
     ? "Aquí se anota lo que el departamento explica sobre el retraso"
@@ -782,13 +818,13 @@ $("#del-confirmar").addEventListener("click", ejecutarBorrado);
 let ADD_CLASE = null;
 function abrirModalAdd(clase) {
   ADD_CLASE = clase;
-  const titulos = { proveedor: "Agregar proveedor nuevo", area: "Agregar área nueva",
+  const titulos = { proveedor: "Agregar responsable nuevo", area: "Agregar área nueva",
                     bloque: "Agregar bloque nuevo", giro: "Agregar especialidad nueva",
                     causa: "Agregar causa de retraso" };
   $("#add-titulo").textContent = titulos[clase] || "Agregar";
   $("#add-nombre").value = "";
   $("#add-funcion").value = "";
-  $("#add-tipo").value = "Externo";
+  $("#add-tipo").value = (MUNDO === "interno") ? "Interno" : "Externo";
   // el tipo Interno/Externo solo aplica a proveedor
   $("#add-tipo-wrap").style.display = (clase === "proveedor") ? "flex" : "none";
   // la causa solo necesita el nombre; ocultamos la descripción
