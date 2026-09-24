@@ -56,20 +56,6 @@
 
 <section class="resumen-cat">
   <button type="button" id="btn-resumen-cat" class="btn-sec">📊 Ver avance por categoría</button>
-  <div id="panel-resumen-cat" hidden>
-    <div class="resumen-cat-cab">
-      <label>Agrupar por:</label>
-      <select id="resumen-agrupar">
-        <option value="bloque">Bloque</option>
-        <option value="area">Área</option>
-        <option value="giro">Especialidad</option>
-        <option value="responsable">Responsable</option>
-        <option value="tipo_partida">Tipo</option>
-      </select>
-      <span class="ayuda">Del avance de lo que ves ahora mismo en esta pestaña (con los filtros que tengas puestos), ordenado del más atrasado al más avanzado.</span>
-    </div>
-    <div id="resumen-cat-lista"></div>
-  </div>
 </section>
 
 <section class="controles">
@@ -224,6 +210,29 @@
     <span class="flex"></span>
     <button id="cancelar" class="btn-sec">Cancelar</button>
     <button id="guardar" class="btn-pri">Guardar</button>
+  </div>
+</aside>
+
+<!-- Panel flotante: Avance por categoría -->
+<div class="overlay" id="overlay-resumen-cat" hidden></div>
+<aside class="panel" id="panel-resumen-cat" hidden>
+  <div class="panel-cab">
+    <h2>📊 Avance por categoría</h2>
+    <button class="cerrar" id="cerrar-resumen-cat">✕</button>
+  </div>
+  <div class="panel-cuerpo">
+    <div class="resumen-cat-cab">
+      <label>Agrupar por:</label>
+      <select id="resumen-agrupar">
+        <option value="bloque">Bloque</option>
+        <option value="area">Área</option>
+        <option value="giro">Especialidad</option>
+        <option value="responsable">Responsable</option>
+        <option value="tipo_partida">Tipo</option>
+      </select>
+      <span class="ayuda">Del avance de lo que ves ahora mismo en esta pestaña (con los filtros que tengas puestos), ordenado del más atrasado al más avanzado.</span>
+    </div>
+    <div id="resumen-cat-lista"></div>
   </div>
 </aside>
 
