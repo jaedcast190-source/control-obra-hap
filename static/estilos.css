@@ -408,11 +408,10 @@ body.mundo-interno .logo{background:#7a4fb0}
 
 /* Resumen de avance por categoría (Bloque/Área/Especialidad/Responsable/Tipo) */
 .resumen-cat{margin:0 14px 10px}
-.resumen-cat-cab{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:10px 0 8px}
+.resumen-cat-cab{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 12px}
 .resumen-cat-cab label{font-weight:600;font-size:13px}
 .resumen-cat-cab select{padding:7px 10px;border:1px solid var(--linea);border-radius:8px;font-size:13px;background:#fff}
 .resumen-cat-cab .ayuda{margin:0;flex-basis:100%}
-#panel-resumen-cat{background:var(--blanco);border:1px solid var(--linea);border-radius:10px;padding:10px 14px 14px}
 .rc-fila{display:grid;grid-template-columns:1fr 90px 60px;align-items:center;gap:10px;padding:7px 0;border-bottom:1px solid var(--acero-claro)}
 .rc-fila:last-child{border-bottom:none}
 .rc-nombre{font-size:13.5px;font-weight:600;color:var(--tinta)}
