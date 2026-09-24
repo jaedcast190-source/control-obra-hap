@@ -557,6 +557,21 @@ def estatus_por_avance(av):
     return "En proceso"
 
 
+def siguiente_codigo(db):
+    """Calcula el próximo código ACT-#### disponible: busca el número más alto
+    entre TODOS los códigos con forma ACT-#### o PROP-####, ignorando filas sin
+    código o con sufijo (como las tareas de validación interna, que llevan
+    "-V" al final: ACT-1051-V). Se usa cada vez que se crea una actividad
+    (nueva o duplicada) sin un código ya definido, para que nunca quede en
+    blanco."""
+    num = 1
+    for fila in db.execute("SELECT codigo FROM actividades WHERE codigo IS NOT NULL"):
+        m = re.match(r"^(?:ACT|PROP)-(\d+)$", (fila["codigo"] or "").strip())
+        if m:
+            num = max(num, int(m.group(1)) + 1)
+    return f"ACT-{num:04d}"
+
+
 def crear_validacion_interna_si_aplica(db, actividad_id):
     """Si la actividad llegó a 100% y tiene marcado 'requiere pruebas de
     funcionamiento / revisión y entrega' con un departamento asignado para
@@ -946,6 +961,11 @@ def api_actualizar(aid):
 def api_crear():
     db = get_db()
     data = request.get_json()
+    # Si no llega un código ya definido (caso normal: "Nueva actividad" y
+    # "Duplicar" nunca lo mandan), se le asigna aquí el siguiente ACT-####
+    # disponible. Antes se guardaba lo que mandara el front (nunca nada),
+    # así que toda actividad nueva o duplicada se quedaba sin código.
+    codigo = (data.get("codigo") or "").strip() or siguiente_codigo(db)
     cur = db.execute(
         """INSERT INTO actividades
         (codigo,bloque,area,giro,proveedor,partida,tipo,tipo_partida,aplica,avance,
@@ -953,7 +973,7 @@ def api_crear():
          mundo,departamento,tipo_interno,requiere_pruebas,valida_depto,actualizado)
         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (
-            data.get("codigo"), data.get("bloque"), data.get("area"),
+            codigo, data.get("bloque"), data.get("area"),
             data.get("giro"), data.get("proveedor"), data.get("partida"),
             data.get("tipo"), data.get("tipo_partida", "Construcción"),
             data.get("aplica", "SÍ"),
@@ -2936,16 +2956,9 @@ def api_carga_masiva():
     if not acts:
         return jsonify({"error": "No hay actividades para subir"}), 400
 
-    # Obtener siguiente código: se busca el número más alto entre TODOS los
-    # códigos con forma ACT-#### o PROP-####, ignorando filas sin código o con
-    # sufijo (como las tareas de validación interna, que llevan "-V" al final:
-    # ACT-1051-V). Antes se tomaba ciegamente el último registro insertado y
-    # tronaba si esa última fila era justo una de esas tareas de validación.
-    num = 1
-    for fila in db.execute("SELECT codigo FROM actividades WHERE codigo IS NOT NULL"):
-        m = re.match(r"^(?:ACT|PROP)-(\d+)$", (fila["codigo"] or "").strip())
-        if m:
-            num = max(num, int(m.group(1)) + 1)
+    # Siguiente código disponible (misma lógica que usa la creación normal
+    # y la duplicación de actividades, ver siguiente_codigo()).
+    num = int(siguiente_codigo(db).split("-")[1])
 
     ahora = datetime.datetime.now().isoformat(timespec="seconds")
     codigos = []
