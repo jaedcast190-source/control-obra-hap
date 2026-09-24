@@ -269,13 +269,29 @@ function renderResumenCategoria() {
   }).join("");
 }
 
+function mostrarResumenCategoria() {
+  const ov = $("#overlay-resumen-cat"), pn = $("#panel-resumen-cat");
+  if (!ov || !pn) return;
+  ov.hidden = false; pn.hidden = false;
+  ov.style.display = "block";
+  pn.style.display = "flex";
+  hapProtegerHistorial();
+  renderResumenCategoria();
+}
+function ocultarResumenCategoria() {
+  const ov = $("#overlay-resumen-cat"), pn = $("#panel-resumen-cat");
+  if (!ov || !pn) return;
+  ov.hidden = true; pn.hidden = true;
+  ov.style.display = "none";
+  pn.style.display = "none";
+  hapLiberarHistorial();
+}
 const btnResumenCat = $("#btn-resumen-cat");
-if (btnResumenCat) btnResumenCat.addEventListener("click", () => {
-  const panel = $("#panel-resumen-cat");
-  panel.hidden = !panel.hidden;
-  btnResumenCat.textContent = panel.hidden ? "📊 Ver avance por categoría" : "📊 Ocultar avance por categoría";
-  if (!panel.hidden) renderResumenCategoria();
-});
+if (btnResumenCat) btnResumenCat.addEventListener("click", mostrarResumenCategoria);
+const cerrarResumenCat = $("#cerrar-resumen-cat");
+if (cerrarResumenCat) cerrarResumenCat.addEventListener("click", ocultarResumenCategoria);
+const overlayResumenCat = $("#overlay-resumen-cat");
+if (overlayResumenCat) overlayResumenCat.addEventListener("click", ocultarResumenCategoria);
 const selResumenAgrupar = $("#resumen-agrupar");
 if (selResumenAgrupar) selResumenAgrupar.addEventListener("change", renderResumenCategoria);
 
@@ -557,6 +573,8 @@ window.addEventListener("popstate", () => {
   // cierra cualquier panel/modal que esté abierto en este momento
   const ov = $("#overlay"), pn = $("#panel");
   if (pn && !pn.hidden) { ov.hidden = true; pn.hidden = true; ov.style.display = "none"; pn.style.display = "none"; }
+  const ovRC = $("#overlay-resumen-cat"), pnRC = $("#panel-resumen-cat");
+  if (pnRC && !pnRC.hidden) { ovRC.hidden = true; pnRC.hidden = true; ovRC.style.display = "none"; pnRC.style.display = "none"; }
   cerrarHistorial();
   if (typeof cerrarModalDel === "function") cerrarModalDel();
   if (typeof cerrarModalAdd === "function") cerrarModalAdd();
@@ -775,7 +793,10 @@ $("#duplicar-act").addEventListener("click", async () => {
 });
 // Tecla Escape también cierra el panel
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") ocultarPanel();
+  if (e.key !== "Escape") return;
+  const pnResumen = $("#panel-resumen-cat");
+  if (pnResumen && !pnResumen.hidden) { ocultarResumenCategoria(); return; }
+  ocultarPanel();
 });
 
 // ====== Historial de una actividad ======
