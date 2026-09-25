@@ -29,8 +29,8 @@ body{
 
 /* ---- Barra superior ---- */
 .barra{
-  display:flex;justify-content:space-between;align-items:center;
-  background:var(--tinta);color:#fff;padding:14px 24px;
+  display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;
+  background:var(--tinta);color:#fff;padding:14px 24px;row-gap:10px;
   position:sticky;top:0;z-index:50;
 }
 .barra-izq{display:flex;align-items:center;gap:16px}
@@ -40,7 +40,13 @@ body{
 }
 .barra h1{font-size:17px;font-weight:600}
 .sub{font-size:12.5px;color:#a9bdb6;margin-top:2px}
-.barra-der{display:flex;align-items:center;gap:20px}
+/* Antes esta fila de botones no envolvía: con muchos botones (Seguimiento,
+   Validación, Usuarios, Dependencias, Reportes y hojas, etc.) se salía de
+   la pantalla en PC de ventana angosta y obligaba a hacer scroll lateral.
+   Ahora, si no caben en una sola fila, bajan a una segunda fila en vez de
+   salirse — funciona igual en PC que en celular (el @media de abajo
+   además la hace más compacta en pantallas chicas). */
+.barra-der{display:flex;flex-wrap:wrap;justify-content:flex-end;align-items:center;gap:8px 12px;max-width:100%}
 .usuario-logueado{font-size:13px;color:#c8dbd2;font-weight:600;padding:4px 10px;
   background:rgba(255,255,255,.1);border-radius:6px;white-space:nowrap}
 .contador{text-align:right;display:flex;flex-direction:column;line-height:1.1}
