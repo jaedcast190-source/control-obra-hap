@@ -3274,6 +3274,76 @@ def migrar_marmol():
     return jsonify({"ok": True, "creadas": creadas, "total": len(creadas)})
 
 
+# ──── RUTA TEMPORAL: reestructura de quirófanos sept-2026 (borrar después de usar) ────
+@app.route("/api/migrar_quirofanos_reestructura")
+@requiere_admin
+def migrar_quirofanos_reestructura():
+    """La Sala 5 se dividió en dos (nueva Sala 5 y Sala 6, ambas con la
+    especialidad de la Sala 4), la Sala 6 original pasa a ser Sala 7 con la
+    especialidad que tenía la Sala 5 original, la Sala 7 original pasa a
+    Sala 8 con su misma especialidad, y la Sala 8 original pasa a Sala 9 con
+    su misma especialidad. Las salas 1-4 no se tocan.
+
+    Todo se hace RENOMBRANDO el campo 'area' de las actividades que ya
+    existen — nunca se borra ni se vuelve a crear una fila existente — así
+    que avance, estatus, proveedor, fechas y notas quedan exactamente
+    igual que estaban. Solo se insertan actividades nuevas para la Sala 6,
+    que es la única realmente nueva, copiando el catálogo (giro/partida/
+    proveedor) de la Sala 4, todas en 0% y Pendiente.
+
+    El orden de los renombres importa: se hace de la sala más alta a la más
+    baja (8→9, luego 7→8, luego 6→7, luego 5→5) para que una sala recién
+    renombrada no se vuelva a mezclar con la siguiente antes de su turno.
+    Idempotente: si ya se corrió, no hace nada de nuevo."""
+    db = get_db()
+    ya = db.execute(
+        "SELECT COUNT(*) c FROM actividades WHERE bloque='Quirófanos' AND area='Q9 (Neuro/Trauma)'"
+    ).fetchone()["c"]
+    if ya:
+        return jsonify({"error": "Ya se ejecutó esta migración (ya existe la Sala 9)"}), 400
+
+    renombres = [
+        ("Q8 (Neuro/Trauma)", "Q9 (Neuro/Trauma)"),
+        ("Q7 (Neuro/Trauma/Cardiología)", "Q8 (Neuro/Trauma/Cardiología)"),
+        ("Q6 (Urología/Laparoscopia/Gastro/Tórax/Ortopedia)", "Q7 (Oncología/Gastro/ORL/Procto/Hernia)"),
+        ("Q5 (Oncología/Gastro/ORL/Procto/Hernia)", "Q5 (Gastro/ORL/Procto/Hernia)"),
+    ]
+    resumen = {}
+    for area_vieja, area_nueva in renombres:
+        cur = db.execute(
+            "UPDATE actividades SET area=? WHERE bloque='Quirófanos' AND area=?",
+            (area_nueva, area_vieja),
+        )
+        resumen[f"{area_vieja} -> {area_nueva}"] = cur.rowcount
+    db.commit()
+
+    # Sala 6 nueva: copia del catálogo de la Sala 4 (misma especialidad), desde cero
+    plantilla = db.execute(
+        "SELECT giro,proveedor,partida,tipo,tipo_partida FROM actividades "
+        "WHERE bloque='Quirófanos' AND area='Q4 (Gastro/ORL/Procto/Hernia)' "
+        "AND (eliminada IS NULL OR eliminada=0)"
+    ).fetchall()
+    ahora = datetime.datetime.now().isoformat(timespec="seconds")
+    num = int(siguiente_codigo(db).split("-")[1])
+    nuevos_codigos = []
+    for p in plantilla:
+        cod = f"ACT-{num:04d}"
+        db.execute(
+            """INSERT INTO actividades
+            (codigo,bloque,area,giro,proveedor,partida,tipo,tipo_partida,aplica,avance,
+             estatus,definido,mundo,actualizado)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (cod, "Quirófanos", "Q6 (Gastro/ORL/Procto/Hernia)", p["giro"], p["proveedor"],
+             p["partida"], p["tipo"], p["tipo_partida"], "SÍ", 0, "Pendiente", "NO", "obra", ahora),
+        )
+        nuevos_codigos.append(cod)
+        num += 1
+    db.commit()
+    resumen["Sala 6 (nueva, copiada de Sala 4)"] = len(nuevos_codigos)
+
+    return jsonify({"ok": True, "resumen": resumen, "codigos_nuevos_sala6": nuevos_codigos})
+
+
 if __name__ == "__main__":
     print("=" * 60)
     print("  PLATAFORMA DE CONTROL DE OBRA — HAP")
