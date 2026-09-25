@@ -55,7 +55,7 @@ body{
 .contador.critico .contador-num{color:#ff8b7e}
 .btn-reporte{
   background:#f0c14b;color:var(--tinta);text-decoration:none;
-  padding:10px 16px;border-radius:5px;font-weight:600;font-size:13.5px;
+  padding:10px 16px;border-radius:20px;font-weight:600;font-size:13.5px;
   white-space:nowrap;transition:background .15s;
 }
 .btn-reporte:hover{background:#f5cf6c}
@@ -91,7 +91,7 @@ body{
 #buscar{min-width:260px;flex:0 1 300px}
 .flex{flex:1}
 .btn-pri,.btn-sec{
-  padding:8px 14px;border-radius:5px;font-size:13px;font-weight:600;
+  padding:8px 14px;border-radius:20px;font-size:13px;font-weight:600;
   cursor:pointer;border:1px solid transparent;text-decoration:none;display:inline-block;
 }
 .btn-pri{background:var(--acero);color:#fff}
@@ -194,7 +194,7 @@ body.modo-sel .col-check{display:table-cell}
 .barra-seleccion[hidden]{display:none}
 .barra-seleccion #sel-conteo{font-weight:700;color:var(--rojo)}
 .btn-borrar-sel{background:var(--rojo);color:#fff;border:none;padding:8px 14px;
-  border-radius:5px;font-size:13px;font-weight:600;cursor:pointer}
+  border-radius:20px;font-size:13px;font-weight:600;cursor:pointer}
 .btn-borrar-sel:hover{background:#8f2621}
 /* modal borrado */
 .modal-del .del-aviso{font-size:13px;color:var(--gris-texto);margin-bottom:12px}
@@ -278,7 +278,7 @@ body.modo-sel .col-check{display:table-cell}
 .panel-pie{display:flex;align-items:center;gap:10px;padding:16px 22px;
   border-top:1px solid var(--linea);flex-shrink:0}
 .btn-borrar{background:#fff;border:1px solid var(--rojo);color:var(--rojo);
-  padding:8px 14px;border-radius:5px;font-size:13px;font-weight:600;cursor:pointer}
+  padding:8px 14px;border-radius:20px;font-size:13px;font-weight:600;cursor:pointer}
 .btn-borrar:hover{background:var(--rojo-suave)}
 
 /* ---- Toast ---- */
