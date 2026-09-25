@@ -633,6 +633,12 @@ async function guardar() {
   } else {
     toast(id ? "Actividad actualizada" : "Actividad creada");
   }
+  // Si se escribió un Bloque/Área/Especialidad nuevo (que no existía antes en
+  // ningún otro registro), hay que refrescar los catálogos (datalists) para
+  // que aparezca disponible de inmediato al volver a abrir "Nueva actividad"
+  // o el panel de editar — si no, aunque el valor SÍ quedó guardado en esta
+  // actividad, no se podía volver a seleccionar hasta recargar la página.
+  await cargarCatalogos();
   await cargarResumen();
   await cargarActividades();
 }
