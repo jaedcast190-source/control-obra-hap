@@ -1637,6 +1637,89 @@ def api_resumen():
     return jsonify(_resumen_data())
 
 
+def _diagnostico_conteos_data():
+    """Explica por qué la pantalla principal (KPI 'Actividades') y la pantalla
+    de Seguimiento pueden mostrar un total distinto para el mismo mundo.
+
+    La pantalla principal (/api/resumen) solo cuenta actividades que:
+      (a) SÍ aplican (aplica <> 'NO'), y
+      (b) ya están validadas (estado_val = 'validado' o NULL) — es decir,
+          EXCLUYE las 'propuestas' que un proveedor/departamento capturó y
+          que todavía esperan que el admin las apruebe en /validacion.
+
+    La pantalla de Seguimiento (/api/seguimiento) cuenta TODAS las
+    actividades asignadas a cada proveedor/departamento (sin filtrar por
+    aplica ni por estado_val), pero SOLO las que tienen un responsable
+    (proveedor o departamento) asignado; una actividad sin responsable no
+    aparece en ningún acordeón de Seguimiento aunque sí la cuente la
+    pantalla principal.
+
+    Por eso el número no siempre coincide: no es necesariamente que "el
+    proveedor no ha aceptado el trabajo" (eso es el campo 'reconocida', que
+    ninguna de las dos pantallas usa para el total), sino la mezcla de estas
+    dos reglas de conteo distintas."""
+    db = get_db()
+    resultado = {}
+    for mundo, etiqueta, col in (("obra", "Obra (externos)", "proveedor"),
+                                  ("interno", "Interno (departamentos)", "departamento")):
+        filas = db.execute(
+            "SELECT aplica, estado_val, proveedor, departamento, reconocida FROM actividades "
+            "WHERE (eliminada IS NULL OR eliminada=0) AND (mundo=? OR (mundo IS NULL AND ?='obra'))",
+            (mundo, mundo)
+        ).fetchall()
+        total = len(filas)
+        cuenta_principal = cuenta_seguimiento = 0
+        no_aplica = propuesta_sin_validar = sin_responsable = sin_reconocer = 0
+        solo_en_seguimiento = solo_en_principal = 0
+        for f in filas:
+            es_no_aplica = (f["aplica"] == "NO")
+            es_propuesta = (f["estado_val"] == "propuesta")
+            resp = f[col]
+            tiene_resp = bool(resp and resp.strip())
+            en_principal = (not es_no_aplica) and (not es_propuesta)
+            en_segui = tiene_resp
+            if es_no_aplica:
+                no_aplica += 1
+            if es_propuesta:
+                propuesta_sin_validar += 1
+            if not tiene_resp:
+                sin_responsable += 1
+            if f["reconocida"] != "SÍ":
+                sin_reconocer += 1
+            if en_principal:
+                cuenta_principal += 1
+            if en_segui:
+                cuenta_seguimiento += 1
+            if en_segui and not en_principal:
+                solo_en_seguimiento += 1
+            if en_principal and not en_segui:
+                solo_en_principal += 1
+        resultado[mundo] = {
+            "etiqueta": etiqueta, "total": total,
+            "cuenta_pantalla_principal": cuenta_principal,
+            "cuenta_seguimiento": cuenta_seguimiento,
+            "diferencia": cuenta_seguimiento - cuenta_principal,
+            "no_aplica": no_aplica,
+            "propuesta_sin_validar": propuesta_sin_validar,
+            "sin_responsable_asignado": sin_responsable,
+            "sin_reconocer": sin_reconocer,
+            "solo_en_seguimiento": solo_en_seguimiento,
+            "solo_en_principal": solo_en_principal,
+        }
+    return resultado
+
+
+@app.route("/diagnostico")
+def diagnostico_page():
+    return render_template("diagnostico.html")
+
+
+@app.route("/api/diagnostico_conteos")
+@requiere_gestor
+def api_diagnostico_conteos():
+    return jsonify(_diagnostico_conteos_data())
+
+
 # ----------------------------------------------------------------------------
 # API — Resumen por proveedor (para el centro de reportes)
 # ----------------------------------------------------------------------------
@@ -3211,6 +3294,30 @@ def api_seguimiento_whatsapp(nombre):
     n_sin_reco = sum(1 for a in acts if a["reconocida"] != "SÍ")
     av_global = round(sum(a["avance"] or 0 for a in acts) / n_total, 1) if n_total else 0
 
+    # Lista de actividades pendientes en sí (no solo el conteo), para que el
+    # proveedor vea de un vistazo QUÉ le falta sin tener que entrar al portal.
+    # Orden de urgencia: primero las vencidas (más vieja primero), luego las
+    # que tienen fecha compromiso (más próxima primero), y al final las que
+    # no tienen fecha todavía.
+    pendientes = [a for a in acts if a["estatus"] != "Terminada" and (a["avance"] or 0) < 100]
+
+    def orden_urgencia(a):
+        vencida = bool(a["f_fin"] and a["f_fin"] < fecha_hoy)
+        return (0 if vencida else (1 if a["f_fin"] else 2), a["f_fin"] or "9999-99-99")
+    pendientes.sort(key=orden_urgencia)
+
+    TOPE_LISTA = 15  # para no mandar un WhatsApp interminable si son muchas
+    lineas_pend = []
+    for a in pendientes[:TOPE_LISTA]:
+        vencida = bool(a["f_fin"] and a["f_fin"] < fecha_hoy)
+        marca = "🔴" if vencida else "•"
+        area = a["area"] or "—"
+        partida = a["partida"] or "(sin descripción)"
+        av = a["avance"] or 0
+        fecha_txt = f" — vence {a['f_fin']}" if a["f_fin"] else ""
+        lineas_pend.append(f"{marca} {area}: {partida} ({av}%){fecha_txt}")
+    restantes = len(pendientes) - len(lineas_pend)
+
     lineas = []
     lineas.append(f"📋 *Control de Obra HAP*")
     lineas.append(f"Seguimiento y Cumplimiento")
@@ -3226,6 +3333,12 @@ def api_seguimiento_whatsapp(nombre):
     if n_sin_reco:
         lineas.append(f"• Sin reconocer: ❌ *{n_sin_reco}*")
     lineas.append(f"• Avance global: *{av_global}%*")
+    if lineas_pend:
+        lineas.append(f"")
+        lineas.append(f"📝 *Tus actividades pendientes:*")
+        lineas.extend(lineas_pend)
+        if restantes > 0:
+            lineas.append(f"…y {restantes} más — ingresa al portal para ver todas.")
     lineas.append(f"")
     lineas.append(f"Favor de ingresar a la plataforma, actualizar los avances y confirmar fechas compromiso.")
     lineas.append(f"")
