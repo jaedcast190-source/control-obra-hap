@@ -552,6 +552,18 @@ $("#ed-bloque").addEventListener("change", () => { llenarAreasSegunBloque(); lle
 $("#ed-bloque").addEventListener("input", () => { llenarAreasSegunBloque(); });
 $("#ed-area").addEventListener("change", () => llenarDependenciasEd($("#ed-id").value, $("#ed-depende").value, $("#ed-bloque").value, $("#ed-area").value));
 
+// Cambiar el Mundo aquí (antes era un campo oculto que solo cargaba el valor
+// que ya traía la actividad, sin dejar corregirlo — necesario para actividades
+// "No reconocidas"/"Rechazadas" que en realidad estaban en el mundo equivocado,
+// igual que ya se puede hacer en la pantalla principal).
+$("#ed-mundo").addEventListener("change", () => {
+  const nuevoMundo = $("#ed-mundo").value;
+  llenarProveedorSegunMundo(nuevoMundo);
+  llenarDatalist("#dl-ed-causa", nuevoMundo === "interno" ? CAUSAS_INTERNO : CAUSAS_OBRA);
+  $("#ed-proveedor").value = "";
+  toast("Elige el " + (nuevoMundo === "interno" ? "departamento" : "proveedor") + " para " + (nuevoMundo === "interno" ? "Interno" : "Obra"));
+});
+
 // mini "+ agregar" rapido
 $$('#panel-editar [data-add]').forEach(btn => {
   btn.onclick = async () => {
@@ -601,11 +613,16 @@ $("#btn-guardar-editar").onclick = async () => {
     causa_retraso: $("#ed-causa").value || null, nota_proveedor: $("#ed-nota-prov").value || null,
     mundo,
   };
+  // se limpia el campo del otro mundo para no dejar basura si la actividad
+  // se mueve de uno a otro (mismo criterio que la pantalla principal)
   if (mundo === "interno") {
     cuerpo.departamento = $("#ed-proveedor").value;
+    cuerpo.proveedor = null;
     cuerpo.tipo_interno = $("#ed-tipo-partida").value;
   } else {
     cuerpo.proveedor = $("#ed-proveedor").value;
+    cuerpo.departamento = null;
+    cuerpo.tipo_interno = null;
   }
   const r = await (await fetch("/api/actividad/" + id, {
     method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cuerpo) })).json();
