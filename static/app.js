@@ -746,11 +746,6 @@ if (btnSalirAdmin) btnSalirAdmin.addEventListener("click", async () => {
   await fetch("/api/logout", { method: "POST" });
   location.href = "/login";
 });
-$("#btn-foto").addEventListener("click", async () => {
-  if (!confirm("¿Cerrar el avance de esta semana? Se guarda cómo va la obra hoy, para poder comparar contra la próxima semana.")) return;
-  const r = await (await fetch("/api/snapshot", { method: "POST" })).json();
-  toast("Avance de la semana cerrado (" + r.partidas + " partidas) · " + r.semana);
-});
 $("#cerrar-panel").addEventListener("click", ocultarPanel);
 $("#e-bloque").addEventListener("change", () => { filtrarAreasPorBloque(); recalcularDependencias(); });
 $("#e-area").addEventListener("change", recalcularDependencias);
