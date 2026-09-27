@@ -8,6 +8,12 @@ function toast(m){const t=$("#toast");t.textContent=m;t.hidden=false;setTimeout(
 
 let CAT = {};
 
+$("#btn-foto").addEventListener("click", async () => {
+  if (!confirm("¿Cerrar el avance de esta semana? Se guarda cómo va la obra hoy, para poder comparar contra la próxima semana.")) return;
+  const r = await (await fetch("/api/snapshot", { method: "POST" })).json();
+  toast("Avance de la semana cerrado (" + r.partidas + " partidas) · " + r.semana);
+});
+
 async function inicio() {
   CAT = await (await fetch("/api/catalogos")).json();
   // datalists
