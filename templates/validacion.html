@@ -113,8 +113,14 @@
   <div class="panel-cuerpo">
     <input type="hidden" id="ed-id">
     <input type="hidden" id="ed-contexto">
-    <input type="hidden" id="ed-mundo">
     <p class="v-desc" id="ed-codigo" style="font-weight:600"></p>
+    <div class="campo"><label>Mundo</label>
+      <select id="ed-mundo">
+        <option value="obra">🔧 Obra (externos)</option>
+        <option value="interno">🏥 Interno (departamentos)</option>
+      </select>
+      <p class="ayuda">Si esta actividad está en el mundo equivocado (ej. una compra de mobiliario que hace el hospital, no un proveedor externo), cámbiala aquí.</p>
+    </div>
     <div class="campo"><label>Bloque</label>
       <input list="dl-ed-bloque" id="ed-bloque" autocomplete="off">
       <datalist id="dl-ed-bloque"></datalist>
