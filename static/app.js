@@ -704,7 +704,7 @@ async function adaptarInterfazMundo() {
   if ($("#f-proveedor")) $("#f-proveedor").placeholder = palabra;
   if ($("#e-proveedor")) $("#e-proveedor").placeholder = interno ? "ej. Biomédica, Sistemas…" : "ej. CEBSA, Longoria…";
   if ($("#btn-add-prov")) $("#btn-add-prov").textContent = "+ Agregar responsable nuevo";
-  if ($("#buscar")) $("#buscar").placeholder = "Buscar partida, área o responsable…";
+  if ($("#buscar")) $("#buscar").placeholder = "Buscar por actividad, partida, responsable, etc.";
   // nota del proveedor -> del departamento
   if ($("#e-nota-prov")) $("#e-nota-prov").placeholder = interno
     ? "Aquí se anota lo que el departamento explica sobre el retraso"
