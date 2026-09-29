@@ -44,7 +44,6 @@ async function cargar() {
   if (actual) selB.value = actual;
   llenarAreas();
   render();
-  renderResumenGrafica();
   actualizarBotonNuevas();
 }
 
@@ -136,51 +135,117 @@ function render() {
     b.addEventListener("click", () => abrirValidacionNo(b.dataset.id)));
 }
 
-// ---- Resumen gráfico: avance general + por zona, para saber dónde enfocarse ----
+// ---- Panel "Mi avance": resumen general + detalle por zona, para saber dónde enfocarse ----
 function colorNivel(av) {
   if (av >= 75) return "var(--verde)";
   if (av < 35) return "var(--naranja)";
   return "var(--azul)";
 }
 
-function renderResumenGrafica() {
-  const cont = $("#p-resumen-graf");
+let RESUMEN_ZONAS = []; // [{clave, av, acts:[...]}] — se recalcula cada vez que se abre el panel
+
+function calcularResumenZonas(lista) {
   // solo lo que ya es trabajo reconocido y oficial (lo mismo que ve en sus tarjetas)
-  const activas = MIS.filter(a => a.estado_val !== "propuesta" && a.estado_val !== "rechazada");
-  if (!activas.length) { if (cont && "hidden" in cont) cont.hidden = true; return; }
-  if (cont && "hidden" in cont) cont.hidden = false;
+  const activas = lista.filter(a => a.estado_val !== "propuesta" && a.estado_val !== "rechazada");
+  const total = activas.length ? Math.round(activas.reduce((s, a) => s + (a.avance || 0), 0) / activas.length) : 0;
 
-  const total = Math.round(activas.reduce((s, a) => s + (a.avance || 0), 0) / activas.length);
-  const numEl = $("#prg-total-num");
-  numEl.textContent = total + "%";
-  numEl.style.color = colorNivel(total);
-  const barEl = $("#prg-total-barra");
-  barEl.style.width = total + "%";
-  barEl.style.background = colorNivel(total);
-
-  // agrupa por bloque · área
   const grupos = new Map();
   activas.forEach(a => {
     const clave = (a.bloque || "—") + " · " + (a.area || "—");
     if (!grupos.has(clave)) grupos.set(clave, []);
-    grupos.get(clave).push(a.avance || 0);
+    grupos.get(clave).push(a);
   });
   const filas = [...grupos.entries()]
-    .map(([clave, avs]) => ({ clave, av: Math.round(avs.reduce((s, v) => s + v, 0) / avs.length) }))
+    .map(([clave, acts]) => ({
+      clave, acts,
+      av: Math.round(acts.reduce((s, a) => s + (a.avance || 0), 0) / acts.length),
+    }))
     .sort((x, y) => x.av - y.av); // primero donde va más atrasado
 
+  return { total, filas };
+}
+
+function renderResumenPanel() {
+  const numEl = $("#prg-total-num");
+  numEl.textContent = RESUMEN_TOTAL + "%";
+  numEl.style.color = colorNivel(RESUMEN_TOTAL);
+  const barEl = $("#prg-total-barra");
+  barEl.style.width = RESUMEN_TOTAL + "%";
+  barEl.style.background = colorNivel(RESUMEN_TOTAL);
+
   const listaEl = $("#prg-zonas-lista");
-  if (!filas.length) {
+  if (!RESUMEN_ZONAS.length) {
     listaEl.innerHTML = `<p class="prg-vacio">Sin datos todavía.</p>`;
     return;
   }
-  listaEl.innerHTML = filas.map(f => `
-    <div class="prg-fila">
+  listaEl.innerHTML = RESUMEN_ZONAS.map(f => `
+    <button type="button" class="prg-fila" data-clave="${esc(f.clave)}">
       <span class="prg-fila-label" title="${esc(f.clave)}">${esc(f.clave)}</span>
       <div class="barra-avance" style="margin-top:0"><div class="barra-avance-fill" style="width:${f.av}%;background:${colorNivel(f.av)}"></div></div>
       <span class="prg-fila-pct">${f.av}%</span>
-    </div>`).join("");
+    </button>`).join("");
 }
+
+let RESUMEN_TOTAL = 0;
+
+async function abrirResumen() {
+  abrir("#ov-resumen", "#panel-resumen");
+  $("#resumen-vista-detalle").hidden = true;
+  $("#resumen-vista-total").hidden = false;
+  // siempre jala datos frescos del servidor al abrir — así nunca se queda
+  // con una foto vieja si se te asignó algo nuevo mientras tenías la pestaña abierta
+  try {
+    MIS = await (await fetch("/api/portal/mis_actividades")).json();
+  } catch (e) { /* si falla, se usa lo que ya había en memoria */ }
+  const r = calcularResumenZonas(MIS);
+  RESUMEN_TOTAL = r.total;
+  RESUMEN_ZONAS = r.filas;
+  renderResumenPanel();
+}
+
+function cerrarResumen() {
+  cerrar("#ov-resumen", "#panel-resumen");
+}
+
+function verDetalleZona(clave) {
+  const grupo = RESUMEN_ZONAS.find(f => f.clave === clave);
+  if (!grupo) return;
+  $("#resumen-detalle-titulo").textContent = clave;
+  const cont = $("#resumen-detalle-lista");
+  cont.innerHTML = grupo.acts.map(a => {
+    const av = a.avance || 0;
+    const sinReconocer = a.reconocida !== "SÍ" && a.estado_val !== "propuesta" && a.estado_val !== "rechazada";
+    let estClase = "b-pendiente", estTxt = "Pendiente";
+    if (sinReconocer) { estClase = "b-pendiente"; estTxt = "Por reconocer"; }
+    else if (av >= 100) { estClase = "b-listo"; estTxt = "Listo"; }
+    else if (av > 0) { estClase = "b-proceso"; estTxt = "En proceso"; }
+    return `
+      <div class="prg-detalle-fila">
+        <div class="prg-detalle-cod">${esc(a.codigo || "—")}</div>
+        <div class="prg-detalle-part">${esc(a.partida || "")}</div>
+        <div class="prg-detalle-pie">
+          <span class="badge ${estClase}">${estTxt}</span>
+          <span class="prg-fila-pct">${av}%</span>
+        </div>
+      </div>`;
+  }).join("");
+  $("#resumen-vista-total").hidden = true;
+  $("#resumen-vista-detalle").hidden = false;
+}
+
+function regresarResumenVista() {
+  $("#resumen-vista-detalle").hidden = true;
+  $("#resumen-vista-total").hidden = false;
+}
+
+$("#btn-mi-avance").onclick = abrirResumen;
+$("#resumen-cerrar").addEventListener("click", cerrarResumen);
+$("#ov-resumen").addEventListener("click", cerrarResumen);
+$("#btn-resumen-regresar").addEventListener("click", regresarResumenVista);
+$("#prg-zonas-lista").addEventListener("click", (e) => {
+  const fila = e.target.closest(".prg-fila");
+  if (fila) verDetalleZona(fila.dataset.clave);
+});
 
 function tarjetaHtml(a) {
     const av = a.avance || 0;
