@@ -38,6 +38,7 @@ import datetime
 import json
 import hashlib
 import secrets
+import base64
 from functools import wraps
 from flask import Flask, request, jsonify, render_template, g, send_file, Response, session, redirect
 
@@ -75,6 +76,80 @@ def _cargar_secret():
     except Exception:
         return "hap-clave-temporal-cambiar"
 app.secret_key = os.environ.get("SECRET_KEY") or _cargar_secret()
+
+# --- Notificaciones push (celular/navegador) para el admin, sin depender
+# de ningun servicio externo (correo, WhatsApp, etc.) ---
+VAPID_PRIVATE_FILE = os.path.join(DATA_DIR, "vapid_private.pem")
+VAPID_PUBLIC_FILE = os.path.join(DATA_DIR, "vapid_public.txt")
+VAPID_CLAIM_EMAIL = os.environ.get("VAPID_CONTACT_EMAIL", "mailto:soporte@controlobrahap.local")
+
+def _vapid_keys():
+    """Genera (una sola vez) o carga el par de llaves VAPID que permiten
+    mandar notificaciones push directo al navegador/celular. La llave
+    privada se guarda en disco igual que .secret, para que NO cambie entre
+    reinicios -- si cambiara, todos los que ya activaron avisos dejarian
+    de recibirlos y tendrian que activarlos de nuevo."""
+    try:
+        if os.path.exists(VAPID_PRIVATE_FILE) and os.path.exists(VAPID_PUBLIC_FILE):
+            return VAPID_PRIVATE_FILE, open(VAPID_PUBLIC_FILE).read().strip()
+        from py_vapid import Vapid02
+        from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+        v = Vapid02()
+        v.generate_keys()
+        os.makedirs(DATA_DIR, exist_ok=True)
+        with open(VAPID_PRIVATE_FILE, "wb") as f:
+            f.write(v.private_pem())
+        pub_raw = v.public_key.public_bytes(Encoding.X962, PublicFormat.UncompressedPoint)
+        pub_b64 = base64.urlsafe_b64encode(pub_raw).rstrip(b"=").decode()
+        with open(VAPID_PUBLIC_FILE, "w") as f:
+            f.write(pub_b64)
+        return VAPID_PRIVATE_FILE, pub_b64
+    except Exception as e:
+        print("  Aviso: no se pudieron preparar las llaves de notificaciones push:", e)
+        return None, None
+
+def enviar_push_admins(titulo, cuerpo, url="/validacion"):
+    """Manda una notificacion push a todos los celulares/navegadores que el
+    admin haya activado. Nunca debe tronar la accion que lo disparo (guardar
+    un avance, una propuesta, etc.) -- es un extra, no algo de lo que
+    dependa el flujo principal."""
+    try:
+        from pywebpush import webpush, WebPushException
+    except ImportError:
+        return
+    priv_path, pub_b64 = _vapid_keys()
+    if not priv_path:
+        return
+    try:
+        db = get_db()
+        subs = db.execute("SELECT * FROM push_subscriptions").fetchall()
+    except Exception:
+        return
+    if not subs:
+        return
+    payload = json.dumps({"titulo": titulo, "cuerpo": cuerpo, "url": url})
+    for s in subs:
+        subscription_info = {
+            "endpoint": s["endpoint"],
+            "keys": {"p256dh": s["p256dh"], "auth": s["auth"]},
+        }
+        try:
+            webpush(
+                subscription_info=subscription_info,
+                data=payload,
+                vapid_private_key=priv_path,
+                vapid_claims={"sub": VAPID_CLAIM_EMAIL},
+            )
+        except WebPushException as e:
+            status = getattr(getattr(e, "response", None), "status_code", None)
+            if status in (404, 410):
+                try:
+                    db.execute("DELETE FROM push_subscriptions WHERE id=?", (s["id"],))
+                    db.commit()
+                except Exception:
+                    pass
+        except Exception:
+            pass
 
 # --- Seguridad de la sesion cuando corre en internet (HTTPS) ---
 EN_INTERNET = bool(os.environ.get("EN_INTERNET"))
@@ -300,6 +375,17 @@ def init_db():
         tipo      TEXT,            -- 'propuesta' | 'avance'
         detalle   TEXT,
         visto     INTEGER DEFAULT 0
+    );
+
+    -- Suscripciones a notificaciones push (celular/navegador) del admin,
+    -- para avisar en el momento cuando un proveedor reporta algo.
+    CREATE TABLE IF NOT EXISTS push_subscriptions (
+        id        INTEGER PRIMARY KEY AUTOINCREMENT,
+        usuario   TEXT,
+        endpoint  TEXT UNIQUE,
+        p256dh    TEXT,
+        auth      TEXT,
+        creado    TEXT
     );
 
     -- Catálogo de causas de retraso (7 base + las que agregue el usuario)
@@ -809,6 +895,18 @@ def api_inv_toggle():
 @app.route("/login")
 def login_page():
     return render_template("login.html")
+
+
+@app.route("/sw.js")
+def service_worker():
+    """El 'service worker' que recibe las notificaciones push y las muestra
+    como notificación del sistema aunque la pestaña esté cerrada. Se sirve
+    desde la raíz (no desde /static/) para que su alcance cubra todo el
+    sitio sin configuración extra."""
+    resp = send_file(os.path.join(BASE_DIR, "static", "sw.js"), mimetype="application/javascript")
+    resp.headers["Service-Worker-Allowed"] = "/"
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
 
 
 @app.route("/")
@@ -2319,6 +2417,89 @@ def api_usuario_whatsapp(uid):
     return jsonify({"ok": True, "url": url, "mensaje": texto, "nuevas": n, "telefono": tel})
 
 
+# ----------------------------------------------------------------------------
+# API — Avisos (bitácora) y notificaciones push para el admin
+# ----------------------------------------------------------------------------
+@app.route("/api/avisos")
+@requiere_gestor
+def api_avisos():
+    db = get_db()
+    try:
+        limite = max(1, min(200, int(request.args.get("limite", 50))))
+    except (TypeError, ValueError):
+        limite = 50
+    filas = db.execute("SELECT * FROM avisos ORDER BY id DESC LIMIT ?", (limite,)).fetchall()
+    no_vistos = db.execute("SELECT COUNT(*) FROM avisos WHERE visto=0").fetchone()[0]
+    return jsonify({"avisos": [dict(r) for r in filas], "no_vistos": no_vistos})
+
+
+@app.route("/api/avisos/marcar_visto", methods=["POST"])
+@requiere_gestor
+def api_avisos_marcar_visto():
+    db = get_db()
+    db.execute("UPDATE avisos SET visto=1 WHERE visto=0")
+    db.commit()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/push/vapid_public_key")
+@requiere_login
+def api_push_vapid_public_key():
+    _, pub_b64 = _vapid_keys()
+    if not pub_b64:
+        return jsonify({"error": "Las notificaciones push no están disponibles en este servidor"}), 503
+    return jsonify({"key": pub_b64})
+
+
+@app.route("/api/push/subscribe", methods=["POST"])
+@requiere_gestor
+def api_push_subscribe():
+    usuario, rol, proveedor = usuario_actual()
+    data = request.get_json() or {}
+    endpoint = data.get("endpoint")
+    keys = data.get("keys") or {}
+    if not endpoint or not keys.get("p256dh") or not keys.get("auth"):
+        return jsonify({"error": "Suscripción inválida"}), 400
+    db = get_db()
+    db.execute(
+        "INSERT INTO push_subscriptions (usuario,endpoint,p256dh,auth,creado) VALUES (?,?,?,?,?) "
+        "ON CONFLICT(endpoint) DO UPDATE SET usuario=excluded.usuario, p256dh=excluded.p256dh, auth=excluded.auth",
+        (usuario, endpoint, keys["p256dh"], keys["auth"], datetime.datetime.now().isoformat(timespec="seconds")))
+    db.commit()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/push/unsubscribe", methods=["POST"])
+@requiere_gestor
+def api_push_unsubscribe():
+    data = request.get_json() or {}
+    endpoint = data.get("endpoint")
+    if endpoint:
+        db = get_db()
+        db.execute("DELETE FROM push_subscriptions WHERE endpoint=?", (endpoint,))
+        db.commit()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/push/estado")
+@requiere_gestor
+def api_push_estado():
+    """Para que el botón sepa si YA hay algo suscrito desde este mismo
+    usuario (informativo; el navegador manda su propio endpoint para saber
+    si ESTE dispositivo específico ya está suscrito)."""
+    usuario, rol, proveedor = usuario_actual()
+    db = get_db()
+    n = db.execute("SELECT COUNT(*) FROM push_subscriptions WHERE usuario=?", (usuario,)).fetchone()[0]
+    return jsonify({"dispositivos_activos": n})
+
+
+@app.route("/api/push/test", methods=["POST"])
+@requiere_gestor
+def api_push_test():
+    enviar_push_admins("🔔 Aviso de prueba", "Si ves esto, las notificaciones ya están funcionando en este celular/navegador.", "/")
+    return jsonify({"ok": True})
+
+
 # --- Portal del proveedor: ve y reporta SOLO lo suyo ---
 @app.route("/portal")
 def portal_page():
@@ -2489,6 +2670,7 @@ def api_portal_reportar(aid):
                    (datetime.datetime.now().isoformat(timespec="seconds"), proveedor, usuario,
                     "avance", f"Reportó avance en {a['codigo']} · {(a['partida'] or '')[:50]}"))
         db.commit()
+        enviar_push_admins(f"📋 {proveedor}", f"Reportó avance en {a['codigo']}: {(a['partida'] or '')[:60]}", "/validacion")
     return jsonify({"ok": True})
 
 
@@ -2550,6 +2732,7 @@ def api_portal_no_reconozco(aid):
                (datetime.datetime.now().isoformat(timespec="seconds"), proveedor, usuario,
                 "no_reconocida", f"No reconoce {a['codigo']}: {(a['partida'] or '')[:50]}"))
     db.commit()
+    enviar_push_admins(f"⚠️ {proveedor}", f"No reconoce {a['codigo']}: {(a['partida'] or '')[:60]}", "/validacion")
     return jsonify({"ok": True})
 
 
@@ -2627,6 +2810,7 @@ def api_portal_nueva():
                (datetime.datetime.now().isoformat(timespec="seconds"), proveedor, usuario,
                 "propuesta", detalle))
     db.commit()
+    enviar_push_admins(f"🆕 {proveedor}", detalle, "/validacion")
     return jsonify({"ok": True, "codigo": codigo, "fuera_zona": bool(fuera_zona)})
 
 
