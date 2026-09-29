@@ -1,6 +1,22 @@
 .p-aviso{padding:14px 24px 4px}
 .p-aviso p{background:#F4F8FC;border:1px solid #D6E4F0;border-radius:10px;padding:12px 16px;color:#31506e;font-size:14px;margin:0;line-height:1.5}
 .p-aviso-mini{background:#FDF6EC;border:1px solid #F0D9A8;border-radius:8px;padding:10px 12px;color:#8a6d3b;font-size:13px;margin:0 0 8px;line-height:1.45}
+
+/* ===== Resumen gráfico del proveedor: cómo voy y dónde enfocarme ===== */
+.p-resumen-graf{display:flex;gap:20px;flex-wrap:wrap;align-items:stretch;padding:4px 24px 6px}
+.prg-total{flex:0 0 220px;background:#fff;border:1px solid #e3e6ea;border-radius:12px;padding:16px 18px;display:flex;flex-direction:column;justify-content:center;gap:8px}
+.prg-total-num{font-size:34px;font-weight:800;color:var(--acero);line-height:1}
+.prg-total-txt b{font-size:12.5px;color:#6b7280;font-weight:600}
+.prg-zonas{flex:1 1 320px;background:#fff;border:1px solid #e3e6ea;border-radius:12px;padding:14px 18px}
+.prg-zonas-titulo{margin:0 0 10px;font-size:12.5px;font-weight:700;color:#6b7280}
+.prg-fila{display:grid;grid-template-columns:1fr 110px 42px;align-items:center;gap:10px;padding:6px 0}
+.prg-fila-label{font-size:13px;color:#1F2937;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.prg-fila-pct{font-size:13px;font-weight:700;color:var(--acero);text-align:right;font-variant-numeric:tabular-nums}
+.prg-vacio{font-size:13px;color:#8a94a3;margin:0}
+@media (max-width:700px){
+  .p-resumen-graf{padding:4px 14px 6px}
+  .prg-fila{grid-template-columns:1fr 80px 36px}
+}
 .p-controles{display:flex;align-items:center;gap:12px;padding:12px 24px;flex-wrap:wrap}
 .p-filtro{padding:10px 12px;border:1px solid #cbd2da;border-radius:9px;font-size:14px;background:#fff;color:#1F2937;min-width:150px}
 .p-controles input[type=search]{flex:0 0 240px;max-width:50%;padding:10px 12px;border:1px solid #cbd2da;border-radius:9px;font-size:14px}
@@ -32,6 +48,7 @@
 .p-barra-fill{height:100%;background:#1E7B4B;border-radius:5px}
 .p-reportar{width:100%;padding:10px;background:#1E7B4B;color:#fff;border:none;border-radius:9px;font-size:14px;font-weight:600;cursor:pointer}
 .p-reportar:hover{background:#145c38}
+.p-completo-msg{flex:1;display:flex;align-items:center;justify-content:center;padding:10px;background:#EAF7EE;color:#1E7B4B;border-radius:9px;font-size:13.5px;font-weight:600;text-align:center}
 .p-ficha{background:#F5F7F8;border-radius:10px;padding:12px 14px;margin-bottom:14px}
 .p-ficha>div{margin-bottom:6px}
 .p-ficha .p-lbl{display:block;font-size:11px;color:#8a94a3;text-transform:uppercase}
