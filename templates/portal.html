@@ -31,6 +31,21 @@
      Lo que reportes le llega al ingeniero para su revisión. Si te falta alguna actividad, usa <b>+ Agregar actividad</b>.</p>
 </section>
 
+<!-- ===== Resumen gráfico: cómo voy y dónde me falta ===== -->
+<section class="p-resumen-graf" id="p-resumen-graf" hidden>
+  <div class="prg-total">
+    <div class="prg-total-num" id="prg-total-num">0%</div>
+    <div class="prg-total-txt">
+      <b>Tu avance general</b>
+      <div class="barra-avance"><div class="barra-avance-fill" id="prg-total-barra"></div></div>
+    </div>
+  </div>
+  <div class="prg-zonas" id="prg-zonas">
+    <p class="prg-zonas-titulo">Por zona — para que sepas dónde enfocarte</p>
+    <div id="prg-zonas-lista"></div>
+  </div>
+</section>
+
 <section class="p-controles">
   <select id="p-bloque" class="p-filtro"><option value="">Todos los bloques</option></select>
   <select id="p-area" class="p-filtro"><option value="">Todas las áreas</option></select>
@@ -151,10 +166,12 @@
       <p class="p-aviso-mini">Así van los demás en tus mismas áreas, para que sepas si ya puedes entrar. Aquí no puedes modificar nada de otros.</p>
       <div class="p-controles" style="padding:0 0 12px">
         <select id="zona-filtro-bloque" class="p-filtro"></select>
+        <select id="zona-filtro-area" class="p-filtro"></select>
+        <select id="zona-filtro-prov" class="p-filtro"></select>
         <input type="search" id="zona-buscar" placeholder="Buscar partida o responsable…">
       </div>
       <table class="tabla-zona">
-        <thead><tr><th>Responsable</th><th>Bloque</th><th>Área</th><th>Partida</th><th>Avance</th><th>Estatus</th></tr></thead>
+        <thead><tr><th>Código</th><th>Bloque</th><th>Área</th><th>Responsable</th><th>Partida</th><th>Avance</th><th>Estatus</th><th>Fechas</th></tr></thead>
         <tbody id="tbody-zona"></tbody>
       </table>
       <p id="vacio-zona" class="v-vacio" hidden>No hay actividades en tu zona.</p>
