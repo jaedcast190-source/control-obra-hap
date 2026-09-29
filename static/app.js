@@ -1437,3 +1437,148 @@ window.restaurarAct = async (id) => {
 };
 
 $("#elim-buscar").addEventListener("input", renderEliminadas);
+
+/* ============================================================
+   AVISOS + NOTIFICACIONES PUSH — enterarte al instante cuando
+   un proveedor reporta avance, propone algo nuevo o no reconoce
+   ============================================================ */
+function escAv(s){return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
+
+function urlBase64ToUint8Array(base64String) {
+  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+  const rawData = atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; i++) outputArray[i] = rawData.charCodeAt(i);
+  return outputArray;
+}
+
+async function suscripcionActual() {
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) return null;
+  const reg = await navigator.serviceWorker.getRegistration("/");
+  if (!reg) return null;
+  return reg.pushManager.getSubscription();
+}
+
+async function actualizarEstadoPush() {
+  const btn = $("#btn-avisos-activar");
+  const btnProbar = $("#btn-avisos-probar");
+  const estado = $("#avisos-push-estado");
+  if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
+    btn.disabled = true;
+    btn.textContent = "Este navegador no soporta avisos";
+    estado.textContent = "Prueba desde Chrome (Android) o agrega la página a tu pantalla de inicio (iPhone).";
+    return;
+  }
+  const sub = await suscripcionActual();
+  if (sub) {
+    btn.textContent = "🔕 Desactivar avisos en este dispositivo";
+    btn.dataset.activo = "1";
+    btnProbar.hidden = false;
+    estado.textContent = "Avisos activados en este dispositivo ✓";
+  } else {
+    btn.textContent = "🔔 Activar avisos en este dispositivo";
+    btn.dataset.activo = "0";
+    btnProbar.hidden = true;
+    estado.textContent = "";
+  }
+}
+
+$("#btn-avisos-activar").onclick = async () => {
+  const btn = $("#btn-avisos-activar");
+  btn.disabled = true;
+  try {
+    if (btn.dataset.activo === "1") {
+      const sub = await suscripcionActual();
+      if (sub) {
+        await fetch("/api/push/unsubscribe", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ endpoint: sub.endpoint }) });
+        await sub.unsubscribe();
+      }
+      toast("Avisos desactivados en este dispositivo");
+    } else {
+      const permiso = await Notification.requestPermission();
+      if (permiso !== "granted") {
+        toast("No se activaron los avisos — el navegador no dio permiso");
+        return;
+      }
+      const reg = await navigator.serviceWorker.register("/sw.js");
+      await navigator.serviceWorker.ready;
+      const r = await fetch("/api/push/vapid_public_key");
+      const d = await r.json();
+      if (!d.key) { toast("No se pudieron activar los avisos en el servidor"); return; }
+      const sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: urlBase64ToUint8Array(d.key),
+      });
+      await fetch("/api/push/subscribe", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify(sub.toJSON()) });
+      toast("✓ Avisos activados en este dispositivo");
+    }
+  } catch (e) {
+    if (e.name === "AbortError") {
+      toast("No se pudo activar — si estás en una ventana de incógnito/privada, ábrela en una ventana normal e inténtalo de nuevo.");
+    } else {
+      toast("No se pudo activar: " + (e.message || e));
+    }
+  }
+  btn.disabled = false;
+  await actualizarEstadoPush();
+};
+
+$("#btn-avisos-probar").onclick = async () => {
+  await fetch("/api/push/test", { method: "POST" });
+  toast("Aviso de prueba enviado");
+};
+
+let AVISOS = [];
+async function cargarAvisos() {
+  try {
+    const r = await (await fetch("/api/avisos")).json();
+    AVISOS = r.avisos || [];
+    const badge = $("#badge-avisos");
+    if (r.no_vistos > 0) { badge.hidden = false; badge.textContent = r.no_vistos; }
+    else badge.hidden = true;
+  } catch(e) { AVISOS = []; }
+  renderAvisos();
+}
+
+const AVISO_ICONOS = { avance: "📋", propuesta: "🆕", no_reconocida: "⚠️", dependencia: "🔓" };
+function tiempoRelativo(iso) {
+  if (!iso) return "";
+  const dif = (Date.now() - new Date(iso.replace(" ", "T"))) / 1000;
+  if (dif < 60) return "hace un momento";
+  if (dif < 3600) return `hace ${Math.floor(dif/60)} min`;
+  if (dif < 86400) return `hace ${Math.floor(dif/3600)} h`;
+  return `hace ${Math.floor(dif/86400)} d`;
+}
+
+function renderAvisos() {
+  $("#avisos-vacio").hidden = AVISOS.length > 0;
+  $("#avisos-lista").innerHTML = AVISOS.map(a => `
+    <div class="aviso-item ${a.visto ? "" : "no-visto"}">
+      <span class="aviso-icono">${AVISO_ICONOS[a.tipo] || "🔔"}</span>
+      <div class="aviso-cuerpo">
+        <div class="aviso-detalle"><b>${escAv(a.proveedor||"")}</b> — ${escAv(a.detalle||"")}</div>
+        <div class="aviso-meta">${tiempoRelativo(a.fecha)}</div>
+      </div>
+    </div>`).join("");
+}
+
+$("#btn-avisos").onclick = async () => {
+  $("#overlay-avisos").hidden = false;
+  $("#panel-avisos").hidden = false;
+  await actualizarEstadoPush();
+  await cargarAvisos();
+  if (AVISOS.some(a => !a.visto)) {
+    await fetch("/api/avisos/marcar_visto", { method: "POST" });
+    $("#badge-avisos").hidden = true;
+  }
+};
+$("#btn-cerrar-avisos").onclick = cerrarAvisos;
+$("#overlay-avisos").onclick = cerrarAvisos;
+function cerrarAvisos() {
+  $("#overlay-avisos").hidden = true;
+  $("#panel-avisos").hidden = true;
+}
+
+cargarAvisos();
+setInterval(cargarAvisos, 60000);
