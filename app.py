@@ -113,6 +113,15 @@ def requiere_login(fn):
     def envoltura(*a, **k):
         if "usuario" not in session:
             return jsonify({"error": "no_login"}), 401
+        # candado: si al usuario lo desactivaron DESPUÉS de que ya había iniciado
+        # sesión, su sesión abierta no debe seguir funcionando. Sin esto, un
+        # usuario desactivado que ya estaba adentro podía seguir usando la
+        # plataforma hasta que él mismo cerrara sesión.
+        db = get_db()
+        u = db.execute("SELECT activo FROM usuarios WHERE usuario=?", (session["usuario"],)).fetchone()
+        if u is not None and "activo" in u.keys() and u["activo"] == 0:
+            session.clear()
+            return jsonify({"error": "cuenta_desactivada"}), 401
         return fn(*a, **k)
     return envoltura
 
@@ -563,10 +572,18 @@ def siguiente_codigo(db):
     código o con sufijo (como las tareas de validación interna, que llevan
     "-V" al final: ACT-1051-V). Se usa cada vez que se crea una actividad
     (nueva o duplicada) sin un código ya definido, para que nunca quede en
-    blanco."""
+    blanco.
+
+    El código provisional que se le da a una propuesta de proveedor (ver
+    api_proponer_actividad) es un timestamp de 10 dígitos (PROP-MMDDHHMMSS),
+    no un consecutivo — se limita a 6 dígitos el número que se considera aquí
+    para que esos códigos NUNCA se cuelen en este cálculo y arrastren el
+    consecutivo de ACT-#### a números absurdos como ACT-921230507 (bug real
+    detectado en producción: una vez que existió una propuesta con timestamp,
+    todo lo creado después heredó ese número gigante)."""
     num = 1
     for fila in db.execute("SELECT codigo FROM actividades WHERE codigo IS NOT NULL"):
-        m = re.match(r"^(?:ACT|PROP)-(\d+)$", (fila["codigo"] or "").strip())
+        m = re.match(r"^(?:ACT|PROP)-(\d{1,6})$", (fila["codigo"] or "").strip())
         if m:
             num = max(num, int(m.group(1)) + 1)
     return f"ACT-{num:04d}"
@@ -811,6 +828,10 @@ def reporte():
 
 @app.route("/reportes")
 def reportes():
+    # esta pantalla es de uso interno (hojas por proveedor, captura masiva,
+    # importar avances) — antes no pedía sesión en absoluto.
+    if "usuario" not in session:
+        return redirect("/login")
     return render_template("reportes.html")
 
 
@@ -825,6 +846,7 @@ def expediente_page():
 # API — Actividades
 # ----------------------------------------------------------------------------
 @app.route("/api/actividades")
+@requiere_login
 def api_actividades():
     db = get_db()
     q = "SELECT * FROM actividades"
@@ -879,6 +901,7 @@ def api_actividades():
 
 
 @app.route("/api/actividad/<int:aid>", methods=["GET"])
+@requiere_login
 def api_actividad(aid):
     db = get_db()
     r = db.execute("SELECT * FROM actividades WHERE id=?", (aid,)).fetchone()
@@ -888,6 +911,7 @@ def api_actividad(aid):
 
 
 @app.route("/api/actividad/<int:aid>/historial")
+@requiere_login
 def api_actividad_historial(aid):
     db = get_db()
     a = db.execute("SELECT codigo,partida,area,bloque FROM actividades WHERE id=?", (aid,)).fetchone()
@@ -919,6 +943,13 @@ def api_actualizar(aid):
         data["causa_por"] = data.get("causa_por") or "Registrado en plataforma"
         data["causa_fecha"] = datetime.date.today().isoformat()
         campos += ["causa_por", "causa_fecha"]
+    # candado: el avance nunca debe guardarse fuera de 0-100 (un típo como
+    # "150" en vez de "15" antes se guardaba tal cual y descuadraba promedios).
+    if "avance" in data:
+        try:
+            data["avance"] = max(0, min(100, int(data.get("avance") or 0)))
+        except (TypeError, ValueError):
+            data["avance"] = 0
     updates = []
     args = []
     for c in campos:
@@ -1042,6 +1073,7 @@ def api_restaurar(aid):
 # API — Catálogos y resumen
 # ----------------------------------------------------------------------------
 @app.route("/api/catalogos")
+@requiere_login
 def api_catalogos():
     db = get_db()
     def distintos(col):
@@ -1076,6 +1108,7 @@ def api_catalogos():
 # API — Catálogo de proveedores (con tipo interno/externo y función)
 # ----------------------------------------------------------------------------
 @app.route("/api/proveedores", methods=["GET"])
+@requiere_login
 def api_proveedores():
     db = get_db()
     rows = db.execute("SELECT * FROM proveedores ORDER BY nombre").fetchall()
@@ -1083,6 +1116,7 @@ def api_proveedores():
 
 
 @app.route("/api/proveedores", methods=["POST"])
+@requiere_gestor
 def api_crear_proveedor():
     db = get_db()
     data = request.get_json()
@@ -1128,6 +1162,7 @@ def api_proveedor_activo(nombre):
 
 
 @app.route("/api/catalogo/<clase>", methods=["POST"])
+@requiere_gestor
 def api_crear_catalogo(clase):
     if clase not in ("bloque", "area", "giro"):
         return jsonify({"error": "clase inválida"}), 400
@@ -1155,6 +1190,7 @@ def api_crear_catalogo(clase):
 # API — Causas de retraso (catálogo: 7 base + agregadas por el usuario)
 # ----------------------------------------------------------------------------
 @app.route("/api/causas", methods=["GET"])
+@requiere_login
 def api_causas():
     db = get_db()
     mundo = request.args.get("mundo", "obra")
@@ -1165,6 +1201,7 @@ def api_causas():
 
 
 @app.route("/api/causas", methods=["POST"])
+@requiere_gestor
 def api_crear_causa():
     db = get_db()
     data = request.get_json()
@@ -1184,6 +1221,7 @@ def api_crear_causa():
 # API — Resumen de causas AGREGADAS (para el reporte a dirección, sin señalar)
 # ----------------------------------------------------------------------------
 @app.route("/api/resumen_causas")
+@requiere_login
 def api_resumen_causas():
     db = get_db()
     rows = db.execute(
@@ -1249,6 +1287,7 @@ def api_proveedores_usuarios():
 
 
 @app.route("/api/expediente")
+@requiere_admin
 def api_expediente():
     """Lista proveedores usados en actividades + su ficha (si existe)."""
     db = get_db()
@@ -1272,6 +1311,7 @@ def api_expediente():
 
 
 @app.route("/api/expediente", methods=["POST"])
+@requiere_admin
 def api_guardar_expediente():
     db = get_db()
     data = request.get_json()
@@ -1297,6 +1337,7 @@ def api_guardar_expediente():
 # API — Snapshots semanales (comparar semana vs semana)
 # ----------------------------------------------------------------------------
 @app.route("/api/snapshot", methods=["POST"])
+@requiere_gestor
 def api_snapshot():
     """Guarda una foto del avance de todas las partidas hoy."""
     db = get_db()
@@ -1315,6 +1356,7 @@ def api_snapshot():
 
 
 @app.route("/api/comparar_semanas")
+@requiere_login
 def api_comparar_semanas():
     """Compara el avance actual contra la última foto guardada."""
     db = get_db()
@@ -1724,6 +1766,7 @@ def api_diagnostico_conteos():
 # API — Resumen por proveedor (para el centro de reportes)
 # ----------------------------------------------------------------------------
 @app.route("/api/resumen_proveedores")
+@requiere_login
 def api_resumen_proveedores():
     db = get_db()
     rows = db.execute(
@@ -1778,6 +1821,7 @@ def _filtrar_actividades(args):
 # Hoja para proveedor — Excel (para llenar) y PDF (para anotar a mano)
 # ----------------------------------------------------------------------------
 @app.route("/api/hoja_proveedor.xlsx")
+@requiere_login
 def hoja_proveedor_xlsx():
     import openpyxl
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -1831,6 +1875,7 @@ def hoja_proveedor_xlsx():
 
 
 @app.route("/api/hoja_proveedor.pdf")
+@requiere_login
 def hoja_proveedor_pdf():
     from reportlab.lib.pagesizes import letter, landscape
     from reportlab.lib import colors
@@ -1885,6 +1930,7 @@ def hoja_proveedor_pdf():
 # Exportar a Excel
 # ----------------------------------------------------------------------------
 @app.route("/api/exportar")
+@requiere_login
 def api_exportar():
     import openpyxl
     from openpyxl.styles import Font, PatternFill, Alignment
@@ -1922,6 +1968,7 @@ def api_exportar():
 # Plantilla de captura para llenar rápido (con desplegables) y reimportar
 # ----------------------------------------------------------------------------
 @app.route("/api/plantilla_captura.xlsx")
+@requiere_login
 def api_plantilla_captura():
     import openpyxl
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
@@ -2006,6 +2053,7 @@ def api_plantilla_captura():
 
 
 @app.route("/api/importar_avances", methods=["POST"])
+@requiere_gestor
 def api_importar_avances():
     """Lee un Excel con Código + NUEVO avance / fecha / causa y actualiza."""
     import openpyxl
@@ -2416,6 +2464,12 @@ def api_portal_reportar(aid):
     if a["reconocida"] != "SÍ":
         return jsonify({"error": "Primero tienes que reconocer esta actividad"}), 400
     data = request.get_json() or {}
+    # candado: si ya está validada al 100% (y no hay un reporte pendiente de
+    # revisión), no se deja seguir reportando — antes se podía reenviar avance
+    # indefinidamente aunque la actividad ya estuviera cerrada.
+    ya_completa = (a["avance"] or 0) >= 100 and (a["avance_decl"] is None or a["avance_decl"] == a["avance"])
+    if ya_completa and "avance_decl" in data:
+        return jsonify({"error": "Esta actividad ya está validada al 100% — si necesitas corregir algo, contacta al administrador."}), 400
     campos, args = [], []
     if "avance_decl" in data:
         av = max(0, min(100, int(data.get("avance_decl") or 0)))
@@ -2541,8 +2595,18 @@ def api_portal_nueva():
     # columnas dueñas: en interno se llena departamento; en obra, proveedor
     prov_val = proveedor if mundo == "obra" else None
     depto_val = proveedor if mundo == "interno" else None
-    # código provisional
-    codigo = "PROP-" + datetime.datetime.now().strftime("%m%d%H%M%S")
+    # código provisional. Antes usaba resolución de 1 segundo, así que dos
+    # propuestas que llegaran en el mismo segundo (doble clic, reintento de
+    # red) se quedaban con el MISMO código — bug real detectado en
+    # producción: 5 propuestas idénticas con el código PROP-0921230448.
+    # Ahora usa microsegundos (colisión prácticamente imposible) y además
+    # revisa que no exista ya ese código antes de usarlo, por si acaso.
+    base_codigo = "PROP-" + datetime.datetime.now().strftime("%m%d%H%M%S%f")
+    codigo = base_codigo
+    sufijo = 1
+    while db.execute("SELECT 1 FROM actividades WHERE codigo=?", (codigo,)).fetchone():
+        sufijo += 1
+        codigo = f"{base_codigo}-{sufijo}"
     cur = db.execute(
         """INSERT INTO actividades
         (codigo,bloque,area,giro,proveedor,departamento,mundo,tipo_interno,partida,tipo_partida,aplica,avance,
@@ -2626,10 +2690,21 @@ def api_val_pendientes():
 @requiere_gestor
 def api_val_conteo():
     db = get_db()
-    p = db.execute("SELECT COUNT(*) FROM actividades WHERE estado_val='propuesta'").fetchone()[0]
+    p = db.execute("SELECT COUNT(*) FROM actividades WHERE estado_val='propuesta' "
+                   "AND (eliminada IS NULL OR eliminada=0)").fetchone()[0]
     a = db.execute("SELECT COUNT(*) FROM actividades WHERE origen='oficial' "
-                   "AND avance_decl IS NOT NULL AND avance_decl <> avance").fetchone()[0]
-    return jsonify({"propuestas": p, "avances": a, "total": p + a})
+                   "AND avance_decl IS NOT NULL AND avance_decl <> avance "
+                   "AND (eliminada IS NULL OR eliminada=0)").fetchone()[0]
+    # "Necesitan tu atención": rechazadas + no reconocidas. Antes el numerito
+    # del menú NO las contaba, así que nunca cuadraba con la suma de las 3
+    # listas de la pantalla de Validación (por ejemplo 10+1+15 pero el badge
+    # decía 24). Ahora sí suma las 3 categorías.
+    aten = db.execute(
+        "SELECT COUNT(*) FROM actividades WHERE "
+        "((estado_val='rechazada' OR avance_decl_rechazado=1) "
+        " OR (no_reconocida_nota IS NOT NULL AND no_reconocida_nota<>'' AND reconocida<>'SÍ')) "
+        "AND (eliminada IS NULL OR eliminada=0)").fetchone()[0]
+    return jsonify({"propuestas": p, "avances": a, "atencion": aten, "total": p + a + aten})
 
 
 @app.route("/api/validacion/aprobar/<int:aid>", methods=["POST"])
@@ -2821,6 +2896,7 @@ def api_dependencias_deshacer_forzar(did):
 # API — Reportes para Departamentos Internos (PDF / Excel)
 # ----------------------------------------------------------------------------
 @app.route("/api/hoja_departamento.pdf")
+@requiere_login
 def hoja_departamento_pdf():
     from reportlab.lib.pagesizes import letter, landscape
     from reportlab.lib import colors
@@ -2898,6 +2974,7 @@ def hoja_departamento_pdf():
 
 
 @app.route("/api/hoja_departamento.xlsx")
+@requiere_login
 def hoja_departamento_xlsx():
     import openpyxl
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
