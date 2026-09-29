@@ -1,225 +1,72 @@
-/* === BLINDAJE v1.4 (2 sep 2026) — método seguro ===
-   Si un id no existe en el HTML, $ devuelve un elemento suelto (no visible)
-   en vez de null. Así el script NO se muere y el resto de la pantalla
-   sigue funcionando. No se modifica ninguna otra línea del código. */
-const $ = (s) => document.querySelector(s) || document.createElement("span");
-function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
-function toast(m){const t=$("#toast");t.textContent=m;t.hidden=false;setTimeout(()=>t.hidden=true,2200);}
+.btn-reportes-sec{background:#fff !important;color:var(--tinta) !important}
+.btn-reportes-sec:hover{background:var(--acero-claro) !important}
 
-let CAT = {};
+.rep-seccion{
+  background:#fff;border:1px solid var(--linea);border-radius:10px;
+  margin:20px 24px;padding:22px 26px;box-shadow:var(--sombra);
+}
+.rep-seccion h2{
+  font-size:17px;color:var(--tinta);margin-bottom:6px;
+  padding-bottom:8px;border-bottom:2px solid var(--acero-claro);
+}
+.rep-desc{font-size:13px;color:var(--gris-texto);margin-bottom:16px;line-height:1.5}
+.rep-controles{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+.rep-controles-grid{margin-bottom:14px}
+.rep-controles input[list]{
+  padding:9px 11px;border:1px solid var(--linea);border-radius:5px;
+  font-size:13px;min-width:180px;
+}
+.rep-hint{font-size:12.5px;color:var(--gris-texto);margin-top:10px;font-style:italic}
+.chk-retraso{display:flex;align-items:center;gap:6px;font-size:13px;
+  color:var(--rojo);font-weight:600;cursor:pointer}
+.chk-retraso input{width:16px;height:16px;cursor:pointer}
 
-$("#btn-foto").addEventListener("click", async () => {
-  if (!confirm("¿Cerrar el avance de esta semana? Se guarda cómo va la obra hoy, para poder comparar contra la próxima semana.")) return;
-  const r = await (await fetch("/api/snapshot", { method: "POST" })).json();
-  toast("Avance de la semana cerrado (" + r.partidas + " partidas) · " + r.semana);
-});
+.pill-rojo{display:inline-block;background:var(--rojo);color:#fff;
+  padding:1px 9px;border-radius:20px;font-size:12px;font-weight:700}
+.tabla-rep{width:100%;border-collapse:collapse;margin-top:14px}
+.tabla-rep th{text-align:left;font-size:11.5px;color:var(--acero);
+  padding:8px 10px;border-bottom:2px solid var(--linea)}
+.tabla-rep td{padding:8px 10px;border-bottom:1px solid #eef2f0;font-size:13px}
+.tabla-rep .der{text-align:right}
+.col-graf{width:180px}
+.barra-mini{height:14px;background:var(--acero-claro);border-radius:3px;overflow:hidden;min-width:120px}
+.barra-mini-fill{height:100%;background:var(--azul)}
+.barra-mini-fill.alto{background:var(--verde)}
+.barra-mini-fill.bajo{background:var(--naranja)}
+.pct{font-weight:700;font-variant-numeric:tabular-nums}
 
-async function inicio() {
-  const q = await (await fetch("/api/quien_soy")).json();
-  if (!q.login) { location.href = "/login"; return; }
-  CAT = await (await fetch("/api/catalogos")).json();
-  // datalists
-  llena("#dl-prov-hoja", CAT.proveedores);
-  llena("#dl-prov-cap", CAT.proveedores);
-  llena("#dl-depto-hoja", CAT.departamentos || ["Sistemas", "Herrería del hospital", "Biomédica", "Mantenimiento", "Compras"]);
-  llena("#dl-r-bloque", CAT.bloques);
-  llena("#dl-r-area", CAT.areas);
-  llena("#dl-r-giro", CAT.giros);
-  llena("#dl-r-prov", CAT.proveedores);
-  llena("#dl-r-tipo", CAT.tipos_partida);
-  await cargarProveedores();
-  actualizarLinksHoja();
-  actualizarLinksDepto();
-  actualizarLinksMedida();
-  actualizarPlantilla();
+/* ===== Gráfica del "Reporte a la medida" ===== */
+.med-grafica{display:flex;gap:24px;flex-wrap:wrap;margin-top:18px;padding-top:16px;border-top:1px solid var(--linea)}
+.med-grafica-col{flex:1 1 300px;min-width:260px}
+.med-grafica-titulo{font-size:12.5px;font-weight:700;color:var(--acero);margin:0 0 10px}
+.med-graf-fila{display:grid;grid-template-columns:1fr 120px 42px;align-items:center;gap:10px;padding:5px 0}
+.med-graf-etiqueta{font-size:12.5px;color:var(--tinta);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.med-graf-vacio{font-size:13px;color:var(--gris-texto)}
+.med-graf-tiles{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+.med-graf-tile{border-radius:9px;padding:10px 12px;background:var(--acero-claro)}
+.med-graf-tile b{display:block;font-size:20px;line-height:1.1}
+.med-graf-tile span{font-size:11.5px;color:var(--gris-texto)}
+.med-graf-tile.listo b{color:var(--verde)}
+.med-graf-tile.proceso b{color:var(--azul)}
+.med-graf-tile.pendiente b{color:var(--acero)}
+.med-graf-tile.retraso b{color:var(--rojo)}
+
+@media print{
+  .barra,.no-print,.btn-reporte,.med-grafica{display:none}
+  .rep-seccion{box-shadow:none;border:none;margin:0;padding:0}
+  body{background:#fff}
 }
 
-function llena(sel, items) {
-  const el = $(sel);
-  if (el) el.innerHTML = (items || []).map((i) => `<option value="${esc(i)}">`).join("");
-}
-
-// ---- Sección 0: captura masiva por Excel ----
-function actualizarPlantilla() {
-  const p = $("#sel-prov-cap").value.trim();
-  const q = p ? "?proveedor=" + encodeURIComponent(p) : "";
-  $("#btn-plantilla").href = "/api/plantilla_captura.xlsx" + q;
-}
-$("#sel-prov-cap").addEventListener("input", actualizarPlantilla);
-$("#sel-prov-cap").addEventListener("change", actualizarPlantilla);
-
-$("#btn-importar").addEventListener("click", async () => {
-  const inp = $("#file-importar");
-  if (!inp.files || !inp.files.length) { toast("Primero elige el archivo Excel"); return; }
-  const fd = new FormData();
-  fd.append("archivo", inp.files[0]);
-  $("#btn-importar").disabled = true;
-  $("#btn-importar").textContent = "Importando…";
-  try {
-    const r = await (await fetch("/api/importar_avances", { method: "POST", body: fd })).json();
-    const box = $("#importar-result");
-    box.hidden = false;
-    if (r.error) {
-      box.className = "cap-result cap-error";
-      box.innerHTML = "⚠️ " + esc(r.error);
-    } else {
-      box.className = "cap-result cap-ok";
-      let msg = `✅ Se actualizaron <b>${r.actualizadas}</b> partidas.`;
-      if (r.sin_coincidencia && r.sin_coincidencia.length)
-        msg += `<br>⚠️ ${r.sin_coincidencia.length} códigos no se encontraron: ${r.sin_coincidencia.slice(0,8).map(esc).join(", ")}${r.sin_coincidencia.length>8?"…":""}`;
-      if (r.errores) msg += `<br>${r.errores} celdas de avance con valor no numérico se ignoraron.`;
-      box.innerHTML = msg;
-      await cargarProveedores();
-    }
-  } catch (e) {
-    const box = $("#importar-result");
-    box.hidden = false; box.className = "cap-result cap-error";
-    box.textContent = "No se pudo subir el archivo. ¿La plataforma sigue corriendo?";
-  }
-  $("#btn-importar").disabled = false;
-  $("#btn-importar").textContent = "Importar avances";
-});
-
-// ---- Sección 1: hoja por proveedor ----
-function actualizarLinksHoja() {
-  const p = $("#sel-prov-hoja").value.trim();
-  const q = p ? "?proveedor=" + encodeURIComponent(p) : "";
-  $("#btn-hoja-pdf").href = "/api/hoja_proveedor.pdf" + q;
-  $("#btn-hoja-xlsx").href = "/api/hoja_proveedor.xlsx" + q;
-  $("#hoja-hint").textContent = p ? "Se generará la hoja de: " + p
-    : "Elige un proveedor. (Si lo dejas vacío, la hoja trae todas las partidas.)";
-}
-$("#sel-prov-hoja").addEventListener("input", actualizarLinksHoja);
-$("#sel-prov-hoja").addEventListener("change", actualizarLinksHoja);
-
-// ---- Sección 1.5: hoja por departamento interno ----
-function actualizarLinksDepto() {
-  const d = $("#sel-depto-hoja") ? $("#sel-depto-hoja").value.trim() : "";
-  const q = d ? "?departamento=" + encodeURIComponent(d) : "";
-  if ($("#btn-depto-pdf")) $("#btn-depto-pdf").href = "/api/hoja_departamento.pdf" + q;
-  if ($("#btn-depto-xlsx")) $("#btn-depto-xlsx").href = "/api/hoja_departamento.xlsx" + q;
-  if ($("#depto-hint")) {
-    $("#depto-hint").textContent = d ? "Se generará la hoja del departamento: " + d
-      : "Elige un departamento. (Si lo dejas vacío, la hoja trae todas las partidas internas.)";
-  }
-}
-if ($("#sel-depto-hoja")) {
-  $("#sel-depto-hoja").addEventListener("input", actualizarLinksDepto);
-  $("#sel-depto-hoja").addEventListener("change", actualizarLinksDepto);
-}
-
-
-// ---- Sección 2: avance por proveedor ----
-async function cargarProveedores() {
-  const data = await (await fetch("/api/resumen_proveedores")).json();
-  $("#tbody-prov").innerHTML = data.map((p) => {
-    const cls = p.avance >= 75 ? "alto" : p.avance < 35 ? "bajo" : "";
-    const ret = p.retrasadas > 0 ? `<span class="pill-rojo">${p.retrasadas}</span>` : "0";
-    return `<tr>
-      <td>${esc(p.proveedor)}</td>
-      <td>${p.total}</td>
-      <td>${p.listas}</td>
-      <td>${ret}</td>
-      <td class="der"><span class="pct">${p.avance}%</span></td>
-      <td><div class="barra-mini"><div class="barra-mini-fill ${cls}" style="width:${p.avance}%"></div></div></td>
-    </tr>`;
-  }).join("");
-}
-
-// ---- Sección 3: reporte a la medida ----
-function paramsMedida() {
-  const map = { "#r-bloque": "bloque", "#r-area": "area", "#r-giro": "giro",
-                "#r-prov": "proveedor", "#r-tipo": "tipo_partida" };
-  const p = new URLSearchParams();
-  for (const [sel, key] of Object.entries(map)) {
-    const v = $(sel).value.trim();
-    if (v) p.set(key, v);
-  }
-  if ($("#r-retraso").checked) p.set("solo_retraso", "1");
-  p.set("titulo", "Reporte de actividades");
-  return p.toString();
-}
-function actualizarLinksMedida() {
-  const q = "?" + paramsMedida();
-  $("#btn-med-pdf").href = "/api/hoja_proveedor.pdf" + q;
-  $("#btn-med-xlsx").href = "/api/hoja_proveedor.xlsx" + q;
-  graficaMedidaDebounced();
-}
-
-// ---- Gráfica del reporte a la medida: avance por proveedor + estatus ----
-function esRetrasada(a) {
-  if (!a.f_fin || (a.avance || 0) >= 100) return false;
-  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
-  const fin = new Date(a.f_fin + "T00:00:00");
-  return fin < hoy;
-}
-
-let _graficaMedidaTimer = null;
-function graficaMedidaDebounced() {
-  clearTimeout(_graficaMedidaTimer);
-  _graficaMedidaTimer = setTimeout(actualizarGraficaMedida, 300);
-}
-
-async function actualizarGraficaMedida() {
-  let datos;
-  try {
-    datos = await (await fetch("/api/actividades?" + paramsMedida())).json();
-    if (!Array.isArray(datos)) datos = [];
-  } catch (e) {
-    return;
-  }
-  if ($("#r-retraso").checked) datos = datos.filter(esRetrasada);
-
-  // barras: avance promedio por proveedor/departamento, peor primero
-  const grupos = new Map();
-  datos.forEach((a) => {
-    // igual que el resto de la plataforma: proveedor manda; departamento
-    // solo aplica en el mundo "interno" (donde no hay proveedor).
-    const clave = a.proveedor || a.departamento || "Sin asignar";
-    if (!grupos.has(clave)) grupos.set(clave, []);
-    grupos.get(clave).push(a.avance || 0);
-  });
-  const filas = [...grupos.entries()]
-    .map(([clave, avs]) => ({
-      clave, n: avs.length,
-      av: Math.round(avs.reduce((s, v) => s + v, 0) / avs.length),
-    }))
-    .sort((x, y) => x.av - y.av);
-  const contProv = $("#med-graf-proveedor");
-  contProv.innerHTML = filas.length
-    ? filas.map((f) => `
-      <div class="med-graf-fila">
-        <span class="med-graf-etiqueta" title="${esc(f.clave)}">${esc(f.clave)} <small style="color:#8a94a3">(${f.n})</small></span>
-        <div class="barra-mini"><div class="barra-mini-fill ${f.av >= 75 ? "alto" : f.av < 35 ? "bajo" : ""}" style="width:${f.av}%"></div></div>
-        <span class="pct">${f.av}%</span>
-      </div>`).join("")
-    : `<p class="med-graf-vacio">Sin actividades con estos filtros.</p>`;
-
-  // tarjetas: conteo por estatus
-  let listas = 0, proceso = 0, pendientes = 0, retrasadas = 0;
-  datos.forEach((a) => {
-    const av = a.avance || 0;
-    if (esRetrasada(a)) retrasadas++;
-    if (av >= 100) listas++; else if (av > 0) proceso++; else pendientes++;
-  });
-  $("#med-graf-estatus").innerHTML = `
-    <div class="med-graf-tiles">
-      <div class="med-graf-tile listo"><b>${listas}</b><span>Listas</span></div>
-      <div class="med-graf-tile proceso"><b>${proceso}</b><span>En proceso</span></div>
-      <div class="med-graf-tile pendiente"><b>${pendientes}</b><span>Pendientes</span></div>
-      <div class="med-graf-tile retraso"><b>${retrasadas}</b><span>Retrasadas</span></div>
-    </div>`;
-}
-
-["#r-bloque", "#r-area", "#r-giro", "#r-prov", "#r-tipo"].forEach((s) => {
-  $(s).addEventListener("input", actualizarLinksMedida);
-  $(s).addEventListener("change", actualizarLinksMedida);
-});
-$("#r-retraso").addEventListener("change", actualizarLinksMedida);
-$("#btn-med-limpiar").addEventListener("click", () => {
-  ["#r-bloque", "#r-area", "#r-giro", "#r-prov", "#r-tipo"].forEach((s) => ($(s).value = ""));
-  $("#r-retraso").checked = false;
-  actualizarLinksMedida();
-});
-
-inicio();
+/* ===== Captura masiva por Excel ===== */
+.rep-destacada{border:2px solid #1F4E78;background:#F4F8FC}
+.rep-destacada h2{color:#1F4E78}
+.cap-pasos{display:flex;flex-direction:column;gap:16px;margin-top:12px}
+.cap-paso{display:flex;gap:14px;align-items:flex-start}
+.cap-num{flex:0 0 32px;height:32px;border-radius:50%;background:#1F4E78;color:#fff;
+  display:flex;align-items:center;justify-content:center;font-weight:700;font-size:16px}
+.cap-paso>div{flex:1}
+.cap-paso b{font-size:15px;color:#1F2937}
+.cap-file{padding:6px;border:1px solid #cbd2da;border-radius:8px;background:#fff;max-width:340px}
+.cap-result{margin-top:10px;padding:10px 14px;border-radius:8px;font-size:14px;line-height:1.5}
+.cap-ok{background:#EAF7EE;border:1px solid #A9DCB9;color:#1E7B4B}
+.cap-error{background:#FDECEC;border:1px solid #F0B4B4;color:#B00020}
