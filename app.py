@@ -2745,6 +2745,7 @@ def api_portal_pend_reconocer():
     col, mundo = col_duenio()
     n = db.execute(f"SELECT COUNT(*) FROM actividades WHERE {col}=? AND reconocida='NO' "
                    "AND (estado_val IS NULL OR estado_val='validado') "
+                   "AND (eliminada IS NULL OR eliminada=0) "
                    "AND (mundo=? OR (mundo IS NULL AND ?='obra'))",
                    (proveedor, mundo, mundo)).fetchone()[0]
     return jsonify({"pendientes": n})
