@@ -44,6 +44,7 @@ async function cargar() {
   if (actual) selB.value = actual;
   llenarAreas();
   render();
+  renderResumenGrafica();
   actualizarBotonNuevas();
 }
 
@@ -135,6 +136,52 @@ function render() {
     b.addEventListener("click", () => abrirValidacionNo(b.dataset.id)));
 }
 
+// ---- Resumen gráfico: avance general + por zona, para saber dónde enfocarse ----
+function colorNivel(av) {
+  if (av >= 75) return "var(--verde)";
+  if (av < 35) return "var(--naranja)";
+  return "var(--azul)";
+}
+
+function renderResumenGrafica() {
+  const cont = $("#p-resumen-graf");
+  // solo lo que ya es trabajo reconocido y oficial (lo mismo que ve en sus tarjetas)
+  const activas = MIS.filter(a => a.estado_val !== "propuesta" && a.estado_val !== "rechazada");
+  if (!activas.length) { if (cont && "hidden" in cont) cont.hidden = true; return; }
+  if (cont && "hidden" in cont) cont.hidden = false;
+
+  const total = Math.round(activas.reduce((s, a) => s + (a.avance || 0), 0) / activas.length);
+  const numEl = $("#prg-total-num");
+  numEl.textContent = total + "%";
+  numEl.style.color = colorNivel(total);
+  const barEl = $("#prg-total-barra");
+  barEl.style.width = total + "%";
+  barEl.style.background = colorNivel(total);
+
+  // agrupa por bloque · área
+  const grupos = new Map();
+  activas.forEach(a => {
+    const clave = (a.bloque || "—") + " · " + (a.area || "—");
+    if (!grupos.has(clave)) grupos.set(clave, []);
+    grupos.get(clave).push(a.avance || 0);
+  });
+  const filas = [...grupos.entries()]
+    .map(([clave, avs]) => ({ clave, av: Math.round(avs.reduce((s, v) => s + v, 0) / avs.length) }))
+    .sort((x, y) => x.av - y.av); // primero donde va más atrasado
+
+  const listaEl = $("#prg-zonas-lista");
+  if (!filas.length) {
+    listaEl.innerHTML = `<p class="prg-vacio">Sin datos todavía.</p>`;
+    return;
+  }
+  listaEl.innerHTML = filas.map(f => `
+    <div class="prg-fila">
+      <span class="prg-fila-label" title="${esc(f.clave)}">${esc(f.clave)}</span>
+      <div class="barra-avance" style="margin-top:0"><div class="barra-avance-fill" style="width:${f.av}%;background:${colorNivel(f.av)}"></div></div>
+      <span class="prg-fila-pct">${f.av}%</span>
+    </div>`).join("");
+}
+
 function tarjetaHtml(a) {
     const av = a.avance || 0;
     const decl = a.avance_decl;
@@ -182,6 +229,13 @@ function tarjetaHtml(a) {
       boton = `<div class="p-reco-botones">
         <button class="p-valida-ok" data-id="${a.id}">✅ Funciona correctamente</button>
         <button class="p-valida-no" data-id="${a.id}">❌ No funciona</button>
+      </div>`;
+    } else if (av >= 100 && !enRevision) {
+      // candado: ya está validada al 100% — no se deja seguir "reportando avance"
+      // (antes el panel se abría igual y se podía reenviar aunque ya estuviera cerrada).
+      boton = `<div class="p-reco-botones">
+        <span class="p-completo-msg">✅ Completado al 100%</span>
+        <button class="p-desreconocer" data-id="${a.id}" title="Ya no es mi trabajo">✕ No reconozco</button>
       </div>`;
     } else {
       boton = `<div class="p-reco-botones">
@@ -268,25 +322,32 @@ $$("#new-botones button").forEach(b =>
 async function enviarNueva() {
   const partida = $("#new-partida").value.trim();
   if (!partida) { toast("Escribe qué actividad es"); return; }
-  const cuerpo = {
-    bloque: $("#new-bloque").value || null,
-    area: $("#new-area").value || null,
-    partida,
-    avance_decl: parseInt($("#new-avance").value || 0),
-    definido_por: $("#new-definido-por").value || null,
-    nota_proveedor: $("#new-nota").value || null,
-  };
-  const r = await (await fetch("/api/portal/nueva", {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(cuerpo),
-  })).json();
-  if (r.error) { toast(r.error); return; }
-  cerrar("#ov-new", "#panel-new");
-  ["#new-bloque","#new-area","#new-partida","#new-nota"].forEach(s=>$(s).value="");
-  $("#new-avance").value = 0; marcarBoton("#new-botones", 0);
-  $("#new-definido-por").value = "";
-  toast("Actividad enviada para revisión");
-  await cargar();
+  const btn = $("#new-enviar");
+  if (btn.disabled) return; // ya se está enviando: ignora doble clic/toque repetido
+  btn.disabled = true;
+  try {
+    const cuerpo = {
+      bloque: $("#new-bloque").value || null,
+      area: $("#new-area").value || null,
+      partida,
+      avance_decl: parseInt($("#new-avance").value || 0),
+      definido_por: $("#new-definido-por").value || null,
+      nota_proveedor: $("#new-nota").value || null,
+    };
+    const r = await (await fetch("/api/portal/nueva", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(cuerpo),
+    })).json();
+    if (r.error) { toast(r.error); return; }
+    cerrar("#ov-new", "#panel-new");
+    ["#new-bloque","#new-area","#new-partida","#new-nota"].forEach(s=>$(s).value="");
+    $("#new-avance").value = 0; marcarBoton("#new-botones", 0);
+    $("#new-definido-por").value = "";
+    toast("Actividad enviada para revisión");
+    await cargar();
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 // ---- Reconocimiento de actividades ----
@@ -560,6 +621,12 @@ async function abrirZona() {
     const bDisp = res.bloques_disponibles || [];
     $("#zona-filtro-bloque").innerHTML = `<option value="">Todos los bloques de tu zona</option>` +
       bDisp.map(b => `<option value="${esc(b)}">${esc(b)}</option>`).join("");
+    const areasDisp = [...new Set(ZONA_ACTS.map(a => a.area).filter(Boolean))].sort();
+    $("#zona-filtro-area").innerHTML = `<option value="">Todas las áreas</option>` +
+      areasDisp.map(a => `<option value="${esc(a)}">${esc(a)}</option>`).join("");
+    const provsDisp = [...new Set(ZONA_ACTS.map(a => a.departamento || a.proveedor).filter(Boolean))].sort();
+    $("#zona-filtro-prov").innerHTML = `<option value="">Todos los proveedores</option>` +
+      provsDisp.map(p => `<option value="${esc(p)}">${esc(p)}</option>`).join("");
     renderZona();
   } catch(e) {
     toast("Error cargando avance de la zona");
@@ -577,14 +644,23 @@ function cerrarZona() {
 
 function renderZona() {
   const bFiltro = $("#zona-filtro-bloque").value;
+  const aFiltro = $("#zona-filtro-area").value;
+  const pFiltro = $("#zona-filtro-prov").value;
   const q = sinAcentos($("#zona-buscar").value || "");
   const filas = ZONA_ACTS.filter(a => {
+    const prov = a.departamento || a.proveedor || "";
     return (!bFiltro || a.bloque === bFiltro) &&
-      (!q || sinAcentos(a.partida).includes(q) || sinAcentos(a.area).includes(q) || sinAcentos(a.proveedor||a.departamento||"").includes(q) || sinAcentos(a.giro||"").includes(q));
+      (!aFiltro || a.area === aFiltro) &&
+      (!pFiltro || prov === pFiltro) &&
+      (!q || sinAcentos(a.partida).includes(q) || sinAcentos(a.area).includes(q) || sinAcentos(prov).includes(q) || sinAcentos(a.giro||"").includes(q) || sinAcentos(a.codigo||"").includes(q));
   });
-  
+
   $("#vacio-zona").hidden = filas.length > 0;
   const tb = $("#tbody-zona");
+  // NOTA: el encabezado de esta tabla es Código, Bloque, Área, Responsable,
+  // Partida, Avance, Estatus, Fechas — antes las columnas venían corridas
+  // una posición (sin Código y sin encabezado de Fechas). Este orden ya
+  // coincide con el <thead> de portal.html.
   tb.innerHTML = filas.map(a => {
     const provOdepto = a.departamento || a.proveedor || "—";
     const av = a.avance || 0;
@@ -592,9 +668,10 @@ function renderZona() {
     let estClase = "b-pendiente";
     if (av >= 100) estClase = "b-listo";
     else if (av > 0) estClase = "b-proceso";
-    
+
     return `
       <tr>
+        <td>${esc(a.codigo||"—")}</td>
         <td><b>${esc(a.bloque||"—")}</b></td>
         <td>${esc(a.area||"—")}</td>
         <td><span class="giro-tag">${esc(provOdepto)}</span> <small style="color:#8a94a3;">(${esc(a.giro||a.tipo_partida||"")})</small></td>
@@ -613,6 +690,8 @@ $("#modal-zona").onclick = (e) => {
   if (e.target.id === "modal-zona") cerrarZona();
 };
 $("#zona-filtro-bloque").onchange = renderZona;
+$("#zona-filtro-area").onchange = renderZona;
+$("#zona-filtro-prov").onchange = renderZona;
 $("#zona-buscar").oninput = renderZona;
 
 // ---- Cambio de Contraseña ----
