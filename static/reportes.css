@@ -19,8 +19,9 @@
 .filtro-avance-par{display:inline-flex;align-items:center;gap:6px}
 .filtro-avance-par input[type=number]{
   padding:9px 10px;border:1px solid var(--linea);border-radius:5px;
-  font-size:13px;width:92px;
+  font-size:13px;width:118px;
 }
+.filtro-avance-par input[type=number]:last-of-type{width:78px}
 .filtro-avance-par input[type=number]:focus{border-color:var(--acero);outline:none}
 .filtro-avance-guion{color:var(--gris-texto);font-size:13px}
 @media (max-width: 860px){
