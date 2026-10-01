@@ -25,13 +25,28 @@
     <button id="btn-avisos" class="btn-reporte btn-reportes-sec perm-admin" type="button" title="Avisos">🔔 <span id="badge-avisos" class="badge-val" hidden>0</span></button>
     <a href="/seguimiento" class="btn-reporte btn-reportes-sec perm-admin" id="btn-seguimiento">📊 Seguimiento</a>
     <a href="/validacion" class="btn-reporte btn-reportes-sec" id="btn-validacion">Validación <span id="badge-val" class="badge-val" hidden>0</span></a>
-    <a href="/usuarios" class="btn-reporte btn-reportes-sec perm-admin" id="btn-usuarios">Usuarios</a>
-    <button id="btn-dep-mgr" class="btn-reporte btn-reportes-sec" type="button">Dependencias</button>
-    <a href="/reportes" class="btn-reporte btn-reportes-sec perm-admin">Reportes y hojas</a>
-    <a href="/reporte" class="btn-reporte perm-admin">Reporte para dirección →</a>
-    <button id="btn-cambiar-clave-admin" class="btn-reporte btn-reportes-sec" type="button">🔑 Mi contraseña</button>
-    <button id="btn-respaldo-rapido" class="btn-reporte btn-reportes-sec perm-admin" type="button">💾 Respaldo</button>
-    <button id="btn-ver-eliminadas" class="btn-reporte btn-reportes-sec perm-admin" type="button">🗑️ Eliminadas</button>
+
+    <!-- Administración: agrupa Usuarios, Dependencias, Mi contraseña, Respaldo, Eliminadas -->
+    <div class="menu-despl" id="menu-admin">
+      <button type="button" class="btn-reporte btn-reportes-sec menu-despl-btn">⚙️ Administración <span class="menu-despl-flecha">▾</span></button>
+      <div class="menu-despl-lista" id="menu-admin-lista" hidden>
+        <a href="/usuarios" class="menu-despl-item perm-admin" id="btn-usuarios">Usuarios</a>
+        <button id="btn-dep-mgr" class="menu-despl-item" type="button">Dependencias</button>
+        <button id="btn-cambiar-clave-admin" class="menu-despl-item" type="button">🔑 Mi contraseña</button>
+        <button id="btn-respaldo-rapido" class="menu-despl-item perm-admin" type="button">💾 Respaldo</button>
+        <button id="btn-ver-eliminadas" class="menu-despl-item perm-admin" type="button">🗑️ Eliminadas</button>
+      </div>
+    </div>
+
+    <!-- Reportes: agrupa Reportes y hojas, Reporte para dirección -->
+    <div class="menu-despl perm-admin" id="menu-reportes">
+      <button type="button" class="btn-reporte btn-reportes-sec menu-despl-btn">📄 Reportes <span class="menu-despl-flecha">▾</span></button>
+      <div class="menu-despl-lista" id="menu-reportes-lista" hidden>
+        <a href="/reportes" class="menu-despl-item">Reportes y hojas</a>
+        <a href="/reporte" class="menu-despl-item">Reporte para dirección →</a>
+      </div>
+    </div>
+
     <button id="btn-salir-admin" class="btn-reporte" type="button">Salir</button>
   </div>
 </header>
