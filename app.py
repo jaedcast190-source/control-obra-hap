@@ -976,6 +976,18 @@ def api_actividades():
         cond.append("tipo_partida = ?"); args.append(tipo_partida)
     if estatus:
         cond.append("estatus = ?"); args.append(estatus)
+    avance_min = request.args.get("avance_min")
+    if avance_min not in (None, ""):
+        try:
+            cond.append("avance >= ?"); args.append(max(0, min(100, int(avance_min))))
+        except (TypeError, ValueError):
+            pass
+    avance_max = request.args.get("avance_max")
+    if avance_max not in (None, ""):
+        try:
+            cond.append("avance <= ?"); args.append(max(0, min(100, int(avance_max))))
+        except (TypeError, ValueError):
+            pass
     if buscar:
         b = "%" + sin_acentos(buscar) + "%"
         cond.append(f"(sinac(partida) LIKE ? OR sinac(area) LIKE ? OR sinac({col_resp}) LIKE ? OR sinac(bloque) LIKE ? OR sinac(codigo) LIKE ?)")
@@ -1912,6 +1924,20 @@ def _filtrar_actividades(args):
         hoy_d = datetime.date.today()
         rows = [r for r in rows if parse_date(r["f_fin"]) and (r["avance"] or 0) < 100
                 and (parse_date(r["f_fin"]) - hoy_d).days < 0]
+    av_min = args.get("avance_min")
+    if av_min not in (None, ""):
+        try:
+            av_min = max(0, min(100, int(av_min)))
+            rows = [r for r in rows if (r["avance"] or 0) >= av_min]
+        except (TypeError, ValueError):
+            pass
+    av_max = args.get("avance_max")
+    if av_max not in (None, ""):
+        try:
+            av_max = max(0, min(100, int(av_max)))
+            rows = [r for r in rows if (r["avance"] or 0) <= av_max]
+        except (TypeError, ValueError):
+            pass
     return rows
 
 
