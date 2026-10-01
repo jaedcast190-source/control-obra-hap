@@ -129,6 +129,11 @@
     <div class="filtro-combo"><input list="dl-r-giro" id="r-giro" placeholder="Giro" autocomplete="off"><datalist id="dl-r-giro"></datalist></div>
     <div class="filtro-combo"><input list="dl-r-prov" id="r-prov" placeholder="Proveedor" autocomplete="off"><datalist id="dl-r-prov"></datalist></div>
     <div class="filtro-combo"><input list="dl-r-tipo" id="r-tipo" placeholder="Tipo" autocomplete="off"><datalist id="dl-r-tipo"></datalist></div>
+    <div class="filtro-combo filtro-avance-par">
+      <input type="number" id="r-avance-min" placeholder="Avance desde %" min="0" max="100" inputmode="numeric">
+      <span class="filtro-avance-guion">–</span>
+      <input type="number" id="r-avance-max" placeholder="hasta %" min="0" max="100" inputmode="numeric">
+    </div>
     <label class="chk-retraso"><input type="checkbox" id="r-retraso"> Solo lo retrasado</label>
   </div>
   <div class="rep-controles">
