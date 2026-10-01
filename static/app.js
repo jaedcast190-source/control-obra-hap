@@ -748,6 +748,34 @@ function cambiarMundo(m) {
 }
 $("#sm-obra").addEventListener("click", () => cambiarMundo("obra"));
 $("#sm-interno").addEventListener("click", () => cambiarMundo("interno"));
+
+// ====== Menús desplegables del encabezado (Administración / Reportes) ======
+// Un solo patrón reutilizable: clic en el botón abre/cierra su lista;
+// clic afuera, o Escape, cierra cualquier menú que esté abierto.
+function envolverMenuDespl(idMenu, idLista) {
+  const menu = $(idMenu), lista = $(idLista);
+  if (!menu || !lista || !menu.querySelector) return;
+  const btn = menu.querySelector(".menu-despl-btn");
+  if (!btn) return;
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const abrir = lista.hidden;
+    cerrarTodosMenusDespl();
+    if (abrir) { lista.hidden = false; menu.classList.add("abierto"); }
+  });
+  lista.addEventListener("click", (e) => {
+    // si lo que se tocó dentro de la lista es un botón/enlace de acción, cierra el menú
+    if (e.target.closest(".menu-despl-item")) cerrarTodosMenusDespl();
+  });
+}
+function cerrarTodosMenusDespl() {
+  $$(".menu-despl-lista").forEach((l) => (l.hidden = true));
+  $$(".menu-despl").forEach((m) => m.classList.remove("abierto"));
+}
+document.addEventListener("click", cerrarTodosMenusDespl);
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") cerrarTodosMenusDespl(); });
+envolverMenuDespl("#menu-admin", "#menu-admin-lista");
+envolverMenuDespl("#menu-reportes", "#menu-reportes-lista");
 const histCerrar = $("#hist-cerrar");
 if (histCerrar) histCerrar.addEventListener("click", cerrarHistorial);
 const btnSalirAdmin = $("#btn-salir-admin");
