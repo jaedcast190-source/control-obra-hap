@@ -15,6 +15,8 @@ $("#btn-foto").addEventListener("click", async () => {
 });
 
 async function inicio() {
+  const q = await (await fetch("/api/quien_soy")).json();
+  if (!q.login) { location.href = "/login"; return; }
   CAT = await (await fetch("/api/catalogos")).json();
   // datalists
   llena("#dl-prov-hoja", CAT.proveedores);
@@ -134,6 +136,10 @@ function paramsMedida() {
     if (v) p.set(key, v);
   }
   if ($("#r-retraso").checked) p.set("solo_retraso", "1");
+  const avMin = $("#r-avance-min").value.trim();
+  const avMax = $("#r-avance-max").value.trim();
+  if (avMin !== "") p.set("avance_min", avMin);
+  if (avMax !== "") p.set("avance_max", avMax);
   p.set("titulo", "Reporte de actividades");
   return p.toString();
 }
@@ -141,14 +147,81 @@ function actualizarLinksMedida() {
   const q = "?" + paramsMedida();
   $("#btn-med-pdf").href = "/api/hoja_proveedor.pdf" + q;
   $("#btn-med-xlsx").href = "/api/hoja_proveedor.xlsx" + q;
+  graficaMedidaDebounced();
 }
-["#r-bloque", "#r-area", "#r-giro", "#r-prov", "#r-tipo"].forEach((s) => {
+
+// ---- Gráfica del reporte a la medida: avance por proveedor + estatus ----
+function esRetrasada(a) {
+  if (!a.f_fin || (a.avance || 0) >= 100) return false;
+  const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+  const fin = new Date(a.f_fin + "T00:00:00");
+  return fin < hoy;
+}
+
+let _graficaMedidaTimer = null;
+function graficaMedidaDebounced() {
+  clearTimeout(_graficaMedidaTimer);
+  _graficaMedidaTimer = setTimeout(actualizarGraficaMedida, 300);
+}
+
+async function actualizarGraficaMedida() {
+  let datos;
+  try {
+    datos = await (await fetch("/api/actividades?" + paramsMedida())).json();
+    if (!Array.isArray(datos)) datos = [];
+  } catch (e) {
+    return;
+  }
+  if ($("#r-retraso").checked) datos = datos.filter(esRetrasada);
+
+  // barras: avance promedio por proveedor/departamento, peor primero
+  const grupos = new Map();
+  datos.forEach((a) => {
+    // igual que el resto de la plataforma: proveedor manda; departamento
+    // solo aplica en el mundo "interno" (donde no hay proveedor).
+    const clave = a.proveedor || a.departamento || "Sin asignar";
+    if (!grupos.has(clave)) grupos.set(clave, []);
+    grupos.get(clave).push(a.avance || 0);
+  });
+  const filas = [...grupos.entries()]
+    .map(([clave, avs]) => ({
+      clave, n: avs.length,
+      av: Math.round(avs.reduce((s, v) => s + v, 0) / avs.length),
+    }))
+    .sort((x, y) => x.av - y.av);
+  const contProv = $("#med-graf-proveedor");
+  contProv.innerHTML = filas.length
+    ? filas.map((f) => `
+      <div class="med-graf-fila">
+        <span class="med-graf-etiqueta" title="${esc(f.clave)}">${esc(f.clave)} <small style="color:#8a94a3">(${f.n})</small></span>
+        <div class="barra-mini"><div class="barra-mini-fill ${f.av >= 75 ? "alto" : f.av < 35 ? "bajo" : ""}" style="width:${f.av}%"></div></div>
+        <span class="pct">${f.av}%</span>
+      </div>`).join("")
+    : `<p class="med-graf-vacio">Sin actividades con estos filtros.</p>`;
+
+  // tarjetas: conteo por estatus
+  let listas = 0, proceso = 0, pendientes = 0, retrasadas = 0;
+  datos.forEach((a) => {
+    const av = a.avance || 0;
+    if (esRetrasada(a)) retrasadas++;
+    if (av >= 100) listas++; else if (av > 0) proceso++; else pendientes++;
+  });
+  $("#med-graf-estatus").innerHTML = `
+    <div class="med-graf-tiles">
+      <div class="med-graf-tile listo"><b>${listas}</b><span>Listas</span></div>
+      <div class="med-graf-tile proceso"><b>${proceso}</b><span>En proceso</span></div>
+      <div class="med-graf-tile pendiente"><b>${pendientes}</b><span>Pendientes</span></div>
+      <div class="med-graf-tile retraso"><b>${retrasadas}</b><span>Retrasadas</span></div>
+    </div>`;
+}
+
+["#r-bloque", "#r-area", "#r-giro", "#r-prov", "#r-tipo", "#r-avance-min", "#r-avance-max"].forEach((s) => {
   $(s).addEventListener("input", actualizarLinksMedida);
   $(s).addEventListener("change", actualizarLinksMedida);
 });
 $("#r-retraso").addEventListener("change", actualizarLinksMedida);
 $("#btn-med-limpiar").addEventListener("click", () => {
-  ["#r-bloque", "#r-area", "#r-giro", "#r-prov", "#r-tipo"].forEach((s) => ($(s).value = ""));
+  ["#r-bloque", "#r-area", "#r-giro", "#r-prov", "#r-tipo", "#r-avance-min", "#r-avance-max"].forEach((s) => ($(s).value = ""));
   $("#r-retraso").checked = false;
   actualizarLinksMedida();
 });
