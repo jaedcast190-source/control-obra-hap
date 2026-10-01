@@ -88,6 +88,14 @@ body{
 .filtro-combo{display:inline-flex}
 .filtro-combo input[list]{min-width:150px;cursor:pointer}
 .filtro-combo input[list]:focus{border-color:var(--acero);outline:none}
+.filtro-avance-par{align-items:center;gap:6px}
+.filtro-avance-par input[type=number]{
+  padding:8px 10px;border:1px solid var(--linea);border-radius:5px;
+  background:#fff;font-size:13px;color:var(--tinta);width:118px;
+}
+.filtro-avance-par input[type=number]:last-of-type{width:78px}
+.filtro-avance-par input[type=number]:focus{border-color:var(--acero);outline:none}
+.filtro-avance-guion{color:var(--gris-texto);font-size:13px}
 #buscar{min-width:260px;flex:0 1 300px}
 .flex{flex:1}
 .btn-pri,.btn-sec{
@@ -396,6 +404,8 @@ body.mundo-interno .logo{background:#7a4fb0}
   .controles input[type=search],.controles select,.controles input[list],
   .filtro-combo,.filtro-combo input[list]{width:100%;min-width:0}
   .filtro-combo{flex:1 1 calc(50% - 4px)}
+  .filtro-avance-par{display:flex;width:100%}
+  .filtro-avance-par input[type=number]{width:0;flex:1 1 auto;min-width:0}
   #buscar{flex:1 1 100%;min-width:0}
   .controles .btn-pri,.controles .btn-sec{flex:1 1 calc(50% - 4px);text-align:center}
 
