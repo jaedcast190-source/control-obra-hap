@@ -175,6 +175,8 @@ async function cargarActividades() {
   if ($("#f-giro").value) params.set("giro", $("#f-giro").value);
   if ($("#f-tipo-partida").value) params.set("tipo_partida", $("#f-tipo-partida").value);
   if ($("#f-estatus").value) params.set("estatus", $("#f-estatus").value);
+  if ($("#f-avance-min").value.trim()) params.set("avance_min", $("#f-avance-min").value.trim());
+  if ($("#f-avance-max").value.trim()) params.set("avance_max", $("#f-avance-max").value.trim());
   if ($("#buscar").value.trim()) params.set("buscar", $("#buscar").value.trim());
   TODAS = await (await fetch("/api/actividades?" + params)).json();
   render();
@@ -684,8 +686,15 @@ let deb;
 $("#buscar").addEventListener("input", () => {
   clearTimeout(deb); deb = setTimeout(cargarActividades, 250);
 });
+let debAvance;
+["#f-avance-min", "#f-avance-max"].forEach((s) =>
+  $(s).addEventListener("input", () => {
+    clearTimeout(debAvance); debAvance = setTimeout(cargarActividades, 350);
+  }));
 $("#btn-limpiar").addEventListener("click", () => {
   ["#f-bloque", "#f-area", "#f-proveedor", "#f-giro", "#f-tipo-partida", "#f-estatus"].forEach((s) => ($(s).value = ""));
+  $("#f-avance-min").value = "";
+  $("#f-avance-max").value = "";
   $("#buscar").value = "";
   llenarDatalist("#dl-area", CATALOGOS.areas);
   llenarListaResponsables();
@@ -733,7 +742,7 @@ function cambiarMundo(m) {
   $("#sm-interno").classList.toggle("activo", m === "interno");
   document.body.classList.toggle("mundo-interno", m === "interno");
   // limpiar filtros al cambiar de mundo
-  ["#f-bloque", "#f-area", "#f-proveedor", "#f-giro", "#f-tipo-partida", "#f-estatus", "#buscar"].forEach(s => { if ($(s)) $(s).value = ""; });
+  ["#f-bloque", "#f-area", "#f-proveedor", "#f-giro", "#f-tipo-partida", "#f-estatus", "#f-avance-min", "#f-avance-max", "#buscar"].forEach(s => { if ($(s)) $(s).value = ""; });
   adaptarInterfazMundo();
   cargarTodo();
 }
