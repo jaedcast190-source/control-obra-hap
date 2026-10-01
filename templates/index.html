@@ -22,6 +22,7 @@
       <span class="contador-num" id="dias-num">—</span>
       <span class="contador-lbl">días para el 31&nbsp;oct</span>
     </div>
+    <button id="btn-avisos" class="btn-reporte btn-reportes-sec perm-admin" type="button" title="Avisos">🔔 <span id="badge-avisos" class="badge-val" hidden>0</span></button>
     <a href="/seguimiento" class="btn-reporte btn-reportes-sec perm-admin" id="btn-seguimiento">📊 Seguimiento</a>
     <a href="/validacion" class="btn-reporte btn-reportes-sec" id="btn-validacion">Validación <span id="badge-val" class="badge-val" hidden>0</span></a>
     <a href="/usuarios" class="btn-reporte btn-reportes-sec perm-admin" id="btn-usuarios">Usuarios</a>
@@ -83,6 +84,11 @@
   <div class="filtro-combo">
     <input list="dl-estatus" id="f-estatus" placeholder="Estatus" autocomplete="off">
     <datalist id="dl-estatus"></datalist>
+  </div>
+  <div class="filtro-combo filtro-avance-par" title="Ventana de avance (%)">
+    <input type="number" id="f-avance-min" placeholder="Avance desde" min="0" max="100" inputmode="numeric">
+    <span class="filtro-avance-guion">–</span>
+    <input type="number" id="f-avance-max" placeholder="hasta %" min="0" max="100" inputmode="numeric">
   </div>
   <datalist id="dl-causa-global"></datalist>
   <button id="btn-limpiar" class="btn-sec">Limpiar</button>
@@ -388,6 +394,26 @@
     </div>
     <div id="elim-lista"></div>
     <p id="elim-vacio" hidden style="text-align:center;color:#94a3b8;padding:20px">No hay actividades eliminadas.</p>
+  </div>
+</div>
+
+<!-- Panel: Avisos + activar notificaciones push -->
+<div class="overlay" id="overlay-avisos" hidden></div>
+<div class="panel" id="panel-avisos" hidden style="width:min(480px,96vw)">
+  <div class="panel-cab">
+    <h2>🔔 Avisos</h2>
+    <button class="cerrar" id="btn-cerrar-avisos">✕</button>
+  </div>
+  <div class="panel-cuerpo">
+    <div id="avisos-push-caja" class="avisos-push-caja">
+      <p id="avisos-push-texto">Activa avisos en este celular o computadora para enterarte al instante cuando un proveedor reporte avance, proponga algo nuevo o no reconozca una actividad — sin necesidad de tener la plataforma abierta.</p>
+      <button id="btn-avisos-activar" class="btn-pri" type="button">🔔 Activar avisos en este dispositivo</button>
+      <button id="btn-avisos-probar" class="btn-sec" type="button" hidden>Mandar aviso de prueba</button>
+      <p id="avisos-push-estado" class="avisos-push-estado"></p>
+    </div>
+    <p class="avisos-lista-titulo">Últimos avisos</p>
+    <div id="avisos-lista"></div>
+    <p id="avisos-vacio" hidden style="text-align:center;color:#94a3b8;padding:20px">Todavía no hay avisos.</p>
   </div>
 </div>
 
