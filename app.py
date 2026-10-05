@@ -2149,9 +2149,9 @@ def api_plantilla_captura():
         i += 1
     ultima = i - 1
 
-    # Validaciones: avance por lista 0/25/50/75/100, causa por lista de causas
+    # Validaciones: avance por lista 0/10/20…100, causa por lista de causas
     if ultima >= hdr + 1:
-        dv_av = DataValidation(type="list", formula1='"0,25,50,75,100"', allow_blank=True)
+        dv_av = DataValidation(type="list", formula1='"0,10,20,30,40,50,60,70,80,90,100"', allow_blank=True)
         ws.add_data_validation(dv_av)
         dv_av.add(f"E{hdr+1}:E{ultima}")
         # causas: si son pocas caben en formula directa; si no, usar hoja aparte
@@ -3249,6 +3249,102 @@ def hoja_departamento_xlsx():
     out = os.path.join(BASE_DIR, "data", "hoja_departamento.xlsx")
     wb.save(out)
     return send_file(out, as_attachment=True, download_name=f"HOJA_DEPTO_{safe}_{hoy()}.xlsx")
+
+
+# ----------------------------------------------------------------------------
+# API — Ajuste de avances a múltiplos de 10 (una sola vez, solo admin)
+# Pedido de proveedores y arquitecto: capturar avances de 10 en 10.
+# Regla: toda actividad vigente de OBRA con avance entre 1 y 99 que no sea
+# múltiplo de 10 sube al siguiente múltiplo de 10 (25->30, 75->80, 1->10).
+# 0 y 100 no se tocan. No toca eliminadas, "no aplica", propuestas ni Interno.
+# ----------------------------------------------------------------------------
+def _siguiente_decena(av):
+    av = int(av or 0)
+    if av <= 0 or av >= 100 or av % 10 == 0:
+        return av
+    return min(100, ((av // 10) + 1) * 10)
+
+
+def _filas_vigentes_obra(db):
+    return db.execute(
+        "SELECT id, codigo, bloque, area, proveedor, departamento, avance, avance_decl "
+        "FROM actividades WHERE (eliminada IS NULL OR eliminada=0) "
+        "AND (aplica IS NULL OR aplica<>'NO') "
+        "AND (estado_val IS NULL OR estado_val='validado') "
+        "AND (mundo='obra' OR mundo IS NULL)").fetchall()
+
+
+def _calcular_ajuste_decenas(db):
+    filas = _filas_vigentes_obra(db)
+    total = len(filas)
+    suma_antes = sum((f["avance"] or 0) for f in filas)
+    cambios, transiciones, por_resp = [], {}, {}
+    suma_despues = 0
+    for f in filas:
+        antes = f["avance"] or 0
+        despues = _siguiente_decena(antes)
+        suma_despues += despues
+        resp = f["proveedor"] or f["departamento"] or "Sin asignar"
+        r = por_resp.setdefault(resp, {"nombre": resp, "n": 0, "suma_antes": 0, "suma_despues": 0, "cambian": 0})
+        r["n"] += 1; r["suma_antes"] += antes; r["suma_despues"] += despues
+        if despues != antes:
+            r["cambian"] += 1
+            cambios.append((f, antes, despues))
+            transiciones[(antes, despues)] = transiciones.get((antes, despues), 0) + 1
+    resumen = {
+        "total_vigentes": total,
+        "avance_actual": round(suma_antes / total, 1) if total else 0,
+        "avance_proyectado": round(suma_despues / total, 1) if total else 0,
+        "n_cambian": len(cambios),
+        "transiciones": [{"de": k[0], "a": k[1], "n": v} for k, v in sorted(transiciones.items())],
+        "por_responsable": sorted(
+            [{"nombre": r["nombre"], "n": r["n"], "cambian": r["cambian"],
+              "antes": round(r["suma_antes"] / r["n"], 1),
+              "despues": round(r["suma_despues"] / r["n"], 1)} for r in por_resp.values()],
+            key=lambda x: -x["n"]),
+    }
+    return resumen, cambios
+
+
+@app.route("/api/ajuste_decenas/vista_previa")
+@requiere_admin
+def api_ajuste_decenas_vista_previa():
+    resumen, _ = _calcular_ajuste_decenas(get_db())
+    return jsonify(resumen)
+
+
+@app.route("/api/ajuste_decenas/aplicar", methods=["POST"])
+@requiere_admin
+def api_ajuste_decenas_aplicar():
+    data = request.get_json(silent=True) or {}
+    if data.get("confirmar") is not True:
+        return jsonify({"error": "Falta confirmar el ajuste."}), 400
+    db = get_db()
+    resumen_antes, cambios = _calcular_ajuste_decenas(db)
+    if not cambios:
+        return jsonify({"ok": True, "cambiadas": 0, "mensaje": "No había nada que ajustar: todo ya está en múltiplos de 10.",
+                        "avance_actual": resumen_antes["avance_actual"]})
+    # respaldo automático ANTES de tocar nada; si falla, no se aplica
+    respaldo = generar_respaldo_bd()
+    if not respaldo:
+        return jsonify({"error": "No se pudo generar el respaldo previo; no se aplicó ningún cambio."}), 500
+    usuario = session.get("usuario") or "admin"
+    ahora = datetime.datetime.now().isoformat(timespec="seconds")
+    try:
+        for f, antes, despues in cambios:
+            nuevo_decl = despues if (f["avance_decl"] is not None and f["avance_decl"] == antes) else f["avance_decl"]
+            db.execute("UPDATE actividades SET avance=?, estatus=?, avance_decl=?, actualizado=? WHERE id=?",
+                       (despues, estatus_por_avance(despues), nuevo_decl, ahora, f["id"]))
+            registrar_historial(db, f["id"], "avance (ajuste a múltiplos de 10)", antes, despues, usuario)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        return jsonify({"error": f"No se pudo aplicar el ajuste: {e}"}), 500
+    resumen_despues, _ = _calcular_ajuste_decenas(db)
+    return jsonify({"ok": True, "cambiadas": len(cambios),
+                    "avance_antes": resumen_antes["avance_actual"],
+                    "avance_actual": resumen_despues["avance_actual"],
+                    "respaldo": os.path.basename(respaldo)})
 
 
 # ----------------------------------------------------------------------------
