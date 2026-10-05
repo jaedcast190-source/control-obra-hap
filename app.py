@@ -1,1637 +1,3764 @@
-// ====== Estado ======
-let TODAS = [];
-let CATALOGOS = {};
-let DIRECTORIO = []; // ficha de proveedores/departamentos (/api/proveedores) — mismo directorio que "Usuarios y proveedores"
-let CAUSAS = [];
-let SELECCION = new Set();
-let MUNDO = "obra"; // 'obra' o 'interno'
-let PANEL_AVANCE_ORIGINAL = 0; // % con el que se abrió el panel, para saber si el admin lo cambió
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# ==========================================================
+#  VERSION 1.7 - 2 de septiembre de 2026, 6:20 pm (centro MX)
+#  v1.1 columnas departamento/mundo/tipo_interno en CREATE TABLE
+#  v1.2 modales faltantes en portal.html
+#  v1.3 auditoria: 4 pantallas muertas por botones inexistentes
+#  v1.4 CORRECCION: el blindaje de la 1.3 rompio la sintaxis de
+#       app.js y validacion.js. Rehecho con metodo seguro.
+#       Probado en navegador real: 0 errores de JavaScript.
+#  v1.5 NUEVO: consulta de dias pasados (/historico). Ver como estaba
+#       la obra en una fecha, comparar dos fechas, por responsable y
+#       por bloque, en los dos mundos. Reconstruye el pasado desde el
+#       historial cuando no hay foto. Foto semanal AUTOMATICA.
+#  v1.6 LISTA PARA INTERNET: base en disco persistente (DATA_DIR),
+#       puerto y clave desde el servidor, cookies seguras en HTTPS,
+#       arranque compatible con gunicorn. Ver GUIA_PUBLICAR_EN_INTERNET.md
+#  v1.7 SIEMBRA AUTOMATICA: en un servidor nuevo con disco vacio, copia
+#       semilla/obra_inicial.db (955 partidas) la primera vez. Ya no hay
+#       que subir la base a mano.
+#       VISTA DE CELULAR corregida: los botones del encabezado ya no se
+#       salen de la pantalla; tablero, filtros y tabla adaptados.
+# ==========================================================
+"""
+PLATAFORMA DE CONTROL DE OBRA — Unidad Quirúrgica HAP
+Servidor local. Base de datos SQLite en ./data/obra.db
+Entrega meta: 31 de octubre de 2026.
 
-/* === BLINDAJE v1.4 (2 sep 2026) — método seguro ===
-   Si un id no existe en el HTML, $ devuelve un elemento suelto (no visible)
-   en vez de null. Así el script NO se muere y el resto de la pantalla
-   sigue funcionando. No se modifica ninguna otra línea del código. */
-const $ = (s) => document.querySelector(s) || document.createElement("span");
-const $$ = (s) => document.querySelectorAll(s);
+Uso:
+    python app.py
+Luego abre en tu navegador:  http://localhost:5000
+"""
 
-// ====== Carga inicial ======
-let ROL_ACTUAL = "admin";
-async function cargarTodo() {
-  // quién soy: nombre, rol, permisos
-  try {
-    const q = await (await fetch("/api/quien_soy")).json();
-    if (!q.login) { location.href = "/login"; return; }
-    ROL_ACTUAL = q.rol || "admin";
-    $("#usuario-logueado").textContent = "👤 " + (q.usuario || "");
-    // supervisor: ocultar botones marcados con perm-admin
-    if (ROL_ACTUAL !== "admin") {
-      [...$$(".perm-admin")].forEach(el => el.style.display = "none");
+import os
+import re
+import sqlite3
+import datetime
+import json
+import hashlib
+import secrets
+import base64
+from functools import wraps
+from flask import Flask, request, jsonify, render_template, g, send_file, Response, session, redirect
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# En internet (Render/Railway) la base debe vivir en un DISCO PERSISTENTE,
+# si no se borra en cada actualizacion. Se define con la variable DATA_DIR.
+DATA_DIR = os.environ.get("DATA_DIR") or os.path.join(BASE_DIR, "data")
+os.makedirs(DATA_DIR, exist_ok=True)
+DB_PATH = os.path.join(DATA_DIR, "obra.db")
+FECHA_ENTREGA = "2026-10-31"
+
+app = Flask(__name__)
+
+
+@app.after_request
+def _sin_cache_en_paginas(resp):
+    """Blindaje contra rebotes: nunca dejar que el navegador ni ningun
+    proxy/CDN guarde en cache las paginas HTML. Asi jamas se puede quedar
+    pegada una version vieja del panel o del portal."""
+    if resp.mimetype == "text/html":
+        resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        resp.headers["Pragma"] = "no-cache"
+    return resp
+
+# clave para las sesiones; se guarda en data/ para que no cambie entre reinicios
+_secret_file = os.path.join(DATA_DIR, ".secret")
+def _cargar_secret():
+    try:
+        if os.path.exists(_secret_file):
+            return open(_secret_file).read().strip()
+        os.makedirs(os.path.dirname(_secret_file), exist_ok=True)
+        s = secrets.token_hex(32)
+        open(_secret_file, "w").write(s)
+        return s
+    except Exception:
+        return "hap-clave-temporal-cambiar"
+app.secret_key = os.environ.get("SECRET_KEY") or _cargar_secret()
+
+# --- Notificaciones push (celular/navegador) para el admin, sin depender
+# de ningun servicio externo (correo, WhatsApp, etc.) ---
+VAPID_PRIVATE_FILE = os.path.join(DATA_DIR, "vapid_private.pem")
+VAPID_PUBLIC_FILE = os.path.join(DATA_DIR, "vapid_public.txt")
+VAPID_CLAIM_EMAIL = os.environ.get("VAPID_CONTACT_EMAIL", "mailto:soporte@controlobrahap.local")
+
+def _vapid_keys():
+    """Genera (una sola vez) o carga el par de llaves VAPID que permiten
+    mandar notificaciones push directo al navegador/celular. La llave
+    privada se guarda en disco igual que .secret, para que NO cambie entre
+    reinicios -- si cambiara, todos los que ya activaron avisos dejarian
+    de recibirlos y tendrian que activarlos de nuevo."""
+    try:
+        if os.path.exists(VAPID_PRIVATE_FILE) and os.path.exists(VAPID_PUBLIC_FILE):
+            return VAPID_PRIVATE_FILE, open(VAPID_PUBLIC_FILE).read().strip()
+        from py_vapid import Vapid02
+        from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+        v = Vapid02()
+        v.generate_keys()
+        os.makedirs(DATA_DIR, exist_ok=True)
+        with open(VAPID_PRIVATE_FILE, "wb") as f:
+            f.write(v.private_pem())
+        pub_raw = v.public_key.public_bytes(Encoding.X962, PublicFormat.UncompressedPoint)
+        pub_b64 = base64.urlsafe_b64encode(pub_raw).rstrip(b"=").decode()
+        with open(VAPID_PUBLIC_FILE, "w") as f:
+            f.write(pub_b64)
+        return VAPID_PRIVATE_FILE, pub_b64
+    except Exception as e:
+        print("  Aviso: no se pudieron preparar las llaves de notificaciones push:", e)
+        return None, None
+
+def enviar_push_admins(titulo, cuerpo, url="/validacion"):
+    """Manda una notificacion push a todos los celulares/navegadores que el
+    admin haya activado. Nunca debe tronar la accion que lo disparo (guardar
+    un avance, una propuesta, etc.) -- es un extra, no algo de lo que
+    dependa el flujo principal."""
+    try:
+        from pywebpush import webpush, WebPushException
+    except ImportError:
+        return
+    priv_path, pub_b64 = _vapid_keys()
+    if not priv_path:
+        return
+    try:
+        db = get_db()
+        subs = db.execute("SELECT * FROM push_subscriptions").fetchall()
+    except Exception:
+        return
+    if not subs:
+        return
+    payload = json.dumps({"titulo": titulo, "cuerpo": cuerpo, "url": url})
+    for s in subs:
+        subscription_info = {
+            "endpoint": s["endpoint"],
+            "keys": {"p256dh": s["p256dh"], "auth": s["auth"]},
+        }
+        try:
+            webpush(
+                subscription_info=subscription_info,
+                data=payload,
+                vapid_private_key=priv_path,
+                vapid_claims={"sub": VAPID_CLAIM_EMAIL},
+            )
+        except WebPushException as e:
+            status = getattr(getattr(e, "response", None), "status_code", None)
+            if status in (404, 410):
+                try:
+                    db.execute("DELETE FROM push_subscriptions WHERE id=?", (s["id"],))
+                    db.commit()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+# --- Seguridad de la sesion cuando corre en internet (HTTPS) ---
+EN_INTERNET = bool(os.environ.get("EN_INTERNET"))
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=EN_INTERNET,
+    PERMANENT_SESSION_LIFETIME=datetime.timedelta(hours=12),
+)
+
+
+SAL = os.environ.get("SAL_CLAVES", "")
+
+def hash_clave(txt):
+    """Con SAL_CLAVES definida usa sal; sin ella mantiene el formato
+    anterior para no invalidar las contrasenas ya creadas."""
+    base = (txt or "")
+    if SAL:
+        return hashlib.sha256((SAL + base).encode()).hexdigest()
+    return hashlib.sha256(base.encode()).hexdigest()
+
+
+def usuario_actual():
+    return session.get("usuario"), session.get("rol"), session.get("proveedor")
+
+
+def col_duenio():
+    """Devuelve ('departamento', mundo) o ('proveedor', mundo) según el mundo del usuario."""
+    mundo = session.get("mundo", "obra")
+    col = "departamento" if mundo == "interno" else "proveedor"
+    return col, mundo
+
+
+def requiere_login(fn):
+    @wraps(fn)
+    def envoltura(*a, **k):
+        if "usuario" not in session:
+            return jsonify({"error": "no_login"}), 401
+        # candado: si al usuario lo desactivaron DESPUÉS de que ya había iniciado
+        # sesión, su sesión abierta no debe seguir funcionando. Sin esto, un
+        # usuario desactivado que ya estaba adentro podía seguir usando la
+        # plataforma hasta que él mismo cerrara sesión.
+        db = get_db()
+        u = db.execute("SELECT activo FROM usuarios WHERE usuario=?", (session["usuario"],)).fetchone()
+        if u is not None and "activo" in u.keys() and u["activo"] == 0:
+            session.clear()
+            return jsonify({"error": "cuenta_desactivada"}), 401
+        return fn(*a, **k)
+    return envoltura
+
+
+def requiere_admin(fn):
+    @wraps(fn)
+    def envoltura(*a, **k):
+        if session.get("rol") != "admin":
+            return jsonify({"error": "solo_admin"}), 403
+        return fn(*a, **k)
+    return envoltura
+
+
+# Roles que pueden GESTIONAR la obra (validar, asignar, editar, dependencias):
+# el admin y los dos supervisores. NO incluye tocar usuarios, respaldos ni borrar.
+ROLES_GESTORES = ("admin", "supervisor", "supervisor_obra", "supervisor_depto")
+
+def es_gestor(rol):
+    return rol in ROLES_GESTORES
+
+def requiere_gestor(fn):
+    """Deja pasar a admin y supervisores. Para validar/asignar/editar/dependencias."""
+    @wraps(fn)
+    def envoltura(*a, **k):
+        if session.get("rol") not in ROLES_GESTORES:
+            return jsonify({"error": "solo_gestores"}), 403
+        return fn(*a, **k)
+    return envoltura
+
+# ----------------------------------------------------------------------------
+# Base de datos
+# ----------------------------------------------------------------------------
+import unicodedata
+
+
+def sin_acentos(txt):
+    """Quita acentos y pasa a minúsculas, para buscar sin que estorbe la tilde."""
+    if txt is None:
+        return ""
+    t = unicodedata.normalize("NFD", str(txt))
+    t = "".join(c for c in t if unicodedata.category(c) != "Mn")
+    return t.lower()
+
+
+def get_db():
+    if "db" not in g:
+        g.db = sqlite3.connect(DB_PATH, timeout=10.0)
+        g.db.row_factory = sqlite3.Row
+        g.db.execute("PRAGMA journal_mode = WAL")
+        g.db.execute("PRAGMA busy_timeout = 5000")
+        g.db.execute("PRAGMA foreign_keys = ON")
+        # función propia para buscar ignorando acentos y mayúsculas
+        g.db.create_function("sinac", 1, sin_acentos)
+    return g.db
+
+
+@app.teardown_appcontext
+def close_db(exc):
+    db = g.pop("db", None)
+    if db is not None:
+        db.close()
+
+
+def generar_respaldo_bd():
+    """Genera una copia de seguridad timestamped en data/backups/ (mantiene los últimos 30)."""
+    try:
+        backup_dir = os.path.join(BASE_DIR, "data", "backups")
+        os.makedirs(backup_dir, exist_ok=True)
+        ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+        dest = os.path.join(backup_dir, f"obra_backup_{ts}.db")
+        if os.path.exists(DB_PATH):
+            src_con = sqlite3.connect(DB_PATH)
+            dst_con = sqlite3.connect(dest)
+            src_con.backup(dst_con)
+            dst_con.close()
+            src_con.close()
+            # Limpiar respaldos viejos (mantener los últimos 30)
+            archivos = sorted([os.path.join(backup_dir, f) for f in os.listdir(backup_dir) if f.startswith("obra_backup_") and f.endswith(".db")])
+            if len(archivos) > 30:
+                for f in archivos[:-30]:
+                    try: os.remove(f)
+                    except Exception: pass
+            return dest
+    except Exception as e:
+        print(f"Error generando respaldo automático: {e}")
+    return None
+
+
+def init_db():
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    con = sqlite3.connect(DB_PATH, timeout=10.0)
+    con.execute("PRAGMA journal_mode = WAL")
+    con.execute("PRAGMA busy_timeout = 5000")
+    con.executescript(
+        """
+    CREATE TABLE IF NOT EXISTS actividades (
+        id             INTEGER PRIMARY KEY AUTOINCREMENT,
+        codigo         TEXT,
+        bloque         TEXT,
+        area           TEXT,
+        giro           TEXT,
+        proveedor      TEXT,
+        departamento   TEXT,
+        mundo          TEXT DEFAULT 'obra',
+        tipo_interno   TEXT,
+        partida        TEXT,
+        tipo           TEXT,
+        tipo_partida   TEXT DEFAULT 'Construcción',
+        aplica         TEXT DEFAULT 'SÍ',
+        avance         INTEGER DEFAULT 0,
+        f_inicio       TEXT,
+        f_fin          TEXT,
+        duracion_dias  INTEGER,
+        estatus        TEXT DEFAULT 'Pendiente',
+        depende_de     INTEGER,
+        definido       TEXT DEFAULT 'NO',
+        causa_retraso  TEXT,
+        nota_proveedor TEXT,
+        causa_por      TEXT,
+        causa_fecha    TEXT,
+        -- Portal de proveedores: origen y estado de validación
+        origen         TEXT DEFAULT 'oficial',   -- 'oficial' (la diste de alta tú) | 'propuesta' (la agregó el proveedor)
+        estado_val     TEXT DEFAULT 'validado',  -- 'validado' | 'propuesta' (espera tu firma) | 'rechazada'
+        avance_decl    INTEGER,                  -- lo que el proveedor DICE que lleva (declarado)
+        avance_decl_por TEXT,                     -- quién lo declaró
+        avance_decl_fecha TEXT,                   -- cuándo lo declaró
+        definido_por   TEXT,                      -- 'plano' | 'adicional' | 'comentario' (para que el proveedor se proteja)
+        creado_por     TEXT,                      -- usuario que la creó (si es propuesta)
+        reconocida     TEXT DEFAULT 'NO',         -- 'SÍ' cuando el proveedor acepta que es su trabajo
+        reconocida_por TEXT,
+        reconocida_fecha TEXT,
+        no_reconocida_nota TEXT,                   -- si el proveedor dice "esto no es mío", su comentario
+        fuera_zona     INTEGER DEFAULT 0,
+        rechazo_motivo TEXT,
+        rechazado_por  TEXT,
+        rechazado_fecha TEXT,
+        avance_decl_rechazado INTEGER DEFAULT 0,
+        notas          TEXT,
+        actualizado    TEXT,
+        FOREIGN KEY (depende_de) REFERENCES actividades(id) ON DELETE SET NULL
+    );
+
+    -- Modelo de Dependencias por área (auto-liberación y forzado con historial)
+    CREATE TABLE IF NOT EXISTS dependencias (
+        id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+        area               TEXT NOT NULL,
+        tipo_sucesor       TEXT NOT NULL,
+        tipos_predecesores TEXT NOT NULL,
+        umbral             INTEGER DEFAULT 100,
+        permite_paralelo   INTEGER DEFAULT 0,
+        liberacion_forzada INTEGER DEFAULT 0,
+        forzada_por        TEXT,
+        forzada_fecha      TEXT,
+        forzada_nota       TEXT,
+        creado             TEXT
+    );
+
+    -- Usuarios del portal de proveedores (uno o varios por empresa)
+    CREATE TABLE IF NOT EXISTS usuarios (
+        id        INTEGER PRIMARY KEY AUTOINCREMENT,
+        usuario   TEXT UNIQUE,     -- lo que teclean para entrar
+        clave     TEXT,            -- contraseña simple (se guarda con hash)
+        proveedor TEXT,            -- a qué proveedor/departamento pertenece (ve solo lo suyo)
+        rol       TEXT DEFAULT 'proveedor',  -- 'proveedor' | 'admin'
+        mundo     TEXT DEFAULT 'obra',       -- 'obra' (proveedor externo) | 'interno' (departamento HAP)
+        clave_cambiada INTEGER DEFAULT 0,     -- 1 si el usuario ya cambió la contraseña que le diste
+        creado    TEXT
+    );
+
+    -- Bitácora de avisos para el panel de validación del admin
+    CREATE TABLE IF NOT EXISTS avisos (
+        id        INTEGER PRIMARY KEY AUTOINCREMENT,
+        fecha     TEXT,
+        proveedor TEXT,
+        usuario   TEXT,
+        tipo      TEXT,            -- 'propuesta' | 'avance'
+        detalle   TEXT,
+        visto     INTEGER DEFAULT 0
+    );
+
+    -- Suscripciones a notificaciones push (celular/navegador) del admin,
+    -- para avisar en el momento cuando un proveedor reporta algo.
+    CREATE TABLE IF NOT EXISTS push_subscriptions (
+        id        INTEGER PRIMARY KEY AUTOINCREMENT,
+        usuario   TEXT,
+        endpoint  TEXT UNIQUE,
+        p256dh    TEXT,
+        auth      TEXT,
+        creado    TEXT
+    );
+
+    -- Catálogo de causas de retraso (7 base + las que agregue el usuario)
+    CREATE TABLE IF NOT EXISTS causas (
+        id     INTEGER PRIMARY KEY AUTOINCREMENT,
+        nombre TEXT UNIQUE,
+        base   INTEGER DEFAULT 0,
+        mundo  TEXT DEFAULT 'obra'
+    );
+
+    -- Fotografías semanales de avance por partida (para comparar semana vs semana)
+    CREATE TABLE IF NOT EXISTS snapshots (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        semana       TEXT,      -- etiqueta 'AAAA-Www' (año-semana ISO)
+        fecha        TEXT,      -- fecha en que se tomó la foto
+        actividad_id INTEGER,
+        avance       INTEGER
+    );
+
+    CREATE TABLE IF NOT EXISTS historial (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        actividad_id INTEGER,
+        campo        TEXT,
+        valor_antes  TEXT,
+        valor_despues TEXT,
+        fecha        TEXT,
+        quien        TEXT
+    );
+
+    -- Catálogo de áreas/departamentos que intervienen para dejar un espacio funcional
+    CREATE TABLE IF NOT EXISTS tipos_internos (
+        id     INTEGER PRIMARY KEY AUTOINCREMENT,
+        nombre TEXT UNIQUE
+    );
+
+    CREATE TABLE IF NOT EXISTS involucrados (
+        id     INTEGER PRIMARY KEY AUTOINCREMENT,
+        nombre TEXT UNIQUE
+    );
+
+    -- Qué involucrados le tocan a cada área (para dejarla funcional)
+    CREATE TABLE IF NOT EXISTS area_involucrados (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        area         TEXT,
+        involucrado  TEXT,
+        UNIQUE(area, involucrado)
+    );
+
+    CREATE TABLE IF NOT EXISTS config (
+        clave TEXT PRIMARY KEY,
+        valor TEXT
+    );
+
+    -- Catálogo de proveedores con tipo (interno/externo) y de qué se encarga
+    CREATE TABLE IF NOT EXISTS proveedores (
+        id       INTEGER PRIMARY KEY AUTOINCREMENT,
+        nombre   TEXT UNIQUE,
+        tipo     TEXT DEFAULT 'Externo',
+        funcion  TEXT
+    );
+
+    -- Catálogo simple para bloques, áreas y giros (nombre + nota de para qué es)
+    CREATE TABLE IF NOT EXISTS catalogo (
+        id     INTEGER PRIMARY KEY AUTOINCREMENT,
+        clase  TEXT,      -- 'bloque' | 'area' | 'giro'
+        nombre TEXT,
+        nota   TEXT,
+        UNIQUE(clase, nombre)
+    );
+    """
+    )
+    # --- Migración: agrega columnas nuevas si la BD ya existía sin ellas ---
+    cols = [r[1] for r in con.execute("PRAGMA table_info(actividades)").fetchall()]
+    if "tipo_partida" not in cols:
+        con.execute("ALTER TABLE actividades ADD COLUMN tipo_partida TEXT DEFAULT 'Construcción'")
+        con.execute("UPDATE actividades SET tipo_partida='Construcción' WHERE tipo_partida IS NULL")
+    if "definido" not in cols:
+        con.execute("ALTER TABLE actividades ADD COLUMN definido TEXT DEFAULT 'NO'")
+        con.execute("UPDATE actividades SET definido='NO' WHERE definido IS NULL")
+    for c in ("causa_retraso", "nota_proveedor", "causa_por", "causa_fecha"):
+        if c not in cols:
+            con.execute(f"ALTER TABLE actividades ADD COLUMN {c} TEXT")
+    # Portal de proveedores y rechazos
+    portal_cols = {
+        "origen": "TEXT DEFAULT 'oficial'",
+        "estado_val": "TEXT DEFAULT 'validado'",
+        "avance_decl": "INTEGER",
+        "avance_decl_por": "TEXT",
+        "avance_decl_fecha": "TEXT",
+        "definido_por": "TEXT",
+        "creado_por": "TEXT",
+        "reconocida": "TEXT DEFAULT 'NO'",
+        "reconocida_por": "TEXT",
+        "reconocida_fecha": "TEXT",
+        "no_reconocida_nota": "TEXT",
+        "mundo": "TEXT DEFAULT 'obra'",
+        "departamento": "TEXT",
+        "tipo_interno": "TEXT",
+        "fuera_zona": "INTEGER DEFAULT 0",
+        "rechazo_motivo": "TEXT",
+        "rechazado_por": "TEXT",
+        "rechazado_fecha": "TEXT",
+        "avance_decl_rechazado": "INTEGER DEFAULT 0",
     }
-  } catch(e) { /* si falla, sigue normal */ }
-  await cargarCatalogos();
-  await cargarResumen();
-  await cargarActividades();
-  await cargarConteoValidacion();
-}
-
-async function cargarConteoValidacion() {
-  try {
-    const r = await (await fetch("/api/validacion/aviso_conteo")).json();
-    const b = $("#badge-val");
-    if (r.total > 0) { b.hidden = false; b.textContent = r.total; }
-    else b.hidden = true;
-  } catch (e) { /* silencio */ }
-}
-
-async function cargarCatalogos() {
-  CATALOGOS = await (await fetch("/api/catalogos")).json();
-  try { DIRECTORIO = await (await fetch("/api/proveedores")).json(); } catch (e) { DIRECTORIO = []; }
-  llenarDatalist("#dl-bloque", CATALOGOS.bloques);
-  llenarDatalist("#dl-area", CATALOGOS.areas);
-  llenarDatalist("#dl-giro", CATALOGOS.giros);
-  llenarDatalist("#dl-tipo", CATALOGOS.tipos_partida);
-  llenarDatalist("#dl-estatus", CATALOGOS.estatus);
-  // datalists del panel de edición
-  llenarDatalist("#dl-bloque-e", CATALOGOS.bloques);
-  llenarDatalist("#dl-area-e", CATALOGOS.areas);
-  llenarDatalist("#dl-giro-e", CATALOGOS.giros);
-  llenarListaResponsables();
-  llenarListaValidaDepto();
-  await cargarCausas();
-}
-
-// Lista de "quién valida" (siempre departamentos internos, sin importar en qué
-// mundo estés parado — una actividad de Obra la valida alguien de Interno).
-function llenarListaValidaDepto() {
-  const deFicha = DIRECTORIO.filter(p => (p.tipo || "Externo") === "Interno").map(p => p.nombre);
-  const deHistorial = CATALOGOS.departamentos || [];
-  const lista = [...new Set([...deFicha, ...deHistorial])].filter(Boolean).sort((a, b) => a.localeCompare(b));
-  llenarDatalist("#dl-valida-depto", lista);
-}
-
-// Lista de responsables para el mundo actual (Obra=externos / Interno=departamentos):
-// junta la ficha de "Usuarios y proveedores" (mismo directorio) con los nombres que ya
-// se usaron en actividades pero todavía no tienen ficha, para no perder historial.
-function llenarListaResponsables() {
-  const tipoBuscado = MUNDO === "interno" ? "Interno" : "Externo";
-  const deFicha = DIRECTORIO.filter(p => (p.tipo || "Externo") === tipoBuscado).map(p => p.nombre);
-  const deHistorial = MUNDO === "interno" ? (CATALOGOS.departamentos || []) : (CATALOGOS.proveedores || []);
-  const lista = [...new Set([...deFicha, ...deHistorial])].filter(Boolean).sort((a, b) => a.localeCompare(b));
-  llenarDatalist("#dl-proveedor", lista);
-  llenarDatalist("#dl-proveedor-e", lista);
-}
-
-async function cargarCausas() {
-  CAUSAS = await (await fetch("/api/causas?mundo=" + MUNDO)).json();
-  llenarDatalist("#dl-causa", CAUSAS);
-}
-
-function llenarDatalist(sel, items) {
-  $(sel).innerHTML = items.map((i) => `<option value="${escapa(i)}">`).join("");
-}
-
-// Actualiza el panel de editar (datalist de Responsable + opciones de Tipo)
-// según el mundo elegido AHÍ MISMO en el select "#e-mundo" — que puede ser
-// distinto a la pestaña activa, cuando el admin está moviendo una actividad
-// mal clasificada de Obra a Interno o viceversa (ej. "Compras HAP").
-async function actualizarPanelSegunMundo(mundo) {
-  const interno = mundo === "interno";
-  if ($("#e-proveedor")) $("#e-proveedor").placeholder = interno ? "ej. Biomédica, Sistemas…" : "ej. CEBSA, Longoria…";
-  const tipoBuscado = interno ? "Interno" : "Externo";
-  const deFicha = DIRECTORIO.filter(p => (p.tipo || "Externo") === tipoBuscado).map(p => p.nombre);
-  const deHistorial = interno ? (CATALOGOS.departamentos || []) : (CATALOGOS.proveedores || []);
-  const lista = [...new Set([...deFicha, ...deHistorial])].filter(Boolean).sort((a, b) => a.localeCompare(b));
-  llenarDatalist("#dl-proveedor-e", lista);
-
-  const selTipo = $("#e-tipo-partida");
-  if (selTipo && selTipo.tagName === "SELECT") {
-    if (interno) {
-      if (!TIPOS_INTERNOS.length) {
-        try { TIPOS_INTERNOS = await (await fetch("/api/tipos_internos")).json(); } catch (e) { TIPOS_INTERNOS = []; }
-      }
-      selTipo.innerHTML = '<option value="">—</option>' + TIPOS_INTERNOS.map(t => `<option>${t}</option>`).join("");
-      if ($("#lbl-tipo-partida")) $("#lbl-tipo-partida").textContent = "Tipo de trabajo";
-    } else {
-      selTipo.innerHTML = `<option value="">—</option><option>Construcción</option><option>Mobiliario y equipo</option><option>Puesta en marcha</option><option>Detalles finales</option>`;
-      if ($("#lbl-tipo-partida")) $("#lbl-tipo-partida").textContent = "Tipo de partida";
+    for c, tipo in portal_cols.items():
+        if c not in cols:
+            con.execute(f"ALTER TABLE actividades ADD COLUMN {c} {tipo}")
+    # Pruebas de funcionamiento / revisión y entrega validada por interno
+    # (ej. contacto con polaridad y tierra, apagador que prenda, llave que saque agua)
+    pruebas_cols = {
+        "requiere_pruebas": "TEXT DEFAULT 'NO'",   # 'SÍ' | 'NO'
+        "valida_depto": "TEXT",                    # a quién (interno) le toca validar
+        "origen_actividad_id": "INTEGER",           # solo en la actividad de validación auto-creada: liga a la original
     }
-  }
-}
-if ($("#e-mundo") && $("#e-mundo").tagName === "SELECT") {
-  $("#e-mundo").addEventListener("change", async () => {
-    const nuevoMundo = $("#e-mundo").value;
-    await actualizarPanelSegunMundo(nuevoMundo);
-    $("#e-proveedor").value = "";
-    $("#e-tipo-partida").value = "";
-    toast("Elige el responsable y el tipo para " + (nuevoMundo === "interno" ? "Interno" : "Obra"));
-  });
-}
+    for c, tipo in pruebas_cols.items():
+        if c not in cols:
+            con.execute(f"ALTER TABLE actividades ADD COLUMN {c} {tipo}")
+    con.execute("UPDATE actividades SET requiere_pruebas='NO' WHERE requiere_pruebas IS NULL")
+    con.execute("UPDATE actividades SET mundo='obra' WHERE mundo IS NULL")
+    # las partidas que ya existían son oficiales y validadas
+    con.execute("UPDATE actividades SET origen='oficial' WHERE origen IS NULL")
+    con.execute("UPDATE actividades SET estado_val='validado' WHERE estado_val IS NULL")
+    # todas arrancan SIN reconocer: el proveedor tiene que aceptarlas sí o sí
+    con.execute("UPDATE actividades SET reconocida='NO' WHERE reconocida IS NULL")
 
-// Reduce las opciones de área y responsable según lo que ya esté filtrado
-function respDe(a) { return (MUNDO === "interno" ? a.departamento : a.proveedor) || ""; }
-function refrescarListasDependientes() {
-  const area = $("#f-area").value.trim();
-  const prov = $("#f-proveedor").value.trim();
-  const giro = $("#f-giro").value.trim();
-  const bloque = $("#f-bloque").value.trim();
-  const filtra = (a) =>
-    (!bloque || a.bloque === bloque) &&
-    (!area || a.area === area) &&
-    (!prov || respDe(a) === prov) &&
-    (!giro || a.giro === giro);
-  // áreas disponibles dado responsable/giro/bloque (sin fijar el propio área)
-  const areasDisp = [...new Set(TODAS.filter((a) =>
-    (!bloque || a.bloque === bloque) && (!prov || respDe(a) === prov) && (!giro || a.giro === giro)
-  ).map((a) => a.area).filter(Boolean))].sort();
-  const provDisp = [...new Set(TODAS.filter((a) =>
-    (!bloque || a.bloque === bloque) && (!area || a.area === area) && (!giro || a.giro === giro)
-  ).map((a) => respDe(a)).filter(Boolean))].sort();
-  if (areasDisp.length) llenarDatalist("#dl-area", areasDisp);
-  if (provDisp.length) llenarDatalist("#dl-proveedor", provDisp);
-}
+    # borrado suave: columna eliminada
+    if "eliminada" not in cols:
+        con.execute("ALTER TABLE actividades ADD COLUMN eliminada INTEGER DEFAULT 0")
+    if "eliminada_por" not in cols:
+        con.execute("ALTER TABLE actividades ADD COLUMN eliminada_por TEXT")
+    if "eliminada_fecha" not in cols:
+        con.execute("ALTER TABLE actividades ADD COLUMN eliminada_fecha TEXT")
 
-async function cargarResumen() {
-  const r = await (await fetch("/api/resumen?mundo=" + MUNDO)).json();
-  if (!r.total) return;
-  $("#kpi-global").textContent = r.avance_global + "%";
-  $("#kpi-global-bar").style.width = r.avance_global + "%";
-  $("#kpi-total").textContent = r.total;
-  $("#kpi-proceso").textContent = r.estatus["En proceso"] || 0;
-  $("#kpi-listas").textContent = r.estatus["Listo"] || 0;
-  $("#kpi-retraso").textContent = r.retrasadas.length;
-  $("#kpi-riesgo").textContent = r.en_riesgo.length;
+    # historial: columna 'quien' si falta
+    hcols = [r[1] for r in con.execute("PRAGMA table_info(historial)").fetchall()]
+    if "quien" not in hcols:
+        con.execute("ALTER TABLE historial ADD COLUMN quien TEXT")
 
-  const dias = r.dias_restantes;
-  $("#dias-num").textContent = dias;
-  if (dias <= 30) $("#contador").classList.add("critico");
-}
+    # usuarios: columnas mundo y clave_cambiada si faltan
+    ucols = [r[1] for r in con.execute("PRAGMA table_info(usuarios)").fetchall()]
+    if "mundo" not in ucols:
+        con.execute("ALTER TABLE usuarios ADD COLUMN mundo TEXT DEFAULT 'obra'")
+        con.execute("UPDATE usuarios SET mundo='obra' WHERE mundo IS NULL")
+    if "clave_cambiada" not in ucols:
+        con.execute("ALTER TABLE usuarios ADD COLUMN clave_cambiada INTEGER DEFAULT 0")
+    if "activo" not in ucols:
+        con.execute("ALTER TABLE usuarios ADD COLUMN activo INTEGER DEFAULT 1")
+        con.execute("UPDATE usuarios SET activo=1 WHERE activo IS NULL")
+    if "num_logins" not in ucols:
+        con.execute("ALTER TABLE usuarios ADD COLUMN num_logins INTEGER DEFAULT 0")
+    if "ultimo_login" not in ucols:
+        con.execute("ALTER TABLE usuarios ADD COLUMN ultimo_login TEXT")
+    if "telefono" not in ucols:
+        con.execute("ALTER TABLE usuarios ADD COLUMN telefono TEXT")
 
-async function cargarActividades() {
-  const params = new URLSearchParams();
-  params.set("mundo", MUNDO);
-  if ($("#f-bloque").value) params.set("bloque", $("#f-bloque").value);
-  if ($("#f-area").value) params.set("area", $("#f-area").value);
-  if ($("#f-proveedor").value) params.set("proveedor", $("#f-proveedor").value);
-  if ($("#f-giro").value) params.set("giro", $("#f-giro").value);
-  if ($("#f-tipo-partida").value) params.set("tipo_partida", $("#f-tipo-partida").value);
-  if ($("#f-estatus").value) params.set("estatus", $("#f-estatus").value);
-  if ($("#f-avance-min").value.trim()) params.set("avance_min", $("#f-avance-min").value.trim());
-  if ($("#f-avance-max").value.trim()) params.set("avance_max", $("#f-avance-max").value.trim());
-  if ($("#buscar").value.trim()) params.set("buscar", $("#buscar").value.trim());
-  TODAS = await (await fetch("/api/actividades?" + params)).json();
-  render();
-}
+    # Expediente de proveedores: columnas de contacto
+    pcols = [r[1] for r in con.execute("PRAGMA table_info(proveedores)").fetchall()]
+    for c in ("empresa", "contacto", "telefono", "correo", "notas"):
+        if c not in pcols:
+            con.execute(f"ALTER TABLE proveedores ADD COLUMN {c} TEXT")
+    if "activo" not in pcols:
+        con.execute("ALTER TABLE proveedores ADD COLUMN activo INTEGER DEFAULT 1")
+        con.execute("UPDATE proveedores SET activo=1 WHERE activo IS NULL")
 
-// ====== Render de la tabla, agrupada por bloque (desplegable) ======
-function render() {
-  const cont = $("#grupos-bloque");
-  const hoy = new Date().toISOString().slice(0, 10);
-  // recordar qué bloques estaban abiertos ANTES de redibujar, para no cerrarlos
-  const abiertosAntes = new Set(
-    [...$$("#grupos-bloque details.grupo-bloque[open]")].map((d) => d.dataset.bloque)
-  );
-  if (!TODAS.length) {
-    cont.innerHTML = "";
-    $("#vacio").hidden = false;
-    renderResumenCategoria();
-    return;
-  }
-  $("#vacio").hidden = true;
+    # Sembrar las 7 causas base (solo si la tabla está vacía)
+    n_causas = con.execute("SELECT COUNT(*) FROM causas").fetchone()[0]
+    if n_causas == 0:
+        base = [
+            "Definición pendiente de proyecto",
+            "Disponibilidad de personal",
+            "Suministro o entrega de material",
+            "Dependencia de otro proveedor",
+            "Cambio solicitado por el hospital",
+            "Acceso o liberación del área",
+            "Condición no prevista en sitio",
+        ]
+        for nombre in base:
+            con.execute("INSERT OR IGNORE INTO causas (nombre,base,mundo) VALUES (?,1,'obra')", (nombre,))
 
-  // agrupar por bloque, respetando el orden en que aparecen
-  const grupos = new Map();
-  TODAS.forEach((a) => {
-    const b = a.bloque || "— Sin bloque —";
-    if (!grupos.has(b)) grupos.set(b, []);
-    grupos.get(b).push(a);
-  });
+    # migración: columna mundo en causas si falta
+    ccols = [r[1] for r in con.execute("PRAGMA table_info(causas)").fetchall()]
+    if "mundo" not in ccols:
+        con.execute("ALTER TABLE causas ADD COLUMN mundo TEXT DEFAULT 'obra'")
+        con.execute("UPDATE causas SET mundo='obra' WHERE mundo IS NULL")
 
-  cont.innerHTML = [...grupos.entries()].map(([bloque, acts]) => {
-    const n = acts.length;
-    const avgAv = Math.round(acts.reduce((s, a) => s + (a.avance || 0), 0) / n);
-    const filas = acts.map((a) => filaHtml(a, hoy)).join("");
-    const abierto = abiertosAntes.has(bloque) ? " open" : "";
-    return `<details class="grupo-bloque" data-bloque="${escapa(bloque)}"${abierto}>
-      <summary class="grupo-resumen">
-        <span class="grupo-nombre">${escapa(bloque)}</span>
-        <span class="grupo-cant">${n} ${n === 1 ? "actividad" : "actividades"}</span>
-        <span class="grupo-avance-barra"><span class="grupo-avance-fill" style="width:${avgAv}%"></span></span>
-        <span class="grupo-avance-pct">${avgAv}%</span>
-      </summary>
-      <table>
-        <thead><tr>
-          <th class="col-check"></th>
-          <th>Código</th><th>Área</th><th>Especialidad</th><th class="th-proveedor">Responsable</th>
-          <th>Partida</th><th>Tipo</th><th class="col-av">Avance</th>
-          <th>Depende</th><th>Fecha compromiso</th><th>Estatus</th><th></th>
-        </tr></thead>
-        <tbody>${filas}</tbody>
-      </table>
-    </details>`;
-  }).join("");
+    # Causas propias del mundo interno (departamentos HAP) — distintas a las de obra
+    n_causas_int = con.execute("SELECT COUNT(*) FROM causas WHERE mundo='interno'").fetchone()[0]
+    if n_causas_int == 0:
+        base_int = [
+            "Compras no ha surtido el material",
+            "Compras dio fecha de entrega lejana",
+            "Falta autorización de la dirección",
+            "Presupuesto no liberado",
+            "Depende de que termine la obra en el área",
+            "Falta definición técnica del equipo",
+            "Personal del departamento ocupado en otra prioridad",
+            "Equipo en revisión o garantía",
+        ]
+        for nombre in base_int:
+            con.execute("INSERT OR IGNORE INTO causas (nombre,base,mundo) VALUES (?,1,'interno')", (nombre,))
 
-  enlazarFilas();
-  renderResumenCategoria();
-}
+    # Catálogo de involucrados (áreas del hospital que intervienen para dejar funcional un espacio)
+    n_inv = con.execute("SELECT COUNT(*) FROM involucrados").fetchone()[0]
+    if n_inv == 0:
+        base_inv = ["Sistemas", "Intendencia", "Biomédica", "Publicidad", "Compras",
+                    "Finanzas", "Contabilidad", "Mantenimiento", "Enfermería", "Gerencia médica"]
+        for nombre in base_inv:
+            con.execute("INSERT OR IGNORE INTO involucrados (nombre) VALUES (?)", (nombre,))
 
-// ====== Resumen de avance por categoría (Bloque/Área/Especialidad/Responsable/Tipo) ======
-// Se calcula sobre lo que hay AHORA MISMO en TODAS: ya respeta la pestaña
-// Obra/Interno y cualquier filtro que tengas puesto (mismo criterio que las
-// tarjetas de arriba, que también usan promedio simple de "avance").
-function claveResumen(a, campo) {
-  if (campo === "responsable") return respDe(a) || "— Sin responsable —";
-  return (a[campo] || "").trim() || "— Sin dato —";
-}
+    # Tipos de tarea del mundo interno (editables por el admin)
+    n_ti = con.execute("SELECT COUNT(*) FROM tipos_internos").fetchone()[0]
+    if n_ti == 0:
+        for nombre in ["Instalación", "Adecuación del área", "Solicitar a compras", "Puesta en marcha / prueba"]:
+            con.execute("INSERT OR IGNORE INTO tipos_internos (nombre) VALUES (?)", (nombre,))
 
-function renderResumenCategoria() {
-  const panel = $("#panel-resumen-cat");
-  if (!panel || panel.hidden) return;
-  const cont = $("#resumen-cat-lista");
-  if (!TODAS.length) { cont.innerHTML = `<p class="vacio">No hay actividades que coincidan con el filtro.</p>`; return; }
-  const campo = $("#resumen-agrupar").value || "bloque";
-  const grupos = new Map();
-  TODAS.forEach((a) => {
-    const k = claveResumen(a, campo);
-    if (!grupos.has(k)) grupos.set(k, []);
-    grupos.get(k).push(a);
-  });
-  const filas = [...grupos.entries()].map(([nombre, acts]) => {
-    const n = acts.length;
-    const avg = Math.round(acts.reduce((s, a) => s + (a.avance || 0), 0) / n);
-    return { nombre, n, avg };
-  }).sort((a, b) => a.avg - b.avg || b.n - a.n);
-
-  cont.innerHTML = filas.map((f) => {
-    const color = f.avg < 40 ? "var(--rojo)" : (f.avg < 75 ? "var(--naranja)" : "var(--verde)");
-    return `<div class="rc-fila">
-      <div class="rc-nombre">${escapa(f.nombre)}<small>${f.n} ${f.n === 1 ? "actividad" : "actividades"}</small></div>
-      <div class="rc-barra"><div class="rc-barra-fill" style="width:${f.avg}%;background:${color}"></div></div>
-      <div class="rc-pct" style="color:${color}">${f.avg}%</div>
-    </div>`;
-  }).join("");
-}
-
-function mostrarResumenCategoria() {
-  const ov = $("#overlay-resumen-cat"), pn = $("#panel-resumen-cat");
-  if (!ov || !pn) return;
-  ov.hidden = false; pn.hidden = false;
-  ov.style.display = "block";
-  pn.style.display = "flex";
-  hapProtegerHistorial();
-  renderResumenCategoria();
-}
-function ocultarResumenCategoria() {
-  const ov = $("#overlay-resumen-cat"), pn = $("#panel-resumen-cat");
-  if (!ov || !pn) return;
-  ov.hidden = true; pn.hidden = true;
-  ov.style.display = "none";
-  pn.style.display = "none";
-  hapLiberarHistorial();
-}
-const btnResumenCat = $("#btn-resumen-cat");
-if (btnResumenCat) btnResumenCat.addEventListener("click", mostrarResumenCategoria);
-const cerrarResumenCat = $("#cerrar-resumen-cat");
-if (cerrarResumenCat) cerrarResumenCat.addEventListener("click", ocultarResumenCategoria);
-const overlayResumenCat = $("#overlay-resumen-cat");
-if (overlayResumenCat) overlayResumenCat.addEventListener("click", ocultarResumenCategoria);
-const selResumenAgrupar = $("#resumen-agrupar");
-if (selResumenAgrupar) selResumenAgrupar.addEventListener("change", renderResumenCategoria);
-
-function filaHtml(a, hoy) {
-  const av = a.avance || 0;
-  const full = av >= 100 ? "full" : "";
-  const dep = a.depende_de ? nombreDep(a.depende_de) : "";
-  let finCls = "";
-  if (a.f_fin && av < 100) {
-    if (a.f_fin < hoy) finCls = "fecha-tarde";
-    else {
-      const d = (new Date(a.f_fin) - new Date(hoy)) / 86400000;
-      if (d <= 7) finCls = "fecha-cerca";
-    }
-  }
-  const tp = a.tipo_partida || "Construcción";
-  const tpCls = {"Construcción":"tp-con","Mobiliario y equipo":"tp-mob","Puesta en marcha":"tp-pm","Detalles finales":"tp-det"}[tp] || "tp-con";
-  const sel = SELECCION.has(a.id) ? "checked" : "";
-  let depBadge = `<span style="color:#a0aec0;">—</span>`;
-  if (a.dep_bloqueada) {
-    depBadge = `<span title="${escapa(a.dep_detalle || '')}" style="cursor:help; background:#FEF3C7; color:#92400E; padding:2px 6px; border-radius:4px; font-size:11px; font-weight:700;">🔒 ${escapa(a.dep_estado || 'Bloqueada')}</span>`;
-  } else if (a.dep_estado && a.dep_estado !== "Sin dependencias") {
-    depBadge = `<span title="${escapa(a.dep_detalle || '')}" style="cursor:help; background:#D1FAE5; color:#065F46; padding:2px 6px; border-radius:4px; font-size:11px; font-weight:700;">🔓 ${escapa(a.dep_estado || 'Liberada')}</span>`;
-  }
-  return `<tr data-id="${a.id}">
-      <td class="col-check"><input type="checkbox" class="chk-fila" data-id="${a.id}" ${sel}></td>
-      <td class="cod">${escapa(a.codigo || "")}</td>
-      <td>${escapa(a.area || "")}</td>
-      <td><span class="giro-tag">${escapa(a.giro || "—")}</span></td>
-      <td>${escapa((MUNDO === "interno" ? (a.departamento || a.proveedor) : a.proveedor) || "")}</td>
-      <td class="partida-cell">${escapa(a.partida || "")}</td>
-      <td><span class="tp-tag ${tpCls}">${escapa(tp)}</span></td>
-      <td class="celda-avance" data-id="${a.id}">
-        <div class="mini-barra"><div class="mini-barra-fill ${full}" style="width:${av}%"></div><span>${av}%</span></div>
-        <select class="sel-avance" data-id="${a.id}">
-          ${[0,25,50,75,100].map(v=>`<option value="${v}" ${v===av?"selected":""}>${v}%</option>`).join("")}
-        </select>
-      </td>
-      <td class="col-dep" style="text-align:center;">${depBadge}</td>
-      <td class="${finCls}">${escapa(a.f_fin || "")}</td>
-      <td>${badge(a.estatus)}</td>
-      <td class="acciones-fila">
-        <span class="editar-ico" title="Editar">✎</span>
-        <span class="hist-ico" data-id="${a.id}" title="Ver historial">🕑</span>
-        <span class="borrar-ico" data-id="${a.id}" title="Eliminar">🗑</span>
-      </td>
-    </tr>`;
-}
-
-function enlazarFilas() {
-  // clic en el renglón abre el panel, EXCEPTO sobre avance, definido, casilla o basura
-  $$("#grupos-bloque tr[data-id]").forEach((tr) =>
-    tr.addEventListener("click", (e) => {
-      if (e.target.closest(".celda-avance")) return;
-      if (e.target.closest(".col-dep")) return;
-      if (e.target.closest(".col-check")) return;
-      if (e.target.closest(".borrar-ico")) return;
-      if (e.target.closest(".hist-ico")) return;
-      abrirPanel(tr.dataset.id);
-    })
-  );
-  // ícono de historial: abre la línea de tiempo de esa actividad
-  $$(".hist-ico").forEach((b) =>
-    b.addEventListener("click", (e) => {
-      e.stopPropagation();
-      abrirHistorial(b.dataset.id, e);
-    })
-  );
-  // cambio rápido de avance en línea
-  $$(".sel-avance").forEach((sel) =>
-    sel.addEventListener("change", async (e) => {
-      e.stopPropagation();
-      const id = sel.dataset.id;
-      const av = parseInt(sel.value);
-      await fetch("/api/actividad/" + id, {
-        method: "PUT", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ avance: av }),
-      });
-      toast("Avance actualizado a " + av + "%");
-      await cargarResumen();
-      await cargarActividades();
-    })
-  );
-  // casillas de selección
-  $$(".chk-fila").forEach((chk) =>
-    chk.addEventListener("change", (e) => {
-      e.stopPropagation();
-      const id = parseInt(chk.dataset.id);
-      if (chk.checked) SELECCION.add(id); else SELECCION.delete(id);
-      actualizarBarraSeleccion();
-    })
-  );
-  // botecito de basura: activa el modo selección y marca esta fila
-  $$(".borrar-ico").forEach((b) =>
-    b.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const id = parseInt(b.dataset.id);
-      activarModoSeleccion();
-      SELECCION.add(id);
-      actualizarBarraSeleccion();
-      cargarActividades();
-    })
-  );
-}
-
-function nombreDep(id) {
-  const a = TODAS.find((x) => x.id == id);
-  return a ? (a.codigo + " · " + (a.partida || "").slice(0, 24)) : "#" + id;
-}
-
-function badge(est) {
-  const m = { "Pendiente": "b-pendiente", "En proceso": "b-proceso", "Listo": "b-listo", "Post-apertura": "b-post" };
-  return `<span class="badge ${m[est] || "b-pendiente"}">${escapa(est || "Pendiente")}</span>`;
-}
-
-function escapa(s) {
-  return String(s == null ? "" : s).replace(/[&<>"]/g, (c) =>
-    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
-}
-
-// ====== Panel de edición ======
-async function abrirPanel(id) {
-  const a = TODAS.find((x) => x.id == id);
-  if (!a) return;
-  $("#panel-titulo").textContent = "Editar · " + (a.codigo || "actividad");
-  $("#e-id").value = a.id;
-  const mundoAct = a.mundo || "obra";
-  if ($("#e-mundo") && $("#e-mundo").tagName === "SELECT") $("#e-mundo").value = mundoAct;
-  await actualizarPanelSegunMundo(mundoAct);
-  $("#e-bloque").value = a.bloque || "";
-  filtrarAreasPorBloque();
-  $("#e-area").value = a.area || "";
-  $("#e-giro").value = a.giro || "";
-  $("#e-proveedor").value = (mundoAct === "interno" ? a.departamento : a.proveedor) || "";
-  $("#e-partida").value = a.partida || "";
-  $("#e-tipo-partida").value = a.tipo_partida || "";
-  // Si el valor no está entre las opciones del dropdown, agregarlo
-  const selTipoP = $("#e-tipo-partida");
-  if (selTipoP.value !== (a.tipo_partida || "") && a.tipo_partida) {
-    const opt = document.createElement("option");
-    opt.value = a.tipo_partida;
-    opt.textContent = a.tipo_partida;
-    selTipoP.insertBefore(opt, selTipoP.firstChild);
-    selTipoP.value = a.tipo_partida;
-  }
-  $("#e-definido").value = a.definido || "NO";
-  $("#e-aplica").value = a.aplica || "SÍ";
-  $("#e-avance").value = a.avance || 0;
-  PANEL_AVANCE_ORIGINAL = a.avance || 0;
-  $("#e-nota-mod").value = "";
-  $("#campo-nota-mod").hidden = true;
-  const infoDecl = $("#e-avance-decl-info");
-  if (a.avance_decl != null && a.avance_decl !== (a.avance || 0)) {
-    infoDecl.hidden = false;
-    infoDecl.textContent = `El proveedor reportó ${a.avance_decl}% (aún no se confirma como oficial).`;
-  } else {
-    infoDecl.hidden = true;
-    infoDecl.textContent = "";
-  }
-  $("#e-inicio").value = a.f_inicio || "";
-  $("#e-fin").value = a.f_fin || "";
-  $("#e-duracion").value = a.duracion_dias || "";
-  $("#e-estatus").value = a.estatus || "Pendiente";
-  $("#e-causa").value = a.causa_retraso || "";
-  $("#e-nota-prov").value = a.nota_proveedor || "";
-  const sello = $("#causa-sello");
-  if (a.causa_por || a.causa_fecha) {
-    sello.hidden = false;
-    sello.textContent = `Causa registrada por ${a.causa_por || "—"}${a.causa_fecha ? " · " + a.causa_fecha : ""}`;
-  } else {
-    sello.hidden = true; sello.textContent = "";
-  }
-  $("#e-notas").value = a.notas || "";
-  $("#e-requiere-pruebas").checked = (a.requiere_pruebas === "SÍ");
-  $("#e-valida-depto").value = a.valida_depto || "";
-  $("#wrap-valida-depto").hidden = !(a.requiere_pruebas === "SÍ");
-  llenarDependencias(a.id, a.depende_de, a.bloque, a.area);
-  $("#borrar-act").style.display = "inline-block";
-  mostrarPanel();
-}
-
-async function nuevaActividad() {
-  $("#panel-titulo").textContent = "Nueva actividad";
-  ["e-id", "e-area", "e-bloque", "e-giro", "e-proveedor", "e-partida", "e-inicio", "e-fin", "e-duracion", "e-notas", "e-causa", "e-nota-prov"]
-    .forEach((i) => ($("#" + i).value = ""));
-  if ($("#e-mundo") && $("#e-mundo").tagName === "SELECT") $("#e-mundo").value = MUNDO;
-  await actualizarPanelSegunMundo(MUNDO);
-  $("#causa-sello").hidden = true;
-  $("#e-aplica").value = "SÍ";
-  $("#e-avance").value = 0;
-  PANEL_AVANCE_ORIGINAL = 0;
-  $("#e-nota-mod").value = "";
-  $("#campo-nota-mod").hidden = true;
-  $("#e-avance-decl-info").hidden = true;
-  $("#e-tipo-partida").value = "";
-  $("#e-definido").value = "NO";
-  $("#e-estatus").value = "Pendiente";
-  filtrarAreasPorBloque();
-  llenarDependencias(null, null, "", "");
-  $("#e-requiere-pruebas").checked = false;
-  $("#e-valida-depto").value = "";
-  $("#wrap-valida-depto").hidden = true;
-  $("#borrar-act").style.display = "none";
-  mostrarPanel();
-}
-
-$("#e-requiere-pruebas").addEventListener("change", () => {
-  $("#wrap-valida-depto").hidden = !$("#e-requiere-pruebas").checked;
-});
-
-// al cambiar bloque o área en el formulario, recalcular las dependencias posibles
-function recalcularDependencias() {
-  const propioId = $("#e-id").value || null;
-  const selActual = $("#e-depende").value || null;
-  llenarDependencias(propioId, selActual, $("#e-bloque").value, $("#e-area").value);
-}
-
-// candado estricto: al elegir bloque, el área SOLO muestra las de ese bloque
-function filtrarAreasPorBloque() {
-  const bloque = $("#e-bloque").value;
-  const mapa = (CATALOGOS.mapa_bloque_areas) || {};
-  const areas = bloque && mapa[bloque] ? mapa[bloque] : [];
-  llenarDatalist("#dl-area-e", areas);
-  // si el área escrita no pertenece al bloque, se limpia (evita el error de mezclar zonas)
-  const areaActual = $("#e-area").value;
-  if (areaActual && bloque && !areas.includes(areaActual)) {
-    $("#e-area").value = "";
-  }
-}
-
-function llenarDependencias(propioId, seleccion, bloque, area) {
-  const sel = $("#e-depende");
-  // solo actividades del MISMO bloque y MISMA área (así el electricista solo ve lo de su zona)
-  const mismas = TODAS.filter((a) =>
-    a.id != propioId &&
-    (a.bloque || "") === (bloque || "") &&
-    (a.area || "") === (area || ""));
-  const ops = mismas
-    .map((a) => `<option value="${a.id}">${escapa(a.codigo)} · ${escapa((a.partida || "").slice(0, 45))}</option>`)
-    .join("");
-  sel.innerHTML = `<option value="">— Ninguna —</option>` + ops;
-  if (seleccion) sel.value = seleccion;
-}
-
-function mostrarPanel() {
-  const ov = $("#overlay"), pn = $("#panel");
-  ov.hidden = false; pn.hidden = false;
-  ov.style.display = "block";
-  pn.style.display = "flex";
-  hapProtegerHistorial();
-}
-function ocultarPanel() {
-  const ov = $("#overlay"), pn = $("#panel");
-  ov.hidden = true; pn.hidden = true;
-  ov.style.display = "none";
-  pn.style.display = "none";
-  hapLiberarHistorial();
-}
-
-// ===== Protección del botón "atrás" (celular/tablet) =====
-// Sin esto, al dar "atrás" con un panel abierto el navegador sale de la
-// app y manda al login. Con esto, "atrás" solo cierra lo que esté abierto.
-let HAP_HIST_ABIERTO = false;
-function hapProtegerHistorial() {
-  if (!HAP_HIST_ABIERTO) {
-    history.pushState({ hapModal: true }, "", location.href);
-    HAP_HIST_ABIERTO = true;
-  }
-}
-function hapLiberarHistorial() {
-  if (HAP_HIST_ABIERTO) {
-    HAP_HIST_ABIERTO = false;
-    history.back();
-  }
-}
-window.addEventListener("popstate", () => {
-  if (!HAP_HIST_ABIERTO) return;
-  HAP_HIST_ABIERTO = false;
-  // cierra cualquier panel/modal que esté abierto en este momento
-  const ov = $("#overlay"), pn = $("#panel");
-  if (pn && !pn.hidden) { ov.hidden = true; pn.hidden = true; ov.style.display = "none"; pn.style.display = "none"; }
-  const ovRC = $("#overlay-resumen-cat"), pnRC = $("#panel-resumen-cat");
-  if (pnRC && !pnRC.hidden) { ovRC.hidden = true; pnRC.hidden = true; ovRC.style.display = "none"; pnRC.style.display = "none"; }
-  cerrarHistorial();
-  if (typeof cerrarModalDel === "function") cerrarModalDel();
-  if (typeof cerrarModalAdd === "function") cerrarModalAdd();
-  if (typeof cerrarModalDep === "function") cerrarModalDep();
-  if (typeof cerrarClaveAdmin === "function") cerrarClaveAdmin();
-});
-
-async function guardar() {
-  const id = $("#e-id").value;
-  const mundoPanel = ($("#e-mundo") && $("#e-mundo").tagName === "SELECT") ? $("#e-mundo").value : MUNDO;
-  const interno = mundoPanel === "interno";
-  const nuevoAvance = parseInt($("#e-avance").value || 0);
-  let notasFinal = $("#e-notas").value || "";
-  // si el admin ajustó el % de avance, dejamos constancia con fecha, en Notas
-  if (id && nuevoAvance !== PANEL_AVANCE_ORIGINAL) {
-    const hoy = new Date().toISOString().slice(0, 10);
-    const notaMod = ($("#e-nota-mod").value || "").trim();
-    const linea = `[${hoy}] Admin ajustó avance de ${PANEL_AVANCE_ORIGINAL}% a ${nuevoAvance}%.` +
-      (notaMod ? ` Nota: ${notaMod}` : "");
-    notasFinal = notasFinal ? (notasFinal + "\n" + linea) : linea;
-  }
-  const cuerpo = {
-    area: $("#e-area").value, bloque: $("#e-bloque").value, giro: $("#e-giro").value,
-    partida: $("#e-partida").value,
-    tipo_partida: $("#e-tipo-partida").value, definido: $("#e-definido").value,
-    aplica: $("#e-aplica").value, avance: nuevoAvance,
-    f_inicio: $("#e-inicio").value || null, f_fin: $("#e-fin").value || null,
-    duracion_dias: $("#e-duracion").value || null, estatus: $("#e-estatus").value,
-    depende_de: $("#e-depende").value || null, notas: notasFinal,
-    causa_retraso: $("#e-causa").value || null,
-    nota_proveedor: $("#e-nota-prov").value || null,
-    mundo: mundoPanel,
-    requiere_pruebas: $("#e-requiere-pruebas").checked ? "SÍ" : "NO",
-    valida_depto: $("#e-requiere-pruebas").checked ? ($("#e-valida-depto").value.trim() || null) : null,
-  };
-  // en interno, lo que se teclea en "Responsable" es el departamento; en obra, es el proveedor.
-  // se limpia el campo del otro mundo para no dejar basura si la actividad se mueve de uno a otro.
-  if (interno) {
-    cuerpo.departamento = $("#e-proveedor").value;
-    cuerpo.proveedor = null;
-    cuerpo.tipo_interno = $("#e-tipo-partida").value;
-  } else {
-    cuerpo.proveedor = $("#e-proveedor").value;
-    cuerpo.departamento = null;
-    cuerpo.tipo_interno = null;
-  }
-  let url = "/api/actividad", metodo = "POST";
-  if (id) { url = "/api/actividad/" + id; metodo = "PUT"; }
-  await fetch(url, {
-    method: metodo, headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(cuerpo),
-  });
-  ocultarPanel();
-  if (id && mundoPanel !== MUNDO) {
-    toast(`Movida a ${interno ? "Interno" : "Obra"} — cambia de pestaña para verla`);
-  } else {
-    toast(id ? "Actividad actualizada" : "Actividad creada");
-  }
-  // Si se escribió un Bloque/Área/Especialidad nuevo (que no existía antes en
-  // ningún otro registro), hay que refrescar los catálogos (datalists) para
-  // que aparezca disponible de inmediato al volver a abrir "Nueva actividad"
-  // o el panel de editar — si no, aunque el valor SÍ quedó guardado en esta
-  // actividad, no se podía volver a seleccionar hasta recargar la página.
-  await cargarCatalogos();
-  await cargarResumen();
-  await cargarActividades();
-}
-
-async function borrar() {
-  const id = $("#e-id").value;
-  if (!id) return;
-  if (!confirm("¿Eliminar esta actividad? No se puede deshacer.")) return;
-  await fetch("/api/actividad/" + id, { method: "DELETE" });
-  ocultarPanel();
-  toast("Actividad eliminada");
-  await cargarResumen();
-  await cargarActividades();
-}
-
-// sincronizar avance <-> estatus en el panel
-$("#e-avance").addEventListener("input", () => {
-  const v = parseInt($("#e-avance").value || 0);
-  if (v >= 100) $("#e-estatus").value = "Listo";
-  else if (v > 0) $("#e-estatus").value = "En proceso";
-  else $("#e-estatus").value = "Pendiente";
-  // si el admin cambia el % respecto al que traía la actividad, ofrecer nota
-  $("#campo-nota-mod").hidden = (v === PANEL_AVANCE_ORIGINAL);
-});
-
-function toast(msg) {
-  const t = $("#toast");
-  t.textContent = msg; t.hidden = false;
-  setTimeout(() => (t.hidden = true), 2200);
-}
-
-// ====== Eventos ======
-["#f-bloque", "#f-area", "#f-proveedor", "#f-giro", "#f-tipo-partida", "#f-estatus"].forEach((s) =>
-  $(s).addEventListener("change", () => { refrescarListasDependientes(); cargarActividades(); }));
-// También filtra al escribir (con retraso), útil en área y proveedor
-let debFiltro;
-["#f-area", "#f-proveedor", "#f-giro", "#f-bloque", "#f-tipo-partida"].forEach((s) =>
-  $(s).addEventListener("input", () => {
-    clearTimeout(debFiltro);
-    debFiltro = setTimeout(() => { refrescarListasDependientes(); cargarActividades(); }, 350);
-  }));
-let deb;
-$("#buscar").addEventListener("input", () => {
-  clearTimeout(deb); deb = setTimeout(cargarActividades, 250);
-});
-let debAvance;
-["#f-avance-min", "#f-avance-max"].forEach((s) =>
-  $(s).addEventListener("input", () => {
-    clearTimeout(debAvance); debAvance = setTimeout(cargarActividades, 350);
-  }));
-$("#btn-limpiar").addEventListener("click", () => {
-  ["#f-bloque", "#f-area", "#f-proveedor", "#f-giro", "#f-tipo-partida", "#f-estatus"].forEach((s) => ($(s).value = ""));
-  $("#f-avance-min").value = "";
-  $("#f-avance-max").value = "";
-  $("#buscar").value = "";
-  llenarDatalist("#dl-area", CATALOGOS.areas);
-  llenarListaResponsables();
-  cargarActividades();
-});
-$("#btn-nueva").addEventListener("click", nuevaActividad);
-// interruptor Obra / Internos
-let TIPOS_INTERNOS = [];
-async function adaptarInterfazMundo() {
-  const interno = MUNDO === "interno";
-  const palabra = "Responsable"; // mismo concepto en Obra e Interno: un solo directorio, un solo filtro
-  // encabezado de la tabla
-  $$(".th-proveedor").forEach((th) => (th.textContent = palabra));
-  // label y filtro
-  if ($("#lbl-proveedor")) $("#lbl-proveedor").textContent = palabra;
-  if ($("#f-proveedor")) $("#f-proveedor").placeholder = palabra;
-  if ($("#e-proveedor")) $("#e-proveedor").placeholder = interno ? "ej. Biomédica, Sistemas…" : "ej. CEBSA, Longoria…";
-  if ($("#btn-add-prov")) $("#btn-add-prov").textContent = "+ Agregar responsable nuevo";
-  if ($("#buscar")) $("#buscar").placeholder = "Buscar por actividad, partida, responsable, etc.";
-  // nota del proveedor -> del departamento
-  if ($("#e-nota-prov")) $("#e-nota-prov").placeholder = interno
-    ? "Aquí se anota lo que el departamento explica sobre el retraso"
-    : "Aquí se anota lo que el proveedor explica sobre el retraso";
-  const lblNota = document.querySelector('label[for="e-nota-prov"]') || null;
-  // tipo de partida: obra usa los 4 mundos; interno usa los tipos internos editables
-  const selTipo = $("#e-tipo-partida");
-  if (selTipo) {
-    if (interno) {
-      if (!TIPOS_INTERNOS.length) {
-        try { TIPOS_INTERNOS = await (await fetch("/api/tipos_internos")).json(); } catch(e){ TIPOS_INTERNOS = []; }
-      }
-      selTipo.innerHTML = '<option value="">—</option>' + TIPOS_INTERNOS.map(t => `<option>${t}</option>`).join("");
-      if ($("#lbl-tipo-partida")) $("#lbl-tipo-partida").textContent = "Tipo de trabajo";
-    } else {
-      selTipo.innerHTML = `<option value="">—</option><option>Construcción</option><option>Mobiliario y equipo</option><option>Puesta en marcha</option><option>Detalles finales</option>`;
-      if ($("#lbl-tipo-partida")) $("#lbl-tipo-partida").textContent = "Tipo de partida";
-    }
-  }
-}
-
-function cambiarMundo(m) {
-  if (MUNDO === m) return;
-  MUNDO = m;
-  $("#sm-obra").classList.toggle("activo", m === "obra");
-  $("#sm-interno").classList.toggle("activo", m === "interno");
-  document.body.classList.toggle("mundo-interno", m === "interno");
-  // limpiar filtros al cambiar de mundo
-  ["#f-bloque", "#f-area", "#f-proveedor", "#f-giro", "#f-tipo-partida", "#f-estatus", "#f-avance-min", "#f-avance-max", "#buscar"].forEach(s => { if ($(s)) $(s).value = ""; });
-  adaptarInterfazMundo();
-  cargarTodo();
-}
-$("#sm-obra").addEventListener("click", () => cambiarMundo("obra"));
-$("#sm-interno").addEventListener("click", () => cambiarMundo("interno"));
-
-// ====== Menús desplegables del encabezado (Administración / Reportes) ======
-// Un solo patrón reutilizable: clic en el botón abre/cierra su lista;
-// clic afuera, o Escape, cierra cualquier menú que esté abierto.
-function envolverMenuDespl(idMenu, idLista) {
-  const menu = $(idMenu), lista = $(idLista);
-  if (!menu || !lista || !menu.querySelector) return;
-  const btn = menu.querySelector(".menu-despl-btn");
-  if (!btn) return;
-  btn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    const abrir = lista.hidden;
-    cerrarTodosMenusDespl();
-    if (abrir) { lista.hidden = false; menu.classList.add("abierto"); }
-  });
-  lista.addEventListener("click", (e) => {
-    // si lo que se tocó dentro de la lista es un botón/enlace de acción, cierra el menú
-    if (e.target.closest(".menu-despl-item")) cerrarTodosMenusDespl();
-  });
-}
-function cerrarTodosMenusDespl() {
-  $$(".menu-despl-lista").forEach((l) => (l.hidden = true));
-  $$(".menu-despl").forEach((m) => m.classList.remove("abierto"));
-}
-document.addEventListener("click", cerrarTodosMenusDespl);
-document.addEventListener("keydown", (e) => { if (e.key === "Escape") cerrarTodosMenusDespl(); });
-envolverMenuDespl("#menu-admin", "#menu-admin-lista");
-envolverMenuDespl("#menu-reportes", "#menu-reportes-lista");
-const histCerrar = $("#hist-cerrar");
-if (histCerrar) histCerrar.addEventListener("click", cerrarHistorial);
-const btnSalirAdmin = $("#btn-salir-admin");
-if (btnSalirAdmin) btnSalirAdmin.addEventListener("click", async () => {
-  await fetch("/api/logout", { method: "POST" });
-  location.href = "/login";
-});
-$("#cerrar-panel").addEventListener("click", ocultarPanel);
-$("#e-bloque").addEventListener("change", () => { filtrarAreasPorBloque(); recalcularDependencias(); });
-$("#e-area").addEventListener("change", recalcularDependencias);
-$("#e-bloque").addEventListener("input", () => { filtrarAreasPorBloque(); recalcularDependencias(); });
-$("#e-area").addEventListener("input", recalcularDependencias);
-$("#cancelar").addEventListener("click", ocultarPanel);
-$("#overlay").addEventListener("click", ocultarPanel);
-$("#guardar").addEventListener("click", guardar);
-$("#borrar-act").addEventListener("click", borrar);
-$("#duplicar-act").addEventListener("click", async () => {
-  const id = $("#e-id").value;
-  if (!id) return;
-  if (!confirm("Se creará una copia de esta actividad con un nuevo código. ¿Continuar?")) return;
-  const mundoPanel = ($("#e-mundo") && $("#e-mundo").tagName === "SELECT") ? $("#e-mundo").value : MUNDO;
-  const interno = mundoPanel === "interno";
-  const cuerpo = {
-    area: $("#e-area").value, bloque: $("#e-bloque").value, giro: $("#e-giro").value,
-    partida: $("#e-partida").value,
-    tipo_partida: $("#e-tipo-partida").value, definido: $("#e-definido").value,
-    aplica: $("#e-aplica").value, avance: 0,
-    f_inicio: $("#e-inicio").value || null, f_fin: $("#e-fin").value || null,
-    duracion_dias: $("#e-duracion").value || null, estatus: "Pendiente",
-    depende_de: null, notas: "Duplicada de " + (TODAS.find(a => a.id == id)?.codigo || id),
-    causa_retraso: null, nota_proveedor: null, mundo: mundoPanel,
-    requiere_pruebas: $("#e-requiere-pruebas").checked ? "SÍ" : "NO",
-    valida_depto: $("#e-requiere-pruebas").checked ? ($("#e-valida-depto").value.trim() || null) : null,
-  };
-  if (interno) {
-    cuerpo.departamento = $("#e-proveedor").value;
-    cuerpo.proveedor = null;
-    cuerpo.tipo_interno = $("#e-tipo-partida").value;
-  } else {
-    cuerpo.proveedor = $("#e-proveedor").value;
-    cuerpo.departamento = null;
-  }
-  const r = await fetch("/api/actividad", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(cuerpo) });
-  const d = await r.json();
-  if (d.id) {
-    ocultarPanel();
-    toast("Actividad duplicada → " + (d.codigo || "nueva"));
-    await cargarActividades();
-    await cargarResumen();
-  } else {
-    toast(d.error || "Error al duplicar");
-  }
-});
-// Tecla Escape también cierra el panel
-document.addEventListener("keydown", (e) => {
-  if (e.key !== "Escape") return;
-  const pnResumen = $("#panel-resumen-cat");
-  if (pnResumen && !pnResumen.hidden) { ocultarResumenCategoria(); return; }
-  ocultarPanel();
-});
-
-// ====== Historial de una actividad ======
-const NOMBRE_CAMPO = {
-  "avance": "Avance oficial", "avance reportado": "Avance reportado",
-  "avance validado": "Avance validado", "reconocimiento": "Reconocimiento",
-  "no reconocida": "No reconocida", "actividad propuesta": "Actividad propuesta",
-  "f_inicio": "Fecha inicio", "f_fin": "Fecha fin", "definido": "Definido/plano",
-  "definido_por": "De dónde salió", "estatus": "Estatus", "proveedor": "Proveedor",
-  "area": "Área", "bloque": "Bloque", "partida": "Partida", "giro": "Especialidad",
-  "causa_retraso": "Causa de retraso", "nota_proveedor": "Nota del proveedor",
-  "avance_decl": "Avance declarado",
-};
-async function abrirHistorial(id, ev) {
-  const d = await (await fetch("/api/actividad/" + id + "/historial")).json();
-  const cont = $("#hist-cuerpo");
-  const a = d.actividad || {};
-  $("#hist-titulo").textContent = (a.codigo || "") + " · " + (a.partida || "");
-  $("#hist-sub").textContent = [a.bloque, a.area].filter(Boolean).join(" · ");
-  if (!d.historial.length) {
-    cont.innerHTML = `<p class="hist-vacio">Sin movimientos todavía. Aquí aparecerá cada cambio de avance, fecha o nota, con quién y cuándo lo hizo.</p>`;
-  } else {
-    cont.innerHTML = d.historial.map((h) => {
-      const campo = NOMBRE_CAMPO[h.campo] || h.campo;
-      const f = (h.fecha || "").replace("T", " ").slice(0, 16);
-      const antes = h.valor_antes ? `<span class="hist-antes">${escapa(h.valor_antes)}</span> → ` : "";
-      return `<div class="hist-item">
-        <div class="hist-item-top"><b>${escapa(campo)}</b><span class="hist-fecha">${f}</span></div>
-        <div class="hist-cambio">${antes}<span class="hist-despues">${escapa(h.valor_despues || "")}</span></div>
-        <div class="hist-quien">${h.quien ? "por " + escapa(h.quien) : ""}</div>
-      </div>`;
-    }).join("");
-  }
-  const globo = $("#panel-hist");
-  globo.hidden = false;
-  globo.style.display = "block";
-  // posicionar el globo junto al ícono que se clickeó
-  if (ev) {
-    const r = ev.target.getBoundingClientRect();
-    const gw = 340;
-    // por defecto a la izquierda del ícono (los íconos están a la derecha de la tabla)
-    let left = r.left - gw - 10;
-    if (left < 10) left = r.right + 10; // si no cabe, va a la derecha
-    let top = r.top;
-    globo.style.left = left + "px";
-    globo.style.top = (window.scrollY + top) + "px";
-    // si se sale por abajo, lo subo
-    const gh = globo.offsetHeight;
-    if (top + gh > window.innerHeight) {
-      globo.style.top = (window.scrollY + Math.max(10, window.innerHeight - gh - 10)) + "px";
-    }
-  }
-}
-function cerrarHistorial() {
-  const g = $("#panel-hist");
-  g.hidden = true; g.style.display = "none";
-}
-// cerrar el globo al hacer clic fuera de él
-document.addEventListener("click", (e) => {
-  const g = $("#panel-hist");
-  if (g && !g.hidden && !g.contains(e.target) && !e.target.closest(".hist-ico")) {
-    cerrarHistorial();
-  }
-});
-function activarModoSeleccion() {
-  document.body.classList.add("modo-sel");
-}
-function salirModoSeleccion() {
-  document.body.classList.remove("modo-sel");
-  SELECCION.clear();
-  const ct = $("#check-todos");
-  if (ct) ct.checked = false;
-}
-function actualizarBarraSeleccion() {
-  const n = SELECCION.size;
-  const barra = $("#barra-seleccion");
-  const enModo = document.body.classList.contains("modo-sel");
-  // la barra solo se ve si estamos en modo selección Y hay algo marcado
-  if (enModo && n > 0) {
-    barra.hidden = false;
-    $("#sel-conteo").textContent = n + (n === 1 ? " seleccionada" : " seleccionadas");
-  } else {
-    barra.hidden = true;
-    // si ya no hay nada marcado, salimos del modo para no dejar casillas colgadas
-    if (n === 0 && enModo) document.body.classList.remove("modo-sel");
-  }
-}
-
-function pedirConfirmacionBorrado(ids) {
-  IDS_A_BORRAR = ids;
-  const lista = $("#del-lista");
-  lista.innerHTML = ids.map((id) => {
-    const a = TODAS.find((x) => x.id == id);
-    if (!a) return "";
-    return `<div class="del-item"><b>${escapa(a.codigo || "")}</b> · ${escapa(a.area || "")} · ${escapa(a.partida || "")}</div>`;
-  }).join("");
-  $("#del-titulo").textContent = ids.length === 1
-    ? "Confirmar eliminación" : `Confirmar eliminación (${ids.length} partidas)`;
-  $("#overlay-del").hidden = false; $("#overlay-del").style.display = "block";
-  $("#modal-del").hidden = false; $("#modal-del").style.display = "flex";
-}
-
-function cerrarModalDel() {
-  $("#overlay-del").hidden = true; $("#overlay-del").style.display = "none";
-  $("#modal-del").hidden = true; $("#modal-del").style.display = "none";
-}
-
-async function ejecutarBorrado() {
-  if (!IDS_A_BORRAR.length) return;
-  if (IDS_A_BORRAR.length === 1) {
-    await fetch("/api/actividad/" + IDS_A_BORRAR[0], { method: "DELETE" });
-  } else {
-    await fetch("/api/actividades/borrar", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ids: IDS_A_BORRAR }),
-    });
-  }
-  const n = IDS_A_BORRAR.length;
-  IDS_A_BORRAR.forEach((id) => SELECCION.delete(id));
-  IDS_A_BORRAR = [];
-  cerrarModalDel();
-  salirModoSeleccion();
-  actualizarBarraSeleccion();
-  toast(n === 1 ? "Partida eliminada" : n + " partidas eliminadas");
-  await cargarResumen();
-  await cargarActividades();
-}
-
-let IDS_A_BORRAR = [];
-$("#btn-borrar-sel").addEventListener("click", () => {
-  if (SELECCION.size === 0) { toast("No hay partidas seleccionadas"); return; }
-  pedirConfirmacionBorrado([...SELECCION]);
-});
-$("#btn-deseleccionar").addEventListener("click", () => {
-  salirModoSeleccion();
-  actualizarBarraSeleccion();
-  cargarActividades();
-});
-$("#check-todos").addEventListener("change", (e) => {
-  if (e.target.checked) {
-    TODAS.forEach((a) => SELECCION.add(a.id));
-  } else {
-    TODAS.forEach((a) => SELECCION.delete(a.id));
-  }
-  actualizarBarraSeleccion();
-  cargarActividades();
-});
-$("#del-cerrar").addEventListener("click", cerrarModalDel);
-$("#del-cancelar").addEventListener("click", cerrarModalDel);
-$("#overlay-del").addEventListener("click", cerrarModalDel);
-$("#del-confirmar").addEventListener("click", ejecutarBorrado);
+    # Usuario admin inicial (Jimmy). Contraseña por defecto: cambiar después.
+    import hashlib
+    n_users = con.execute("SELECT COUNT(*) FROM usuarios").fetchone()[0]
+    if n_users == 0:
+        h = hashlib.sha256("HAP2026".encode()).hexdigest()
+        con.execute(
+            "INSERT INTO usuarios (usuario,clave,proveedor,rol,creado) VALUES (?,?,?,?,?)",
+            ("admin", h, None, "admin", datetime.datetime.now().isoformat(timespec="seconds")))
+    con.commit()
+    con.close()
+    generar_respaldo_bd()
 
 
-let ADD_CLASE = null;
-function abrirModalAdd(clase) {
-  ADD_CLASE = clase;
-  const titulos = { proveedor: "Agregar responsable nuevo", area: "Agregar área nueva",
-                    bloque: "Agregar bloque nuevo", giro: "Agregar especialidad nueva",
-                    causa: "Agregar causa de retraso" };
-  $("#add-titulo").textContent = titulos[clase] || "Agregar";
-  $("#add-nombre").value = "";
-  $("#add-funcion").value = "";
-  $("#add-tipo").value = (MUNDO === "interno") ? "Interno" : "Externo";
-  // el tipo Interno/Externo solo aplica a proveedor
-  $("#add-tipo-wrap").style.display = (clase === "proveedor") ? "flex" : "none";
-  // la causa solo necesita el nombre; ocultamos la descripción
-  $("#add-funcion").parentElement.style.display = (clase === "causa") ? "none" : "block";
-  $("#add-lbl-func").textContent = (clase === "proveedor")
-    ? "¿De qué se encarga? (quién da el servicio o hace las actividades)"
-    : "¿Para qué es? (breve nota)";
-  $("#overlay-add").hidden = false; $("#overlay-add").style.display = "block";
-  $("#modal-add").hidden = false; $("#modal-add").style.display = "flex";
-  setTimeout(() => $("#add-nombre").focus(), 50);
-}
-function cerrarModalAdd() {
-  $("#overlay-add").hidden = true; $("#overlay-add").style.display = "none";
-  $("#modal-add").hidden = true; $("#modal-add").style.display = "none";
-}
-async function guardarModalAdd() {
-  const nombre = $("#add-nombre").value.trim();
-  if (!nombre) { toast("Escribe un nombre"); return; }
-  if (ADD_CLASE === "proveedor") {
-    await fetch("/api/proveedores", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ nombre, tipo: $("#add-tipo").value, funcion: $("#add-funcion").value }),
-    });
-  } else if (ADD_CLASE === "causa") {
-    await fetch("/api/causas", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ nombre }),
-    });
-    await cargarCausas();
-    $("#e-causa").value = nombre;
-    cerrarModalAdd();
-    toast("Causa agregada: " + nombre);
-    return;
-  } else {
-    await fetch("/api/catalogo/" + ADD_CLASE, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ nombre, nota: $("#add-funcion").value }),
-    });
-  }
-  // recargar catálogos y poner el valor recién creado en el campo del panel
-  await cargarCatalogos();
-  const destino = { proveedor: "#e-proveedor", area: "#e-area", bloque: "#e-bloque", giro: "#e-giro" }[ADD_CLASE];
-  if (destino) $(destino).value = nombre;
-  cerrarModalAdd();
-  toast("Agregado: " + nombre);
-}
-$$(".mini-add").forEach((b) =>
-  b.addEventListener("click", () => abrirModalAdd(b.dataset.add)));
-$("#add-cerrar").addEventListener("click", cerrarModalAdd);
-$("#add-cancelar").addEventListener("click", cerrarModalAdd);
-$("#overlay-add").addEventListener("click", cerrarModalAdd);
-$("#add-guardar").addEventListener("click", guardarModalAdd);
+# ----------------------------------------------------------------------------
+# Utilidades
+# ----------------------------------------------------------------------------
+def hoy():
+    return datetime.date.today().isoformat()
 
-ocultarPanel();  // arrancar siempre con el panel cerrado
-cerrarModalAdd();
-cerrarModalDel();
-cargarTodo();
 
-// Botón X para limpiar los campos de captura del formulario
-ponerBotonX("#e-bloque", () => {
-  $("#e-area").value = "";
-  filtrarAreasPorBloque();
-  recalcularDependencias();
-});
-ponerBotonX("#e-area", () => recalcularDependencias());
-ponerBotonX("#e-giro");
-ponerBotonX("#e-proveedor");
+def parse_date(s):
+    if not s:
+        return None
+    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"):
+        try:
+            return datetime.datetime.strptime(str(s)[:10], fmt).date()
+        except ValueError:
+            continue
+    return None
 
-// ============================================================================
-// Administrador de Dependencias por Área
-// ============================================================================
-async function abrirModalDep() {
-  $("#overlay-dep").hidden = false;
-  $("#modal-dep").hidden = false;
-  await cargarDependenciasModal();
-}
 
-function cerrarModalDep() {
-  $("#overlay-dep").hidden = true;
-  $("#modal-dep").hidden = true;
-}
+def registrar_historial(db, aid, campo, antes, despues, quien=None):
+    """Guarda un cambio en el historial, con quién lo hizo."""
+    if str(antes) == str(despues):
+        return
+    db.execute(
+        "INSERT INTO historial (actividad_id,campo,valor_antes,valor_despues,fecha,quien) "
+        "VALUES (?,?,?,?,?,?)",
+        (aid, campo, "" if antes is None else str(antes),
+         "" if despues is None else str(despues),
+         datetime.datetime.now().isoformat(timespec="seconds"), quien))
 
-async function cargarDependenciasModal() {
-  const deps = await (await fetch("/api/dependencias")).json();
-  const tb = $("#tbody-dep-lista");
-  $("#vacio-dep-lista").hidden = deps.length > 0;
-  tb.innerHTML = deps.map(d => {
-    const ev = d.evaluacion || {};
-    const forzada = d.liberacion_forzada === 1;
-    let stTag = `<span style="color:#1E7B4B; font-weight:600;">🔓 Liberada (${ev.avance_predecesores||0}%)</span>`;
-    if (forzada) {
-      stTag = `<span style="color:#B45309; font-weight:700;" title="Forzada por ${d.forzada_por}: ${d.forzada_nota}">⚡ Forzada</span>`;
-    } else if (ev.bloqueada) {
-      stTag = `<span style="color:#DC2626; font-weight:600;">🔒 Bloqueada (${ev.avance_predecesores||0}%)</span>`;
-    }
+
+def estatus_por_avance(av):
+    if av <= 0:
+        return "Pendiente"
+    if av >= 100:
+        return "Listo"
+    return "En proceso"
+
+
+def siguiente_codigo(db):
+    """Calcula el próximo código ACT-#### disponible: busca el número más alto
+    entre TODOS los códigos con forma ACT-#### o PROP-####, ignorando filas sin
+    código o con sufijo (como las tareas de validación interna, que llevan
+    "-V" al final: ACT-1051-V). Se usa cada vez que se crea una actividad
+    (nueva o duplicada) sin un código ya definido, para que nunca quede en
+    blanco.
+
+    El código provisional que se le da a una propuesta de proveedor (ver
+    api_proponer_actividad) es un timestamp de 10 dígitos (PROP-MMDDHHMMSS),
+    no un consecutivo — se limita a 6 dígitos el número que se considera aquí
+    para que esos códigos NUNCA se cuelen en este cálculo y arrastren el
+    consecutivo de ACT-#### a números absurdos como ACT-921230507 (bug real
+    detectado en producción: una vez que existió una propuesta con timestamp,
+    todo lo creado después heredó ese número gigante)."""
+    num = 1
+    for fila in db.execute("SELECT codigo FROM actividades WHERE codigo IS NOT NULL"):
+        m = re.match(r"^(?:ACT|PROP)-(\d{1,6})$", (fila["codigo"] or "").strip())
+        if m:
+            num = max(num, int(m.group(1)) + 1)
+    return f"ACT-{num:04d}"
+
+
+def crear_validacion_interna_si_aplica(db, actividad_id):
+    """Si la actividad llegó a 100% y tiene marcado 'requiere pruebas de
+    funcionamiento / revisión y entrega' con un departamento asignado para
+    validarla (ej. Biomédica revisa que un contacto tenga polaridad y tierra,
+    que un apagador prenda y apague, que una llave saque agua), se crea UNA
+    actividad interna ligada a ella para que ese departamento la trabaje y
+    la marque como terminada cuando de verdad ya funcione. No duplica si ya
+    existe una ligada a esta misma actividad."""
+    a = db.execute("SELECT * FROM actividades WHERE id=?", (actividad_id,)).fetchone()
+    if not a or (a["avance"] or 0) < 100:
+        return
+    if (a["requiere_pruebas"] or "NO") != "SÍ":
+        return
+    depto = (a["valida_depto"] or "").strip()
+    if not depto:
+        return
+    ya = db.execute(
+        "SELECT id FROM actividades WHERE origen_actividad_id=? AND (eliminada IS NULL OR eliminada=0)",
+        (actividad_id,)).fetchone()
+    if ya:
+        return
+    ahora = datetime.datetime.now().isoformat(timespec="seconds")
+    partida_val = "Validar: " + (a["partida"] or a["codigo"] or f"actividad #{actividad_id}")
+    # Mismo consecutivo que la actividad original, con sufijo "-V" (ej. ACT-1051 -> ACT-1051-V),
+    # para que en cualquier pantalla (portal, listas, reportes) se vea clarísimo que es
+    # la validación de esa actividad y no una actividad nueva sin relación.
+    codigo_val = (a["codigo"].strip() + "-V") if a["codigo"] else None
+    db.execute(
+        """INSERT INTO actividades
+        (codigo,bloque,area,giro,departamento,mundo,tipo_interno,partida,tipo_partida,aplica,avance,
+         estatus,definido,origen,estado_val,reconocida,origen_actividad_id,actualizado)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (codigo_val, a["bloque"], a["area"], a["giro"], depto, "interno", "Validación",
+         partida_val, "Puesta en marcha", "SÍ", 0, "Pendiente", "NO",
+         "oficial", "validado", "NO", actividad_id, ahora))
+    db.commit()
+
+
+def dias_restantes():
+    fin = parse_date(FECHA_ENTREGA)
+    return (fin - datetime.date.today()).days
+
+
+def evaluar_dependencias_area(db, area, actividad_tipo_o_giro=None):
+    """
+    Evalúa el estado de las dependencias para un área dada (o para un tipo específico dentro del área).
+    Devuelve dict con:
+      bloqueada: bool,
+      liberada: bool,
+      estado: str,
+      detalle: str,
+      predecesoras_avance: float,
+      umbral: int,
+      forzada: bool
+    """
+    if not area:
+        return {"bloqueada": False, "liberada": True, "estado": "Sin dependencias", "detalle": "", "forzada": False}
     
-    let btnForzar = "";
-    if (forzada) {
-      btnForzar = `<button class="btn-sec btn-sm btn-desforzar-dep" data-id="${d.id}" style="padding:3px 8px; font-size:11px;">Quitar forzado</button>`;
-    } else {
-      btnForzar = `<button class="btn-sec btn-sm btn-forzar-dep" data-id="${d.id}" style="padding:3px 8px; font-size:11px;">Forzar liberación</button>`;
+    area_norm = sin_acentos(area)
+    all_deps = db.execute("SELECT * FROM dependencias").fetchall()
+    deps = [d for d in all_deps if sin_acentos(d["area"]) == area_norm or sin_acentos(d["area"]) in area_norm or area_norm in sin_acentos(d["area"])]
+    if not deps:
+        return {"bloqueada": False, "liberada": True, "estado": "Sin dependencias", "detalle": "", "forzada": False}
+    
+    # Si se pide para un tipo específico, filtrar dependencias que apliquen a ese tipo sucesor
+    if actividad_tipo_o_giro:
+        act_tipo_norm = sin_acentos(actividad_tipo_o_giro)
+        deps_filtradas = [d for d in deps if sin_acentos(d["tipo_sucesor"]) in act_tipo_norm or act_tipo_norm in sin_acentos(d["tipo_sucesor"])]
+        if not deps_filtradas:
+            return {"bloqueada": False, "liberada": True, "estado": "Sin dependencias", "detalle": "", "forzada": False}
+        deps = deps_filtradas
+
+    # Evaluar las dependencias activas
+    for d in deps:
+        if d["liberacion_forzada"]:
+            return {
+                "bloqueada": False,
+                "liberada": True,
+                "estado": "Liberada (anticipada)",
+                "detalle": f"Liberación anticipada por {d['forzada_por'] or 'admin'} ({d['forzada_fecha'] or ''}): {d['forzada_nota'] or ''}",
+                "forzada": True,
+                "umbral": d["umbral"] or 100,
+                "dep_id": d["id"]
+            }
+        
+        # Obtener lista de tipos predecesores
+        pred_txt = d["tipos_predecesores"] or ""
+        preds = [sin_acentos(p.strip()) for p in pred_txt.split(",") if p.strip()]
+        
+        # Buscar avance oficial de las actividades predecesoras en esa área
+        filas_area = db.execute(
+            "SELECT avance, giro, tipo, tipo_partida, partida FROM actividades WHERE area=? AND (aplica IS NULL OR aplica<>'NO') AND (eliminada IS NULL OR eliminada=0)",
+            (area,)
+        ).fetchall()
+        
+        avances_pred = []
+        for fa in filas_area:
+            tps = [sin_acentos(fa["giro"]), sin_acentos(fa["tipo"]), sin_acentos(fa["tipo_partida"]), sin_acentos(fa["partida"])]
+            texto_comp = " ".join(tps)
+            if any(p in texto_comp for p in preds):
+                avances_pred.append(fa["avance"] or 0)
+                
+        if not avances_pred:
+            # Si no hay predecesoras declaradas o encontradas en esa área, continúa evaluando
+            continue
+            
+        prom_avance = sum(avances_pred) / len(avances_pred)
+        umbral = d["umbral"] or 100
+        
+        if prom_avance < umbral:
+            return {
+                "bloqueada": True,
+                "liberada": False,
+                "estado": f"Bloqueada (Predecesoras al {prom_avance:.0f}%, requiere {umbral}%)",
+                "detalle": f"Esperando que '{pred_txt}' alcance el {umbral}% en {area} (avance actual: {prom_avance:.0f}%)",
+                "predecesoras_avance": round(prom_avance, 1),
+                "umbral": umbral,
+                "forzada": False,
+                "dep_id": d["id"]
+            }
+            
+    return {
+        "bloqueada": False,
+        "liberada": True,
+        "estado": "Liberada (cumplió umbral)",
+        "detalle": "Predecesoras completadas al umbral requerido",
+        "forzada": False
     }
 
-    return `
-      <tr style="border-bottom:1px solid #edf2f7;">
-        <td style="padding:6px 8px;"><b>${escapa(d.area)}</b></td>
-        <td style="padding:6px 8px;">${escapa(d.tipo_sucesor)}</td>
-        <td style="padding:6px 8px; color:#4a5568;">${escapa(d.tipos_predecesores)}</td>
-        <td style="padding:6px 8px; text-align:center;">${d.umbral}%</td>
-        <td style="padding:6px 8px;">${stTag}</td>
-        <td style="padding:6px 8px; white-space:nowrap;">
-          ${btnForzar}
-          <button class="btn-borrar-sel btn-sm btn-borrar-dep" data-id="${d.id}" style="padding:3px 8px; font-size:11px; margin-left:4px;">🗑</button>
-        </td>
-      </tr>
-    `;
-  }).join("");
 
-  $$(".btn-forzar-dep").forEach(b => b.onclick = async () => {
-    const nota = prompt("Escribe una nota justificando la liberación anticipada:");
-    if (!nota) return;
-    await fetch(`/api/dependencias/${b.dataset.id}/forzar_liberacion`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ nota })
-    });
-    toast("Liberación anticipada autorizada");
-    await cargarDependenciasModal();
-    await cargarActividades();
-  });
+# ----------------------------------------------------------------------------
+# Rutas de páginas
+# ----------------------------------------------------------------------------
+@app.route("/api/tipos_internos", methods=["GET"])
+@requiere_login
+def api_tipos_internos():
+    db = get_db()
+    rows = db.execute("SELECT nombre FROM tipos_internos ORDER BY id").fetchall()
+    return jsonify([r["nombre"] for r in rows])
 
-  $$(".btn-desforzar-dep").forEach(b => b.onclick = async () => {
-    await fetch(`/api/dependencias/${b.dataset.id}/deshacer_forzar`, {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: "{}"
-    });
-    toast("Liberación forzada revertida");
-    await cargarDependenciasModal();
-    await cargarActividades();
-  });
 
-  $$(".btn-borrar-dep").forEach(b => b.onclick = async () => {
-    if (!confirm("¿Eliminar esta regla de dependencia?")) return;
-    await fetch(`/api/dependencias/${b.dataset.id}`, { method: "DELETE" });
-    toast("Regla eliminada");
-    await cargarDependenciasModal();
-    await cargarActividades();
-  });
-}
+@app.route("/api/tipos_internos", methods=["POST"])
+@requiere_gestor
+def api_tipos_internos_add():
+    db = get_db()
+    nombre = (request.get_json().get("nombre") or "").strip()
+    if not nombre:
+        return jsonify({"error": "Escribe un nombre"}), 400
+    db.execute("INSERT OR IGNORE INTO tipos_internos (nombre) VALUES (?)", (nombre,))
+    db.commit()
+    return jsonify({"ok": True})
 
-$("#btn-dep-mgr").onclick = abrirModalDep;
-$("#dep-cerrar").onclick = cerrarModalDep;
-$("#dep-cerrar-btn").onclick = cerrarModalDep;
-$("#overlay-dep").onclick = cerrarModalDep;
 
-$("#btn-crear-dep").onclick = async () => {
-  const area = $("#dep-new-area").value.trim();
-  const tipo_sucesor = $("#dep-new-sucesor").value.trim();
-  const tipos_predecesores = $("#dep-new-predecesores").value.trim();
-  const umbral = parseInt($("#dep-new-umbral").value || 100);
+@app.route("/involucrados")
+def involucrados_page():
+    return render_template("involucrados.html")
 
-  if (!area || !tipos_predecesores) {
-    toast("Ingresa el área y los predecesores");
-    return;
-  }
 
-  const res = await (await fetch("/api/dependencias", {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ area, tipo_sucesor, tipos_predecesores, umbral })
-  })).json();
+@app.route("/api/involucrados/catalogo", methods=["GET"])
+@requiere_gestor
+def api_inv_catalogo():
+    db = get_db()
+    rows = db.execute("SELECT nombre FROM involucrados ORDER BY nombre").fetchall()
+    return jsonify([r["nombre"] for r in rows])
 
-  if (res.ok) {
-    toast("Regla de dependencia creada");
-    $("#dep-new-area").value = "";
-    $("#dep-new-predecesores").value = "";
-    await cargarDependenciasModal();
-    await cargarActividades();
-  } else {
-    toast(res.error || "Error al crear regla");
-  }
-};
 
-// ============================================================================
-// Respaldo Inmediato de Base de Datos
-// ============================================================================
-$("#btn-respaldo-rapido").onclick = async () => {
-  toast("Generando respaldo de seguridad...");
-  try {
-    const resp = await fetch("/api/respaldo/descargar");
-    if (!resp.ok) {
-      let msg = "Error al generar respaldo";
-      try { msg = (await resp.json()).error || msg; } catch (e) { /* sin detalle */ }
-      toast(msg);
-      return;
+@app.route("/api/involucrados/catalogo", methods=["POST"])
+@requiere_gestor
+def api_inv_catalogo_add():
+    db = get_db()
+    nombre = (request.get_json().get("nombre") or "").strip()
+    if not nombre:
+        return jsonify({"error": "Escribe un nombre"}), 400
+    db.execute("INSERT OR IGNORE INTO involucrados (nombre) VALUES (?)", (nombre,))
+    db.commit()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/involucrados/por_area", methods=["GET"])
+@requiere_gestor
+def api_inv_por_area():
+    """Devuelve, por cada área, qué involucrados tiene encendidos (y el catálogo completo)."""
+    db = get_db()
+    catalogo = [r["nombre"] for r in db.execute("SELECT nombre FROM involucrados ORDER BY nombre").fetchall()]
+    areas = db.execute(
+        "SELECT DISTINCT bloque, area FROM actividades WHERE area IS NOT NULL AND area<>'' "
+        "ORDER BY bloque, area").fetchall()
+    rel = {}
+    for r in db.execute("SELECT area, involucrado FROM area_involucrados").fetchall():
+        rel.setdefault(r["area"], set()).add(r["involucrado"])
+    salida = []
+    for a in areas:
+        encendidos = sorted(rel.get(a["area"], set()))
+        salida.append({"bloque": a["bloque"] or "", "area": a["area"], "encendidos": encendidos})
+    return jsonify({"catalogo": catalogo, "areas": salida})
+
+
+@app.route("/api/involucrados/toggle", methods=["POST"])
+@requiere_gestor
+def api_inv_toggle():
+    """Prende o apaga un involucrado en una área."""
+    db = get_db()
+    data = request.get_json()
+    area = data.get("area"); who = data.get("involucrado")
+    if not area or not who:
+        return jsonify({"error": "faltan datos"}), 400
+    existe = db.execute("SELECT 1 FROM area_involucrados WHERE area=? AND involucrado=?", (area, who)).fetchone()
+    if existe:
+        db.execute("DELETE FROM area_involucrados WHERE area=? AND involucrado=?", (area, who))
+        estado = "off"
+    else:
+        db.execute("INSERT OR IGNORE INTO area_involucrados (area,involucrado) VALUES (?,?)", (area, who))
+        estado = "on"
+    db.commit()
+    return jsonify({"ok": True, "estado": estado})
+
+
+@app.route("/login")
+def login_page():
+    return render_template("login.html")
+
+
+@app.route("/sw.js")
+def service_worker():
+    """El 'service worker' que recibe las notificaciones push y las muestra
+    como notificación del sistema aunque la pestaña esté cerrada. Se sirve
+    desde la raíz (no desde /static/) para que su alcance cubra todo el
+    sitio sin configuración extra."""
+    resp = send_file(os.path.join(BASE_DIR, "static", "sw.js"), mimetype="application/javascript")
+    resp.headers["Service-Worker-Allowed"] = "/"
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
+
+@app.route("/")
+def index():
+    # si no hay sesión, al login; si es proveedor, a su portal
+    if "usuario" not in session:
+        return redirect("/login")
+    if not es_gestor(session.get("rol")):
+        return redirect("/portal")
+    return render_template("index.html")
+
+
+@app.route("/reporte")
+def reporte():
+    return render_template("reporte.html")
+
+
+@app.route("/reportes")
+def reportes():
+    # esta pantalla es de uso interno (hojas por proveedor, captura masiva,
+    # importar avances) — antes no pedía sesión en absoluto.
+    if "usuario" not in session:
+        return redirect("/login")
+    return render_template("reportes.html")
+
+
+@app.route("/expediente")
+def expediente_page():
+    # esta pantalla se unificó con Usuarios: la ficha del proveedor y su
+    # acceso a la plataforma ahora viven juntos en /usuarios
+    return redirect("/usuarios")
+
+
+# ----------------------------------------------------------------------------
+# API — Actividades
+# ----------------------------------------------------------------------------
+@app.route("/api/actividades")
+@requiere_login
+def api_actividades():
+    db = get_db()
+    q = "SELECT * FROM actividades"
+    cond = ["(eliminada IS NULL OR eliminada=0)"]
+    args = []
+    bloque = request.args.get("bloque")
+    area = request.args.get("area")
+    giro = request.args.get("giro")
+    proveedor = request.args.get("proveedor")
+    tipo_partida = request.args.get("tipo_partida")
+    estatus = request.args.get("estatus")
+    buscar = request.args.get("buscar")
+    # mundo: 'obra' (default), 'interno' o 'todos'
+    mundo = request.args.get("mundo", "obra")
+    # en 'interno' el responsable vive en la columna departamento, no proveedor
+    col_resp = "departamento" if mundo == "interno" else "proveedor"
+    if mundo != "todos":
+        cond.append("(mundo = ? OR (mundo IS NULL AND ? = 'obra'))")
+        args += [mundo, mundo]
+    if bloque:
+        cond.append("bloque = ?"); args.append(bloque)
+    if area:
+        cond.append("area = ?"); args.append(area)
+    if giro:
+        cond.append("giro = ?"); args.append(giro)
+    if proveedor:
+        cond.append(f"{col_resp} = ?"); args.append(proveedor)
+    if tipo_partida:
+        cond.append("tipo_partida = ?"); args.append(tipo_partida)
+    if estatus:
+        cond.append("estatus = ?"); args.append(estatus)
+    avance_min = request.args.get("avance_min")
+    if avance_min not in (None, ""):
+        try:
+            cond.append("avance >= ?"); args.append(max(0, min(100, int(avance_min))))
+        except (TypeError, ValueError):
+            pass
+    avance_max = request.args.get("avance_max")
+    if avance_max not in (None, ""):
+        try:
+            cond.append("avance <= ?"); args.append(max(0, min(100, int(avance_max))))
+        except (TypeError, ValueError):
+            pass
+    if buscar:
+        b = "%" + sin_acentos(buscar) + "%"
+        cond.append(f"(sinac(partida) LIKE ? OR sinac(area) LIKE ? OR sinac({col_resp}) LIKE ? OR sinac(bloque) LIKE ? OR sinac(codigo) LIKE ?)")
+        args += [b] * 5
+    # por defecto no mostramos las rechazadas en la tabla principal
+    if request.args.get("incluir_rechazadas") != "1":
+        cond.append("(estado_val IS NULL OR estado_val<>'rechazada')")
+    if cond:
+        q += " WHERE " + " AND ".join(cond)
+    q += " ORDER BY id"
+    rows = db.execute(q, args).fetchall()
+    salida = []
+    for r in rows:
+        d = dict(r)
+        dep_st = evaluar_dependencias_area(db, r["area"], r["tipo_partida"] or r["giro"])
+        d["dep_bloqueada"] = dep_st["bloqueada"]
+        d["dep_estado"] = dep_st["estado"]
+        d["dep_detalle"] = dep_st["detalle"]
+        salida.append(d)
+    return jsonify(salida)
+
+
+@app.route("/api/actividad/<int:aid>", methods=["GET"])
+@requiere_login
+def api_actividad(aid):
+    db = get_db()
+    r = db.execute("SELECT * FROM actividades WHERE id=?", (aid,)).fetchone()
+    if not r:
+        return jsonify({"error": "no existe"}), 404
+    return jsonify(dict(r))
+
+
+@app.route("/api/actividad/<int:aid>/historial")
+@requiere_login
+def api_actividad_historial(aid):
+    db = get_db()
+    a = db.execute("SELECT codigo,partida,area,bloque FROM actividades WHERE id=?", (aid,)).fetchone()
+    rows = db.execute(
+        "SELECT campo,valor_antes,valor_despues,fecha,quien FROM historial "
+        "WHERE actividad_id=? ORDER BY fecha DESC, id DESC", (aid,)).fetchall()
+    return jsonify({
+        "actividad": dict(a) if a else None,
+        "historial": [dict(r) for r in rows],
+    })
+
+
+@app.route("/api/actividad/<int:aid>", methods=["PUT"])
+@requiere_gestor
+def api_actualizar(aid):
+    db = get_db()
+    data = request.get_json()
+    actual = db.execute("SELECT * FROM actividades WHERE id=?", (aid,)).fetchone()
+    if not actual:
+        return jsonify({"error": "no existe"}), 404
+    campos = ["proveedor", "partida", "giro", "aplica", "avance", "f_inicio",
+              "f_fin", "duracion_dias", "estatus", "depende_de", "notas", "tipo",
+              "area", "bloque", "tipo_partida", "definido",
+              "causa_retraso", "nota_proveedor",
+              "mundo", "departamento", "tipo_interno",
+              "requiere_pruebas", "valida_depto"]
+    # si mandan causa_retraso, sellamos quién y cuándo
+    if "causa_retraso" in data and (data.get("causa_retraso") or "").strip():
+        data["causa_por"] = data.get("causa_por") or "Registrado en plataforma"
+        data["causa_fecha"] = datetime.date.today().isoformat()
+        campos += ["causa_por", "causa_fecha"]
+    # candado: el avance nunca debe guardarse fuera de 0-100 (un típo como
+    # "150" en vez de "15" antes se guardaba tal cual y descuadraba promedios).
+    if "avance" in data:
+        try:
+            data["avance"] = max(0, min(100, int(data.get("avance") or 0)))
+        except (TypeError, ValueError):
+            data["avance"] = 0
+    updates = []
+    args = []
+    for c in campos:
+        if c in data:
+            antes = actual[c]
+            despues = data[c]
+            if str(antes) != str(despues):
+                db.execute(
+                    "INSERT INTO historial (actividad_id,campo,valor_antes,valor_despues,fecha) VALUES (?,?,?,?,?)",
+                    (aid, c, str(antes), str(despues), datetime.datetime.now().isoformat(timespec="seconds")),
+                )
+            updates.append(f"{c}=?")
+            args.append(despues)
+    # auto estatus si mandan avance y no mandan estatus explícito
+    if "avance" in data and "estatus" not in data:
+        updates.append("estatus=?")
+        args.append(estatus_por_avance(int(data["avance"] or 0)))
+    # auto-reconocer si admin pone avance > 0 y no estaba reconocida
+    if "avance" in data and int(data["avance"] or 0) > 0 and actual["reconocida"] != "SÍ":
+        updates.append("reconocida=?")
+        args.append("SÍ")
+        updates.append("reconocida_por=?")
+        args.append("admin (avance)")
+        updates.append("reconocida_fecha=?")
+        args.append(datetime.date.today().isoformat())
+        updates.append("no_reconocida_nota=?")
+        args.append(None)
+    updates.append("actualizado=?")
+    args.append(datetime.datetime.now().isoformat(timespec="seconds"))
+    args.append(aid)
+    db.execute(f"UPDATE actividades SET {','.join(updates)} WHERE id=?", args)
+    db.commit()
+    crear_validacion_interna_si_aplica(db, aid)
+    r = db.execute("SELECT * FROM actividades WHERE id=?", (aid,)).fetchone()
+    return jsonify(dict(r))
+
+
+@app.route("/api/actividad", methods=["POST"])
+@requiere_gestor
+def api_crear():
+    db = get_db()
+    data = request.get_json()
+    # Si no llega un código ya definido (caso normal: "Nueva actividad" y
+    # "Duplicar" nunca lo mandan), se le asigna aquí el siguiente ACT-####
+    # disponible. Antes se guardaba lo que mandara el front (nunca nada),
+    # así que toda actividad nueva o duplicada se quedaba sin código.
+    codigo = (data.get("codigo") or "").strip() or siguiente_codigo(db)
+    cur = db.execute(
+        """INSERT INTO actividades
+        (codigo,bloque,area,giro,proveedor,partida,tipo,tipo_partida,aplica,avance,
+         f_inicio,f_fin,duracion_dias,estatus,depende_de,definido,causa_retraso,notas,
+         mundo,departamento,tipo_interno,requiere_pruebas,valida_depto,actualizado)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (
+            codigo, data.get("bloque"), data.get("area"),
+            data.get("giro"), data.get("proveedor"), data.get("partida"),
+            data.get("tipo"), data.get("tipo_partida", "Construcción"),
+            data.get("aplica", "SÍ"),
+            int(data.get("avance", 0) or 0), data.get("f_inicio"),
+            data.get("f_fin"), data.get("duracion_dias"),
+            data.get("estatus", "Pendiente"), data.get("depende_de"),
+            data.get("definido", "NO"), data.get("causa_retraso"), data.get("notas"),
+            data.get("mundo", "obra"), data.get("departamento"), data.get("tipo_interno"),
+            data.get("requiere_pruebas", "NO"), data.get("valida_depto"),
+            datetime.datetime.now().isoformat(timespec="seconds"),
+        ),
+    )
+    db.commit()
+    crear_validacion_interna_si_aplica(db, cur.lastrowid)
+    r = db.execute("SELECT * FROM actividades WHERE id=?", (cur.lastrowid,)).fetchone()
+    return jsonify(dict(r))
+
+
+@app.route("/api/actividad/<int:aid>", methods=["DELETE"])
+@requiere_admin
+def api_borrar(aid):
+    db = get_db()
+    db.execute("UPDATE actividades SET eliminada=1, eliminada_por=?, eliminada_fecha=? WHERE id=?",
+               (session.get("usuario", "admin"), datetime.date.today().isoformat(), aid))
+    db.commit()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/actividades/borrar", methods=["POST"])
+@requiere_admin
+def api_borrar_multiple():
+    db = get_db()
+    data = request.get_json()
+    ids = data.get("ids", [])
+    if not ids:
+        return jsonify({"error": "sin ids"}), 400
+    marcas = ",".join("?" * len(ids))
+    quien = session.get("usuario", "admin")
+    fecha = datetime.date.today().isoformat()
+    db.execute(f"UPDATE actividades SET eliminada=1, eliminada_por=?, eliminada_fecha=? WHERE id IN ({marcas})",
+               [quien, fecha] + ids)
+    db.commit()
+    return jsonify({"ok": True, "borradas": len(ids)})
+
+
+# ----------------------------------------------------------------------------
+@app.route("/api/actividades/eliminadas")
+@requiere_admin
+def api_eliminadas():
+    db = get_db()
+    rows = db.execute(
+        "SELECT * FROM actividades WHERE eliminada=1 ORDER BY eliminada_fecha DESC"
+    ).fetchall()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route("/api/actividad/<int:aid>/restaurar", methods=["POST"])
+@requiere_admin
+def api_restaurar(aid):
+    db = get_db()
+    db.execute("UPDATE actividades SET eliminada=0, eliminada_por=NULL, eliminada_fecha=NULL WHERE id=?", (aid,))
+    db.commit()
+    return jsonify({"ok": True})
+
+
+# API — Catálogos y resumen
+# ----------------------------------------------------------------------------
+@app.route("/api/catalogos")
+@requiere_login
+def api_catalogos():
+    db = get_db()
+    def distintos(col):
+        rows = db.execute(
+            f"SELECT DISTINCT {col} FROM actividades WHERE {col} IS NOT NULL AND {col}<>'' ORDER BY {col}"
+        ).fetchall()
+        return [r[0] for r in rows]
+    # departamentos = los del catálogo de involucrados + los que ya tienen actividades internas
+    invol = [r[0] for r in db.execute("SELECT nombre FROM involucrados ORDER BY nombre").fetchall()]
+    dept_act = distintos("departamento")
+    departamentos = sorted(set(invol) | set(dept_act))
+    # mapa bloque -> áreas (para el candado estricto en el formulario)
+    mapa = {}
+    for r in db.execute(
+        "SELECT DISTINCT bloque, area FROM actividades "
+        "WHERE bloque IS NOT NULL AND bloque<>'' AND area IS NOT NULL AND area<>'' "
+        "ORDER BY bloque, area").fetchall():
+        mapa.setdefault(r["bloque"], []).append(r["area"])
+    return jsonify({
+        "bloques": distintos("bloque"),
+        "areas": distintos("area"),
+        "giros": distintos("giro"),
+        "proveedores": distintos("proveedor"),
+        "departamentos": departamentos,
+        "mapa_bloque_areas": mapa,
+        "tipos_partida": ["Construcción", "Mobiliario y equipo", "Puesta en marcha", "Detalles finales"],
+        "estatus": ["Pendiente", "En proceso", "Listo", "Post-apertura"],
+    })
+
+
+# ----------------------------------------------------------------------------
+# API — Catálogo de proveedores (con tipo interno/externo y función)
+# ----------------------------------------------------------------------------
+@app.route("/api/proveedores", methods=["GET"])
+@requiere_login
+def api_proveedores():
+    db = get_db()
+    rows = db.execute("SELECT * FROM proveedores ORDER BY nombre").fetchall()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route("/api/proveedores", methods=["POST"])
+@requiere_gestor
+def api_crear_proveedor():
+    db = get_db()
+    data = request.get_json()
+    nombre = (data.get("nombre") or "").strip()
+    if not nombre:
+        return jsonify({"error": "nombre requerido"}), 400
+    try:
+        db.execute(
+            "INSERT INTO proveedores (nombre,tipo,funcion) VALUES (?,?,?)",
+            (nombre, data.get("tipo", "Externo"), data.get("funcion", "")),
+        )
+        db.commit()
+    except sqlite3.IntegrityError:
+        # ya existe: actualiza tipo y función
+        db.execute(
+            "UPDATE proveedores SET tipo=?, funcion=? WHERE nombre=?",
+            (data.get("tipo", "Externo"), data.get("funcion", ""), nombre),
+        )
+        db.commit()
+    r = db.execute("SELECT * FROM proveedores WHERE nombre=?", (nombre,)).fetchone()
+    return jsonify(dict(r))
+
+
+# ----------------------------------------------------------------------------
+# API — Catálogo genérico (bloque / area / giro) con nota
+# ----------------------------------------------------------------------------
+@app.route("/api/proveedores/<nombre>/activo", methods=["POST"])
+@requiere_admin
+def api_proveedor_activo(nombre):
+    """Activa o desactiva un proveedor del catalogo (nunca se borra, para
+    conservar el historial de sus actividades y reportes)."""
+    db = get_db()
+    data = request.get_json() or {}
+    activo = 1 if data.get("activo") else 0
+    existe = db.execute("SELECT id FROM proveedores WHERE nombre=?", (nombre,)).fetchone()
+    if not existe:
+        db.execute("INSERT INTO proveedores (nombre, tipo, activo) VALUES (?,?,?)",
+                   (nombre, "Externo", activo))
+    else:
+        db.execute("UPDATE proveedores SET activo=? WHERE nombre=?", (activo, nombre))
+    db.commit()
+    return jsonify({"ok": True, "nombre": nombre, "activo": activo})
+
+
+@app.route("/api/catalogo/<clase>", methods=["POST"])
+@requiere_gestor
+def api_crear_catalogo(clase):
+    if clase not in ("bloque", "area", "giro"):
+        return jsonify({"error": "clase inválida"}), 400
+    db = get_db()
+    data = request.get_json()
+    nombre = (data.get("nombre") or "").strip()
+    if not nombre:
+        return jsonify({"error": "nombre requerido"}), 400
+    try:
+        db.execute(
+            "INSERT INTO catalogo (clase,nombre,nota) VALUES (?,?,?)",
+            (clase, nombre, data.get("nota", "")),
+        )
+        db.commit()
+    except sqlite3.IntegrityError:
+        db.execute(
+            "UPDATE catalogo SET nota=? WHERE clase=? AND nombre=?",
+            (data.get("nota", ""), clase, nombre),
+        )
+        db.commit()
+    return jsonify({"ok": True, "clase": clase, "nombre": nombre})
+
+
+# ----------------------------------------------------------------------------
+# API — Causas de retraso (catálogo: 7 base + agregadas por el usuario)
+# ----------------------------------------------------------------------------
+@app.route("/api/causas", methods=["GET"])
+@requiere_login
+def api_causas():
+    db = get_db()
+    mundo = request.args.get("mundo", "obra")
+    rows = db.execute(
+        "SELECT nombre FROM causas WHERE (mundo = ? OR (mundo IS NULL AND ? = 'obra')) "
+        "ORDER BY base DESC, nombre", (mundo, mundo)).fetchall()
+    return jsonify([r[0] for r in rows])
+
+
+@app.route("/api/causas", methods=["POST"])
+@requiere_gestor
+def api_crear_causa():
+    db = get_db()
+    data = request.get_json()
+    nombre = (data.get("nombre") or "").strip()
+    mundo = data.get("mundo", "obra")
+    if not nombre:
+        return jsonify({"error": "nombre requerido"}), 400
+    db.execute("INSERT OR IGNORE INTO causas (nombre,base,mundo) VALUES (?,0,?)", (nombre, mundo))
+    db.commit()
+    rows = db.execute(
+        "SELECT nombre FROM causas WHERE (mundo = ? OR (mundo IS NULL AND ? = 'obra')) "
+        "ORDER BY base DESC, nombre", (mundo, mundo)).fetchall()
+    return jsonify([r[0] for r in rows])
+
+
+# ----------------------------------------------------------------------------
+# API — Resumen de causas AGREGADAS (para el reporte a dirección, sin señalar)
+# ----------------------------------------------------------------------------
+@app.route("/api/resumen_causas")
+@requiere_login
+def api_resumen_causas():
+    db = get_db()
+    rows = db.execute(
+        """SELECT causa_retraso, COUNT(*) n
+           FROM actividades
+           WHERE causa_retraso IS NOT NULL AND causa_retraso<>''
+             AND (aplica IS NULL OR aplica<>'NO') AND (eliminada IS NULL OR eliminada=0)
+           GROUP BY causa_retraso ORDER BY n DESC"""
+    ).fetchall()
+    total = sum(r["n"] for r in rows)
+    salida = [{"causa": r["causa_retraso"], "partidas": r["n"],
+               "porcentaje": round(100 * r["n"] / total, 1) if total else 0}
+              for r in rows]
+    return jsonify({"total_con_causa": total, "causas": salida})
+
+
+# ----------------------------------------------------------------------------
+# API — Expediente de proveedores (datos de empresa y contacto)
+# ----------------------------------------------------------------------------
+@app.route("/api/proveedores_usuarios")
+@requiere_admin
+def api_proveedores_usuarios():
+    """Vista unificada: cada proveedor/departamento con su ficha (expediente)
+    y su(s) acceso(s) a la plataforma, si ya tiene. No incluye admin/supervisores
+    (esos son 'accesos generales', no estan ligados a un proveedor concreto)."""
+    db = get_db()
+    nombres = set()
+    for r in db.execute("SELECT DISTINCT proveedor FROM actividades WHERE proveedor IS NOT NULL AND proveedor<>''"):
+        nombres.add(r[0])
+    for r in db.execute("SELECT DISTINCT departamento FROM actividades WHERE departamento IS NOT NULL AND departamento<>''"):
+        nombres.add(r[0])
+    fichas = {r["nombre"]: dict(r) for r in db.execute("SELECT * FROM proveedores").fetchall()}
+    nombres |= set(fichas.keys())
+    usuarios_por_prov = {}
+    for r in db.execute("SELECT * FROM usuarios WHERE rol='proveedor' AND proveedor IS NOT NULL AND proveedor<>''"):
+        usuarios_por_prov.setdefault(r["proveedor"], []).append(dict(r))
+    nombres |= set(usuarios_por_prov.keys())
+
+    salida = []
+    for nombre in sorted(nombres, key=lambda x: x.lower()):
+        f = fichas.get(nombre, {})
+        stats = db.execute(
+            "SELECT COUNT(*) n, ROUND(AVG(avance),1) av FROM actividades WHERE (proveedor=? OR departamento=?) AND (eliminada IS NULL OR eliminada=0)",
+            (nombre, nombre)).fetchone()
+        usus = usuarios_por_prov.get(nombre, [])
+        salida.append({
+            "nombre": nombre,
+            "activo": 1 if f.get("activo") is None else f.get("activo"),
+            "empresa": f.get("empresa") or "", "tipo": f.get("tipo") or "Externo",
+            "funcion": f.get("funcion") or "", "contacto": f.get("contacto") or "",
+            "telefono": f.get("telefono") or "", "correo": f.get("correo") or "",
+            "notas": f.get("notas") or "",
+            "partidas": stats["n"] or 0, "avance": stats["av"] or 0,
+            "usuarios": [{
+                "id": u["id"], "usuario": u["usuario"],
+                "activo": 1 if u.get("activo") is None else u.get("activo"),
+                "num_logins": u.get("num_logins") or 0,
+                "ultimo_login": u.get("ultimo_login"),
+                "telefono": u.get("telefono"), "mundo": u.get("mundo") or "obra",
+            } for u in usus],
+        })
+    return jsonify(salida)
+
+
+@app.route("/api/expediente")
+@requiere_admin
+def api_expediente():
+    """Lista proveedores usados en actividades + su ficha (si existe)."""
+    db = get_db()
+    # proveedores que aparecen en actividades
+    usados = db.execute(
+        "SELECT proveedor, COUNT(*) n, ROUND(AVG(avance),1) av FROM actividades "
+        "WHERE proveedor IS NOT NULL AND proveedor<>'' AND (eliminada IS NULL OR eliminada=0) GROUP BY proveedor ORDER BY proveedor"
+    ).fetchall()
+    fichas = {r["nombre"]: dict(r) for r in db.execute("SELECT * FROM proveedores").fetchall()}
+    salida = []
+    for u in usados:
+        f = fichas.get(u["proveedor"], {})
+        salida.append({
+            "nombre": u["proveedor"], "partidas": u["n"], "avance": u["av"],
+            "empresa": f.get("empresa", ""), "tipo": f.get("tipo", ""),
+            "funcion": f.get("funcion", ""), "contacto": f.get("contacto", ""),
+            "telefono": f.get("telefono", ""), "correo": f.get("correo", ""),
+            "notas": f.get("notas", ""),
+        })
+    return jsonify(salida)
+
+
+@app.route("/api/expediente", methods=["POST"])
+@requiere_admin
+def api_guardar_expediente():
+    db = get_db()
+    data = request.get_json()
+    nombre = (data.get("nombre") or "").strip()
+    if not nombre:
+        return jsonify({"error": "nombre requerido"}), 400
+    existe = db.execute("SELECT id FROM proveedores WHERE nombre=?", (nombre,)).fetchone()
+    campos = ("empresa", "tipo", "funcion", "contacto", "telefono", "correo", "notas")
+    if existe:
+        sets = ",".join(f"{c}=?" for c in campos)
+        db.execute(f"UPDATE proveedores SET {sets} WHERE nombre=?",
+                   [data.get(c, "") for c in campos] + [nombre])
+    else:
+        db.execute(
+            "INSERT INTO proveedores (nombre,empresa,tipo,funcion,contacto,telefono,correo,notas) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            [nombre] + [data.get(c, "") for c in campos])
+    db.commit()
+    return jsonify({"ok": True})
+
+
+# ----------------------------------------------------------------------------
+# API — Snapshots semanales (comparar semana vs semana)
+# ----------------------------------------------------------------------------
+@app.route("/api/snapshot", methods=["POST"])
+@requiere_gestor
+def api_snapshot():
+    """Guarda una foto del avance de todas las partidas hoy."""
+    db = get_db()
+    hoy_d = datetime.date.today()
+    semana = hoy_d.strftime("%G-W%V")  # año-semana ISO
+    fecha = hoy_d.isoformat()
+    # borra foto previa de la misma semana para no duplicar
+    db.execute("DELETE FROM snapshots WHERE semana=?", (semana,))
+    rows = db.execute("SELECT id, avance FROM actividades WHERE (eliminada IS NULL OR eliminada=0)").fetchall()
+    for r in rows:
+        db.execute(
+            "INSERT INTO snapshots (semana,fecha,actividad_id,avance) VALUES (?,?,?,?)",
+            (semana, fecha, r["id"], r["avance"] or 0))
+    db.commit()
+    return jsonify({"ok": True, "semana": semana, "partidas": len(rows)})
+
+
+@app.route("/api/comparar_semanas")
+@requiere_login
+def api_comparar_semanas():
+    """Compara el avance actual contra la última foto guardada."""
+    db = get_db()
+    semanas = db.execute(
+        "SELECT DISTINCT semana FROM snapshots ORDER BY semana DESC").fetchall()
+    if not semanas:
+        return jsonify({"hay_foto": False})
+    ultima = semanas[0]["semana"]
+    # avance guardado en la última foto, por proveedor
+    prev = db.execute(
+        """SELECT a.proveedor prov, AVG(s.avance) av
+           FROM snapshots s JOIN actividades a ON a.id=s.actividad_id
+           WHERE s.semana=? GROUP BY a.proveedor""", (ultima,)).fetchall()
+    prev_map = {r["prov"]: r["av"] for r in prev}
+    # avance actual por proveedor
+    act = db.execute(
+        "SELECT proveedor prov, AVG(avance) av FROM actividades WHERE (eliminada IS NULL OR eliminada=0) GROUP BY proveedor").fetchall()
+    salida = []
+    for r in act:
+        p = r["prov"] or "— Sin proveedor —"
+        antes = prev_map.get(r["prov"], 0) or 0
+        ahora = r["av"] or 0
+        salida.append({
+            "proveedor": p, "antes": round(antes, 1), "ahora": round(ahora, 1),
+            "cambio": round(ahora - antes, 1),
+        })
+    salida.sort(key=lambda x: x["cambio"])
+    return jsonify({"hay_foto": True, "semana_previa": ultima, "proveedores": salida})
+
+
+
+# ============================================================
+#  HISTÓRICO — consultar cómo estaba la obra en un día pasado
+#  v1.5 · Reconstruye el pasado desde las fotos semanales y,
+#  si no hay foto, deshaciendo los cambios del historial.
+# ============================================================
+
+def _fotos_disponibles(db):
+    """Fechas en las que hay foto guardada, de la más nueva a la más vieja."""
+    return [dict(r) for r in db.execute(
+        "SELECT semana, MIN(fecha) fecha, COUNT(*) partidas "
+        "FROM snapshots GROUP BY semana ORDER BY fecha DESC")]
+
+
+def _avance_a_fecha(db, fecha, mundo="obra"):
+    """Devuelve {actividad_id: avance} tal como estaba ESE DÍA.
+    1) Si hay foto de ese día o anterior, la usa.
+    2) Si no, reconstruye: parte del avance de hoy y deshace
+       los cambios que ocurrieron DESPUÉS de la fecha pedida."""
+    fila = db.execute(
+        "SELECT semana, fecha FROM snapshots WHERE fecha<=? "
+        "ORDER BY fecha DESC LIMIT 1", (fecha,)).fetchone()
+    origen = "reconstruido"
+    mapa = {}
+    if fila:
+        origen = "foto"
+        for r in db.execute("SELECT actividad_id, avance FROM snapshots WHERE semana=?",
+                            (fila["semana"],)):
+            mapa[r["actividad_id"]] = r["avance"] or 0
+    # actividades vigentes del mundo pedido
+    acts = db.execute(
+        "SELECT id, avance FROM actividades "
+        "WHERE (aplica IS NULL OR aplica<>'NO') "
+        "AND (estado_val IS NULL OR estado_val='validado') "
+        "AND (eliminada IS NULL OR eliminada=0) "
+        "AND (mundo = ? OR (mundo IS NULL AND ? = 'obra'))",
+        (mundo, mundo)).fetchall()
+    for a in acts:
+        if a["id"] in mapa:
+            continue
+        # reconstruir desde el historial: el primer cambio POSTERIOR a la
+        # fecha nos dice cuánto valía ANTES de ese cambio
+        h = db.execute(
+            "SELECT valor_antes FROM historial "
+            "WHERE actividad_id=? AND (campo LIKE '%avance%') AND fecha> ? "
+            "ORDER BY fecha ASC LIMIT 1", (a["id"], fecha)).fetchone()
+        if h and h["valor_antes"] not in (None, "", "None"):
+            try:
+                mapa[a["id"]] = int(float(h["valor_antes"]))
+            except (ValueError, TypeError):
+                mapa[a["id"]] = a["avance"] or 0
+        else:
+            # no hubo cambios después de esa fecha: sigue igual que hoy
+            mapa[a["id"]] = a["avance"] or 0
+    return mapa, origen, (fila["fecha"] if fila else None)
+
+
+@app.route("/api/historico/fechas")
+@requiere_gestor
+def api_historico_fechas():
+    db = get_db()
+    fotos = _fotos_disponibles(db)
+    rango = db.execute(
+        "SELECT MIN(substr(fecha,1,10)) ini, MAX(substr(fecha,1,10)) fin FROM historial").fetchone()
+    return jsonify({
+        "fotos": fotos,
+        "historial_desde": rango["ini"] if rango else None,
+        "historial_hasta": rango["fin"] if rango else None,
+        "hoy": datetime.date.today().isoformat(),
+    })
+
+
+@app.route("/api/historico")
+@requiere_gestor
+def api_historico():
+    """Cómo estaba la obra en una fecha dada."""
+    fecha = request.args.get("fecha") or datetime.date.today().isoformat()
+    mundo = request.args.get("mundo", "obra")
+    db = get_db()
+    mapa, origen, fecha_foto = _avance_a_fecha(db, fecha, mundo)
+    filas = db.execute(
+        "SELECT id, codigo, bloque, area, giro, proveedor, departamento, mundo, partida, avance "
+        "FROM actividades WHERE (aplica IS NULL OR aplica<>'NO') "
+        "AND (estado_val IS NULL OR estado_val='validado') "
+        "AND (eliminada IS NULL OR eliminada=0) "
+        "AND (mundo = ? OR (mundo IS NULL AND ? = 'obra'))",
+        (mundo, mundo)).fetchall()
+    if not filas:
+        return jsonify({"total": 0, "fecha": fecha, "origen": origen})
+    por_bloque, por_resp, detalle = {}, {}, []
+    suma = 0
+    for f in filas:
+        ent = mapa.get(f["id"], 0)
+        hoy_av = f["avance"] or 0
+        suma += ent
+        b = f["bloque"] or "— Sin bloque —"
+        quien = (f["departamento"] if f["mundo"] == "interno" else f["proveedor"]) or "— Sin asignar —"
+        por_bloque.setdefault(b, []).append(ent)
+        por_resp.setdefault(quien, []).append((ent, hoy_av))
+        detalle.append({
+            "codigo": f["codigo"], "bloque": b, "area": f["area"],
+            "responsable": quien, "partida": f["partida"],
+            "avance_fecha": ent, "avance_hoy": hoy_av, "cambio": hoy_av - ent,
+        })
+    n = len(filas)
+    bloques = [{"bloque": k, "total": len(v), "avance": round(sum(v) / len(v), 1)}
+               for k, v in por_bloque.items()]
+    bloques.sort(key=lambda x: -x["avance"])
+    resp = []
+    for k, v in por_resp.items():
+        ent = sum(x[0] for x in v) / len(v)
+        hoy_ = sum(x[1] for x in v) / len(v)
+        resp.append({"responsable": k, "total": len(v), "avance": round(ent, 1),
+                     "avance_hoy": round(hoy_, 1), "cambio": round(hoy_ - ent, 1)})
+    resp.sort(key=lambda x: -x["total"])
+    detalle.sort(key=lambda x: -abs(x["cambio"]))
+    return jsonify({
+        "fecha": fecha, "origen": origen, "fecha_foto": fecha_foto,
+        "total": n, "avance_global": round(suma / n, 1),
+        "avance_hoy": round(sum((f["avance"] or 0) for f in filas) / n, 1),
+        "bloques": bloques, "responsables": resp, "detalle": detalle[:400],
+    })
+
+
+@app.route("/api/historico/comparar")
+@requiere_gestor
+def api_historico_comparar():
+    """Cuánto se movió cada responsable entre dos fechas."""
+    desde = request.args.get("desde")
+    hasta = request.args.get("hasta") or datetime.date.today().isoformat()
+    mundo = request.args.get("mundo", "obra")
+    if not desde:
+        return jsonify({"error": "Falta la fecha inicial"}), 400
+    db = get_db()
+    m1, o1, _ = _avance_a_fecha(db, desde, mundo)
+    m2, o2, _ = _avance_a_fecha(db, hasta, mundo)
+    filas = db.execute(
+        "SELECT id, bloque, proveedor, departamento, mundo FROM actividades "
+        "WHERE (aplica IS NULL OR aplica<>'NO') "
+        "AND (estado_val IS NULL OR estado_val='validado') "
+        "AND (eliminada IS NULL OR eliminada=0) "
+        "AND (mundo = ? OR (mundo IS NULL AND ? = 'obra'))",
+        (mundo, mundo)).fetchall()
+    if not filas:
+        return jsonify({"total": 0})
+    por_resp, por_bloque = {}, {}
+    for f in filas:
+        quien = (f["departamento"] if f["mundo"] == "interno" else f["proveedor"]) or "— Sin asignar —"
+        a1, a2 = m1.get(f["id"], 0), m2.get(f["id"], 0)
+        por_resp.setdefault(quien, []).append((a1, a2))
+        por_bloque.setdefault(f["bloque"] or "— Sin bloque —", []).append((a1, a2))
+    def arma(d, etiqueta):
+        out = []
+        for k, v in d.items():
+            p1 = sum(x[0] for x in v) / len(v)
+            p2 = sum(x[1] for x in v) / len(v)
+            out.append({etiqueta: k, "total": len(v), "antes": round(p1, 1),
+                        "despues": round(p2, 1), "cambio": round(p2 - p1, 1)})
+        out.sort(key=lambda x: x["cambio"])
+        return out
+    g1 = sum(m1.get(f["id"], 0) for f in filas) / len(filas)
+    g2 = sum(m2.get(f["id"], 0) for f in filas) / len(filas)
+    return jsonify({
+        "desde": desde, "hasta": hasta, "origen_desde": o1, "origen_hasta": o2,
+        "global_antes": round(g1, 1), "global_despues": round(g2, 1),
+        "global_cambio": round(g2 - g1, 1),
+        "responsables": arma(por_resp, "responsable"),
+        "bloques": arma(por_bloque, "bloque"),
+    })
+
+
+def _foto_automatica():
+    """Guarda la foto de la semana si todavía no existe. Se llama al arrancar,
+    para que el histórico no dependa de que alguien se acuerde de picarle."""
+    try:
+        con = sqlite3.connect(DB_PATH)
+        con.row_factory = sqlite3.Row
+        hoy_d = datetime.date.today()
+        semana = hoy_d.strftime("%G-W%V")
+        ya = con.execute("SELECT COUNT(*) FROM snapshots WHERE semana=?", (semana,)).fetchone()[0]
+        if ya == 0:
+            filas = con.execute("SELECT id, avance FROM actividades").fetchall()
+            for r in filas:
+                con.execute(
+                    "INSERT INTO snapshots (semana,fecha,actividad_id,avance) VALUES (?,?,?,?)",
+                    (semana, hoy_d.isoformat(), r["id"], r["avance"] or 0))
+            con.commit()
+            print(f"  Foto semanal automatica guardada ({semana}, {len(filas)} partidas)")
+        con.close()
+    except Exception as e:
+        print("  (no se pudo guardar la foto automatica:", e, ")")
+
+
+@app.route("/historico")
+def historico_page():
+    return render_template("historico.html")
+
+
+def _resumen_data():
+    db = get_db()
+    mundo = request.args.get("mundo", "obra")
+    rows = db.execute(
+        "SELECT * FROM actividades WHERE (aplica IS NULL OR aplica<>'NO') "
+        "AND (estado_val IS NULL OR estado_val='validado') "
+        "AND (eliminada IS NULL OR eliminada=0) "
+        "AND (mundo = ? OR (mundo IS NULL AND ? = 'obra'))",
+        (mundo, mundo)
+    ).fetchall()
+    total = len(rows)
+    if total == 0:
+        return {"total": 0}
+    suma_av = sum((r["avance"] or 0) for r in rows)
+    avance_global = round(suma_av / total, 1)
+
+    # por estatus
+    est = {}
+    for r in rows:
+        e = r["estatus"] or "Pendiente"
+        est[e] = est.get(e, 0) + 1
+
+    # por bloque
+    bloques = {}
+    for r in rows:
+        b = r["bloque"] or "—"
+        bloques.setdefault(b, {"total": 0, "suma": 0})
+        bloques[b]["total"] += 1
+        bloques[b]["suma"] += (r["avance"] or 0)
+    bloques_out = []
+    for b, d in bloques.items():
+        bloques_out.append({
+            "bloque": b, "total": d["total"],
+            "avance": round(d["suma"] / d["total"], 1),
+        })
+    bloques_out.sort(key=lambda x: x["avance"])
+
+    # por giro
+    giros = {}
+    for r in rows:
+        gg = r["giro"] or "—"
+        giros.setdefault(gg, {"total": 0, "suma": 0})
+        giros[gg]["total"] += 1
+        giros[gg]["suma"] += (r["avance"] or 0)
+    giros_out = [{"giro": k, "total": v["total"], "avance": round(v["suma"]/v["total"],1)} for k, v in giros.items()]
+    giros_out.sort(key=lambda x: x["avance"])
+
+    # por tipo de partida (Construcción, Mobiliario y equipo, etc.)
+    tipos = {}
+    for r in rows:
+        tp = (r["tipo_partida"] if "tipo_partida" in r.keys() else None) or "Construcción"
+        tipos.setdefault(tp, {"total": 0, "suma": 0})
+        tipos[tp]["total"] += 1
+        tipos[tp]["suma"] += (r["avance"] or 0)
+    tipos_out = [{"tipo": k, "total": v["total"], "avance": round(v["suma"]/v["total"],1)} for k, v in tipos.items()]
+    tipos_out.sort(key=lambda x: x["avance"])
+
+    # retrasos: fecha fin pasada y avance < 100
+    hoy_d = datetime.date.today()
+    retrasadas = []
+    en_riesgo = []
+    for r in rows:
+        fin = parse_date(r["f_fin"])
+        av = r["avance"] or 0
+        if fin and av < 100:
+            dif = (fin - hoy_d).days
+            item = {
+                "id": r["id"], "area": r["area"], "partida": r["partida"],
+                "proveedor": r["proveedor"], "giro": r["giro"],
+                "f_fin": r["f_fin"], "avance": av, "dias": dif,
+            }
+            if dif < 0:
+                retrasadas.append(item)
+            elif dif <= 7:
+                en_riesgo.append(item)
+    retrasadas.sort(key=lambda x: x["dias"])
+    en_riesgo.sort(key=lambda x: x["dias"])
+
+    return {
+        "total": total,
+        "avance_global": avance_global,
+        "estatus": est,
+        "bloques": bloques_out,
+        "giros": giros_out,
+        "tipos": tipos_out,
+        "retrasadas": retrasadas,
+        "en_riesgo": en_riesgo,
+        "dias_restantes": dias_restantes(),
+        "fecha_entrega": FECHA_ENTREGA,
+        "fecha_hoy": hoy_d.isoformat(),
     }
-    const blob = await resp.blob();
-    const nombre = "obra_backup_" + new Date().toISOString().slice(0, 16).replace("T", "_").replace(":", "") + ".db";
-    const url = URL.createObjectURL(blob);
-    const enlace = document.createElement("a");
-    enlace.href = url;
-    enlace.download = nombre;
-    document.body.appendChild(enlace);
-    enlace.click();
-    enlace.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 5000);
-    toast("Respaldo descargado en tu equipo: " + nombre);
-  } catch (e) {
-    toast("No se pudo descargar el respaldo: " + (e.message || e));
-  }
-};
 
-// ============================================================================
-// Cambio de Contraseña de Administrador
-// ============================================================================
-function abrirClaveAdmin() {
-  $("#admin-clave-actual").value = "";
-  $("#admin-clave-nueva").value = "";
-  $("#admin-clave-confirmar").value = "";
-  $("#modal-clave-admin").hidden = false;
-  setTimeout(() => $("#admin-clave-actual").focus(), 50);
-}
 
-function cerrarClaveAdmin() {
-  $("#modal-clave-admin").hidden = true;
-}
+@app.route("/api/resumen")
+def api_resumen():
+    return jsonify(_resumen_data())
 
-$("#btn-cambiar-clave-admin").onclick = abrirClaveAdmin;
-$("#btn-cerrar-clave-admin").onclick = cerrarClaveAdmin;
-$("#btn-cancelar-clave-admin").onclick = cerrarClaveAdmin;
 
-$("#btn-guardar-clave-admin").onclick = async () => {
-  const actual = $("#admin-clave-actual").value;
-  const nueva = $("#admin-clave-nueva").value;
-  const conf = $("#admin-clave-confirmar").value;
-  if (!actual || !nueva) { toast("Llena los campos"); return; }
-  if (nueva !== conf) { toast("La confirmación de contraseña no coincide"); return; }
-  if (nueva.length < 4) { toast("La contraseña debe tener al menos 4 caracteres"); return; }
+def _diagnostico_conteos_data():
+    """Explica por qué la pantalla principal (KPI 'Actividades') y la pantalla
+    de Seguimiento pueden mostrar un total distinto para el mismo mundo.
 
-  const r = await (await fetch("/api/cambiar_mi_clave", {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ clave_actual: actual, clave_nueva: nueva })
-  })).json();
+    La pantalla principal (/api/resumen) solo cuenta actividades que:
+      (a) SÍ aplican (aplica <> 'NO'), y
+      (b) ya están validadas (estado_val = 'validado' o NULL) — es decir,
+          EXCLUYE las 'propuestas' que un proveedor/departamento capturó y
+          que todavía esperan que el admin las apruebe en /validacion.
 
-  if (r.ok) {
-    toast("Contraseña de administrador actualizada");
-    cerrarClaveAdmin();
-  } else {
-    toast(r.error || "Error al actualizar contraseña");
-  }
-};
+    La pantalla de Seguimiento (/api/seguimiento) cuenta TODAS las
+    actividades asignadas a cada proveedor/departamento (sin filtrar por
+    aplica ni por estado_val), pero SOLO las que tienen un responsable
+    (proveedor o departamento) asignado; una actividad sin responsable no
+    aparece en ningún acordeón de Seguimiento aunque sí la cuente la
+    pantalla principal.
 
-// ============================================================================
-// Carga masiva por Excel
-// ============================================================================
-let MASIVA_DATOS = []; // filas validadas listas para subir
-
-function abrirMasiva() {
-  $("#overlay-masiva").hidden = false;
-  $("#modal-masiva").hidden = false;
-  $("#masiva-archivo").value = "";
-  $("#masiva-preview").hidden = true;
-  $("#masiva-subir").disabled = true;
-  MASIVA_DATOS = [];
-  hapProtegerHistorial();
-}
-function cerrarMasiva() {
-  $("#overlay-masiva").hidden = true;
-  $("#modal-masiva").hidden = true;
-  MASIVA_DATOS = [];
-  hapLiberarHistorial();
-}
-
-$("#btn-carga-masiva").addEventListener("click", abrirMasiva);
-$("#masiva-cerrar").addEventListener("click", cerrarMasiva);
-$("#masiva-cancelar").addEventListener("click", cerrarMasiva);
-$("#overlay-masiva").addEventListener("click", cerrarMasiva);
-
-// Leer Excel con SheetJS (xlsx) importado dinámicamente
-$("#masiva-archivo").addEventListener("change", async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-
-  // Cargar SheetJS si no está
-  if (typeof XLSX === "undefined") {
-    const s = document.createElement("script");
-    s.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
-    document.head.appendChild(s);
-    await new Promise(r => { s.onload = r; s.onerror = () => { toast("Error cargando librería Excel"); r(); }; });
-  }
-
-  const reader = new FileReader();
-  reader.onload = async function(ev) {
-    try {
-      const wb = XLSX.read(ev.target.result, { type: "array" });
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const data = XLSX.utils.sheet_to_json(ws, { defval: "" });
-
-      if (!data.length) { toast("El archivo está vacío"); return; }
-
-      // Normalizar encabezados (buscar columnas por nombre flexible)
-      const mapCol = (row, opciones) => {
-        for (const op of opciones) {
-          for (const key of Object.keys(row)) {
-            if (key.toLowerCase().trim().replace(/[áéíóú]/g, m => "aeiou"["áéíóú".indexOf(m)]) 
-                .includes(op.toLowerCase())) return String(row[key] || "").trim();
-          }
+    Por eso el número no siempre coincide: no es necesariamente que "el
+    proveedor no ha aceptado el trabajo" (eso es el campo 'reconocida', que
+    ninguna de las dos pantallas usa para el total), sino la mezcla de estas
+    dos reglas de conteo distintas."""
+    db = get_db()
+    resultado = {}
+    for mundo, etiqueta, col in (("obra", "Obra (externos)", "proveedor"),
+                                  ("interno", "Interno (departamentos)", "departamento")):
+        filas = db.execute(
+            "SELECT aplica, estado_val, proveedor, departamento, reconocida FROM actividades "
+            "WHERE (eliminada IS NULL OR eliminada=0) AND (mundo=? OR (mundo IS NULL AND ?='obra'))",
+            (mundo, mundo)
+        ).fetchall()
+        total = len(filas)
+        cuenta_principal = cuenta_seguimiento = 0
+        no_aplica = propuesta_sin_validar = sin_responsable = sin_reconocer = 0
+        solo_en_seguimiento = solo_en_principal = 0
+        for f in filas:
+            es_no_aplica = (f["aplica"] == "NO")
+            es_propuesta = (f["estado_val"] == "propuesta")
+            resp = f[col]
+            tiene_resp = bool(resp and resp.strip())
+            en_principal = (not es_no_aplica) and (not es_propuesta)
+            en_segui = tiene_resp
+            if es_no_aplica:
+                no_aplica += 1
+            if es_propuesta:
+                propuesta_sin_validar += 1
+            if not tiene_resp:
+                sin_responsable += 1
+            if f["reconocida"] != "SÍ":
+                sin_reconocer += 1
+            if en_principal:
+                cuenta_principal += 1
+            if en_segui:
+                cuenta_seguimiento += 1
+            if en_segui and not en_principal:
+                solo_en_seguimiento += 1
+            if en_principal and not en_segui:
+                solo_en_principal += 1
+        resultado[mundo] = {
+            "etiqueta": etiqueta, "total": total,
+            "cuenta_pantalla_principal": cuenta_principal,
+            "cuenta_seguimiento": cuenta_seguimiento,
+            "diferencia": cuenta_seguimiento - cuenta_principal,
+            "no_aplica": no_aplica,
+            "propuesta_sin_validar": propuesta_sin_validar,
+            "sin_responsable_asignado": sin_responsable,
+            "sin_reconocer": sin_reconocer,
+            "solo_en_seguimiento": solo_en_seguimiento,
+            "solo_en_principal": solo_en_principal,
         }
-        return "";
-      };
+    return resultado
 
-      // Obtener catálogos del servidor para validar
-      const cats = await (await fetch("/api/catalogos")).json();
-      const bloques_ok = new Set((cats.bloques || []).map(b => b.toLowerCase()));
-      const areas_ok = new Set((cats.areas || []).map(a => a.toLowerCase()));
-      const giros_ok = new Set((cats.giros || []).map(g => g.toLowerCase()));
-      const provs_ok = new Set((cats.proveedores || []).map(p => p.nombre ? p.nombre.toLowerCase() : p.toLowerCase()));
 
-      let errores = [];
-      let validas = [];
+@app.route("/diagnostico")
+def diagnostico_page():
+    return render_template("diagnostico.html")
 
-      data.forEach((row, i) => {
-        const fila = i + 2; // fila en Excel (1-indexed + header)
-        const bloque = mapCol(row, ["bloque"]);
-        const area = mapCol(row, ["area", "área"]);
-        const giro = mapCol(row, ["especialidad", "giro", "disciplina"]);
-        const proveedor = mapCol(row, ["proveedor"]);
-        const partida = mapCol(row, ["partida", "actividad", "descripcion", "descripción"]);
-        const tipo = mapCol(row, ["tipo", "tipo de partida"]) || "Construcción";
-        const fecha = mapCol(row, ["fecha compromiso", "fecha fin", "fecha", "compromiso"]);
 
-        const errs = [];
-        if (!bloque) errs.push("Sin bloque");
-        else if (!bloques_ok.has(bloque.toLowerCase())) errs.push("Bloque no existe: " + bloque);
-        if (!area) errs.push("Sin área");
-        else if (!areas_ok.has(area.toLowerCase())) errs.push("Área no existe: " + area);
-        if (!proveedor) errs.push("Sin proveedor");
-        else if (!provs_ok.has(proveedor.toLowerCase())) errs.push("Proveedor no existe: " + proveedor);
-        if (!partida) errs.push("Sin partida/actividad");
-        // giro es opcional pero si viene, validar
-        if (giro && !giros_ok.has(giro.toLowerCase())) errs.push("Especialidad no existe: " + giro);
+@app.route("/api/diagnostico_conteos")
+@requiere_gestor
+def api_diagnostico_conteos():
+    return jsonify(_diagnostico_conteos_data())
 
-        if (errs.length) {
-          errores.push({ fila, errs, bloque, area, giro, proveedor, partida, tipo, fecha });
-        } else {
-          validas.push({ bloque, area, giro, proveedor, partida, tipo_partida: tipo, f_fin: fecha, mundo: MUNDO });
-        }
-      });
 
-      // Mostrar preview
-      $("#masiva-preview").hidden = false;
-      $("#masiva-resumen").textContent = `${data.length} filas leídas: ${validas.length} válidas, ${errores.length} con error`;
+# ----------------------------------------------------------------------------
+# API — Resumen por proveedor (para el centro de reportes)
+# ----------------------------------------------------------------------------
+@app.route("/api/resumen_proveedores")
+@requiere_login
+def api_resumen_proveedores():
+    db = get_db()
+    rows = db.execute(
+        "SELECT * FROM actividades WHERE (aplica IS NULL OR aplica<>'NO') AND (eliminada IS NULL OR eliminada=0)"
+    ).fetchall()
+    hoy_d = datetime.date.today()
+    prov = {}
+    for r in rows:
+        p = r["proveedor"] or "— Sin proveedor —"
+        prov.setdefault(p, {"total": 0, "suma": 0, "listas": 0, "retrasadas": 0})
+        prov[p]["total"] += 1
+        prov[p]["suma"] += (r["avance"] or 0)
+        if (r["avance"] or 0) >= 100:
+            prov[p]["listas"] += 1
+        fin = parse_date(r["f_fin"])
+        if fin and (r["avance"] or 0) < 100 and (fin - hoy_d).days < 0:
+            prov[p]["retrasadas"] += 1
+    salida = []
+    for p, d in prov.items():
+        salida.append({
+            "proveedor": p, "total": d["total"],
+            "avance": round(d["suma"] / d["total"], 1) if d["total"] else 0,
+            "listas": d["listas"], "retrasadas": d["retrasadas"],
+        })
+    salida.sort(key=lambda x: x["avance"])
+    return jsonify(salida)
 
-      if (errores.length) {
-        $("#masiva-errores").innerHTML = errores.map(e =>
-          `<p>Fila ${e.fila}: ${e.errs.join(", ")}</p>`
-        ).join("");
-      } else {
-        $("#masiva-errores").innerHTML = "";
-      }
 
-      if (validas.length) {
-        $("#masiva-ok").innerHTML = `<p>✅ ${validas.length} actividades listas para subir</p>`;
-      } else {
-        $("#masiva-ok").innerHTML = "";
-      }
+def _filtrar_actividades(args):
+    """Devuelve filas filtradas según los mismos parámetros de la tabla."""
+    db = get_db()
+    q = "SELECT * FROM actividades"
+    cond, a = ["(eliminada IS NULL OR eliminada=0)"], []
+    for campo in ("bloque", "area", "giro", "proveedor", "tipo_partida", "estatus"):
+        v = args.get(campo)
+        if v:
+            cond.append(f"{campo} = ?"); a.append(v)
+    if args.get("solo_retraso") == "1":
+        pass  # se filtra abajo con fecha
+    if cond:
+        q += " WHERE " + " AND ".join(cond)
+    q += " ORDER BY area, id"
+    rows = db.execute(q, a).fetchall()
+    if args.get("solo_retraso") == "1":
+        hoy_d = datetime.date.today()
+        rows = [r for r in rows if parse_date(r["f_fin"]) and (r["avance"] or 0) < 100
+                and (parse_date(r["f_fin"]) - hoy_d).days < 0]
+    av_min = args.get("avance_min")
+    if av_min not in (None, ""):
+        try:
+            av_min = max(0, min(100, int(av_min)))
+            rows = [r for r in rows if (r["avance"] or 0) >= av_min]
+        except (TypeError, ValueError):
+            pass
+    av_max = args.get("avance_max")
+    if av_max not in (None, ""):
+        try:
+            av_max = max(0, min(100, int(av_max)))
+            rows = [r for r in rows if (r["avance"] or 0) <= av_max]
+        except (TypeError, ValueError):
+            pass
+    return rows
 
-      // Tabla preview
-      const tbody = $("#masiva-tbody");
-      const todas = [...validas.map(v => ({...v, ok: true})), ...errores.map(e => ({
-        bloque: e.bloque, area: e.area, giro: e.giro, proveedor: e.proveedor,
-        partida: e.partida, tipo_partida: e.tipo, f_fin: e.fecha, ok: false, err: e.errs.join("; ")
-      }))];
-      tbody.innerHTML = todas.slice(0, 50).map(r => `<tr style="${r.ok ? '' : 'background:#fff5f5'}">
-        <td>${r.bloque||""}</td><td>${r.area||""}</td><td>${r.giro||""}</td>
-        <td>${r.proveedor||""}</td><td>${r.partida?.substring(0,40)||""}</td>
-        <td>${r.tipo_partida||""}</td><td>${r.f_fin||""}</td>
-        <td>${r.ok ? "✅" : "❌ " + (r.err||"")}</td>
-      </tr>`).join("");
 
-      MASIVA_DATOS = validas;
-      $("#masiva-subir").disabled = !validas.length;
-    } catch(err) {
-      toast("Error leyendo archivo: " + err.message);
-    }
-  };
-  reader.readAsArrayBuffer(file);
-});
+# ----------------------------------------------------------------------------
+# Hoja para proveedor — Excel (para llenar) y PDF (para anotar a mano)
+# ----------------------------------------------------------------------------
+@app.route("/api/hoja_proveedor.xlsx")
+@requiere_login
+def hoja_proveedor_xlsx():
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+    prov = request.args.get("proveedor", "")
+    titulo_txt = request.args.get("titulo", "")
+    rows = _filtrar_actividades(request.args)
+    hoy_d = datetime.date.today()
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Actualización"
+    encabezado = titulo_txt or (f"HOJA DE ACTUALIZACIÓN DE AVANCE — {prov}" if prov else "REPORTE DE ACTIVIDADES")
+    ws["A1"] = encabezado
+    ws["A1"].font = Font(bold=True, size=13, color="1F4E78")
+    ws.merge_cells("A1:H1")
+    ws["A2"] = f"Fecha: {hoy_d.strftime('%d/%m/%Y')}   ·   Favor de anotar avance, fecha compromiso y observaciones."
+    ws["A2"].font = Font(size=9, italic=True, color="555555")
+    ws.merge_cells("A2:H2")
+    cols = ["Código", "Área", "Partida", "Avance actual",
+            "NUEVO avance %", "Fecha compromiso", "¿Retrasada?", "Observaciones"]
+    hdr = 4
+    for j, c in enumerate(cols, 1):
+        cell = ws.cell(row=hdr, column=j, value=c)
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="1F4E78")
+        cell.alignment = Alignment(horizontal="center", wrap_text=True)
+    thin = Side(style="thin", color="CCCCCC")
+    bd = Border(left=thin, right=thin, top=thin, bottom=thin)
+    rojo = PatternFill("solid", fgColor="F8D7DA")
+    i = hdr + 1
+    for r in rows:
+        fin = parse_date(r["f_fin"])
+        retrasada = fin and (r["avance"] or 0) < 100 and (fin - hoy_d).days < 0
+        vals = [r["codigo"], r["area"], r["partida"], f"{r['avance'] or 0}%",
+                "", r["f_fin"] or "", "SÍ" if retrasada else "", ""]
+        for j, v in enumerate(vals, 1):
+            cell = ws.cell(row=i, column=j, value=v)
+            cell.border = bd
+            cell.alignment = Alignment(wrap_text=True, vertical="top")
+            if retrasada:
+                cell.fill = rojo
+        i += 1
+    anchos = [10, 22, 40, 12, 13, 15, 11, 30]
+    for j, w in enumerate(anchos, 1):
+        ws.column_dimensions[get_column_letter(j)].width = w
+    ws.freeze_panes = "A5"
+    safe = "".join(ch for ch in (prov or "proveedor") if ch.isalnum() or ch in " _-")[:30].strip() or "proveedor"
+    out = os.path.join(BASE_DIR, "data", "hoja_proveedor.xlsx")
+    wb.save(out)
+    return send_file(out, as_attachment=True, download_name=f"HOJA_{safe}_{hoy()}.xlsx")
 
-// Subir actividades validadas
-$("#masiva-subir").addEventListener("click", async () => {
-  if (!MASIVA_DATOS.length) return;
-  if (!confirm(`¿Subir ${MASIVA_DATOS.length} actividades? Se crearán con avance 0% y estatus Pendiente.`)) return;
 
-  const r = await fetch("/api/carga_masiva", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ actividades: MASIVA_DATOS }),
-  });
-  const d = await r.json();
-  if (d.ok) {
-    cerrarMasiva();
-    toast(`${d.creadas} actividades creadas (${d.codigos[0]} a ${d.codigos[d.codigos.length-1]})`);
-    await cargarActividades();
-    await cargarResumen();
-  } else {
-    toast(d.error || "Error en carga masiva");
-  }
-});
+@app.route("/api/hoja_proveedor.pdf")
+@requiere_login
+def hoja_proveedor_pdf():
+    from reportlab.lib.pagesizes import letter, landscape
+    from reportlab.lib import colors
+    from reportlab.lib.units import cm
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    prov = request.args.get("proveedor", "")
+    titulo_txt = request.args.get("titulo", "")
+    rows = _filtrar_actividades(request.args)
+    hoy_d = datetime.date.today()
+    out = os.path.join(BASE_DIR, "data", "hoja_proveedor.pdf")
+    doc = SimpleDocTemplate(out, pagesize=landscape(letter),
+                            leftMargin=1*cm, rightMargin=1*cm, topMargin=1*cm, bottomMargin=1*cm)
+    styles = getSampleStyleSheet()
+    titulo = ParagraphStyle("t", parent=styles["Title"], fontSize=14, textColor=colors.HexColor("#1F4E78"))
+    small = ParagraphStyle("s", parent=styles["Normal"], fontSize=7, leading=8)
+    encabezado = titulo_txt or (f"Hoja de actualización de avance — {prov}" if prov else "Reporte de actividades")
+    elems = [Paragraph(encabezado, titulo),
+             Paragraph(f"Fecha: {hoy_d.strftime('%d/%m/%Y')} · Anote avance, fecha compromiso y observaciones.", styles["Normal"]),
+             Spacer(1, 8)]
+    data = [["Código", "Área", "Partida", "Avance\nactual", "NUEVO\navance", "Fecha\ncompromiso", "Retra-\nsada", "Observaciones"]]
+    filas_retraso = []
+    for idx, r in enumerate(rows):
+        fin = parse_date(r["f_fin"])
+        retrasada = fin and (r["avance"] or 0) < 100 and (fin - hoy_d).days < 0
+        data.append([r["codigo"] or "", Paragraph(r["area"] or "", small),
+                     Paragraph(r["partida"] or "", small), f"{r['avance'] or 0}%",
+                     "______", r["f_fin"] or "__________", "SÍ" if retrasada else "",
+                     "________________"])
+        if retrasada:
+            filas_retraso.append(idx + 1)
+    t = Table(data, colWidths=[2*cm, 3.5*cm, 6*cm, 1.5*cm, 1.6*cm, 2.2*cm, 1.3*cm, 5*cm], repeatRows=1)
+    estilo = [
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1F4E78")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTSIZE", (0, 0), (-1, -1), 7),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("GRID", (0, 0), (-1, -1), 0.4, colors.grey),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F5F7F8")]),
+    ]
+    for fr in filas_retraso:
+        estilo.append(("BACKGROUND", (0, fr), (-1, fr), colors.HexColor("#F8D7DA")))
+    t.setStyle(TableStyle(estilo))
+    elems.append(t)
+    doc.build(elems)
+    safe = "".join(ch for ch in (prov or "proveedor") if ch.isalnum() or ch in " _-")[:30].strip() or "proveedor"
+    return send_file(out, as_attachment=True, download_name=f"HOJA_{safe}_{hoy()}.pdf")
 
-/* ============================================================
-   ACTIVIDADES ELIMINADAS — ver y restaurar
-   ============================================================ */
-let ELIMINADAS = [];
 
-$("#btn-ver-eliminadas").onclick = async () => {
-  $("#overlay-elim").hidden = false;
-  $("#panel-elim").hidden = false;
-  await cargarEliminadas();
-};
-$("#btn-cerrar-elim").onclick = cerrarElim;
-$("#overlay-elim").onclick = cerrarElim;
+# ----------------------------------------------------------------------------
+# Exportar a Excel
+# ----------------------------------------------------------------------------
+@app.route("/api/exportar")
+@requiere_login
+def api_exportar():
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment
+    db = get_db()
+    rows = db.execute("SELECT * FROM actividades WHERE (eliminada IS NULL OR eliminada=0) ORDER BY id").fetchall()
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "AVANCE"
+    cols = ["ID", "Código", "Bloque", "Área", "Giro", "Proveedor", "Partida",
+            "Tipo", "¿Aplica?", "% Avance", "F. Inicio", "F. Fin",
+            "Duración (días)", "Estatus", "Notas"]
+    for j, c in enumerate(cols, 1):
+        cell = ws.cell(row=1, column=j, value=c)
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="1F4E78")
+    for i, r in enumerate(rows, 2):
+        vals = [r["id"], r["codigo"], r["bloque"], r["area"], r["giro"],
+                r["proveedor"], r["partida"], r["tipo"], r["aplica"],
+                r["avance"], r["f_inicio"], r["f_fin"], r["duracion_dias"],
+                r["estatus"], r["notas"]]
+        for j, v in enumerate(vals, 1):
+            ws.cell(row=i, column=j, value=v)
+    widths = [6, 10, 20, 24, 14, 22, 38, 12, 9, 9, 12, 12, 14, 14, 30]
+    from openpyxl.utils import get_column_letter
+    for j, w in enumerate(widths, 1):
+        ws.column_dimensions[get_column_letter(j)].width = w
+    ws.freeze_panes = "A2"
+    out = os.path.join(BASE_DIR, "data", "export_avance.xlsx")
+    wb.save(out)
+    return send_file(out, as_attachment=True,
+                     download_name=f"AVANCE_HAP_{hoy()}.xlsx")
 
-function cerrarElim() {
-  $("#overlay-elim").hidden = true;
-  $("#panel-elim").hidden = true;
-}
 
-async function cargarEliminadas() {
-  try {
-    const r = await fetch("/api/actividades/eliminadas");
-    ELIMINADAS = await r.json();
-  } catch(e) { ELIMINADAS = []; }
-  renderEliminadas();
-}
+# ----------------------------------------------------------------------------
+# Plantilla de captura para llenar rápido (con desplegables) y reimportar
+# ----------------------------------------------------------------------------
+@app.route("/api/plantilla_captura.xlsx")
+@requiere_login
+def api_plantilla_captura():
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.worksheet.datavalidation import DataValidation
+    from openpyxl.utils import get_column_letter
+    rows = _filtrar_actividades(request.args)
+    hoy_d = datetime.date.today()
+    # causas para el desplegable
+    dbc = get_db()
+    causas = [r[0] for r in dbc.execute("SELECT nombre FROM causas ORDER BY base DESC,nombre").fetchall()]
 
-function renderEliminadas() {
-  const filtro = ($("#elim-buscar").value || "").toLowerCase();
-  const lista = filtro ? ELIMINADAS.filter(a =>
-    (a.codigo||"").toLowerCase().includes(filtro) ||
-    (a.partida||"").toLowerCase().includes(filtro) ||
-    (a.proveedor||"").toLowerCase().includes(filtro) ||
-    (a.departamento||"").toLowerCase().includes(filtro) ||
-    (a.bloque||"").toLowerCase().includes(filtro) ||
-    (a.area||"").toLowerCase().includes(filtro)
-  ) : ELIMINADAS;
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Captura"
 
-  $("#elim-vacio").hidden = lista.length > 0;
+    ws["A1"] = "PLANTILLA DE CAPTURA DE AVANCE — HAP"
+    ws["A1"].font = Font(bold=True, size=13, color="1F4E78")
+    ws.merge_cells("A1:H1")
+    ws["A2"] = ("Llena las columnas AMARILLAS. NO cambies la columna Código. "
+                "Al terminar, súbela en la plataforma con 'Importar avances'.")
+    ws["A2"].font = Font(size=9, italic=True, color="B00020")
+    ws.merge_cells("A2:H2")
 
-  if (!lista.length) {
-    $("#elim-lista").innerHTML = "";
-    return;
-  }
+    # Encabezados: las primeras 4 son de solo lectura (referencia); las 3 amarillas se llenan
+    cols = ["Código", "Área", "Partida", "Avance actual",
+            "NUEVO avance %", "Fecha compromiso (AAAA-MM-DD)", "Causa de retraso"]
+    hdr = 4
+    azul = PatternFill("solid", fgColor="1F4E78")
+    amar = PatternFill("solid", fgColor="FFF2CC")
+    gris = PatternFill("solid", fgColor="EDEDED")
+    thin = Side(style="thin", color="CCCCCC")
+    bd = Border(left=thin, right=thin, top=thin, bottom=thin)
+    for j, c in enumerate(cols, 1):
+        cell = ws.cell(row=hdr, column=j, value=c)
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = azul
+        cell.alignment = Alignment(horizontal="center", wrap_text=True, vertical="center")
+        cell.border = bd
+    ws.row_dimensions[hdr].height = 30
 
-  let html = `<table style="width:100%;border-collapse:collapse;font-size:13px">
-    <thead><tr style="background:#f8fafc;border-bottom:2px solid #e2e5ea">
-      <th style="padding:8px;text-align:left;font-size:11px;color:#6b7280">CÓDIGO</th>
-      <th style="padding:8px;text-align:left;font-size:11px;color:#6b7280">BLOQUE</th>
-      <th style="padding:8px;text-align:left;font-size:11px;color:#6b7280">ÁREA</th>
-      <th style="padding:8px;text-align:left;font-size:11px;color:#6b7280">PARTIDA</th>
-      <th style="padding:8px;text-align:left;font-size:11px;color:#6b7280">PROVEEDOR</th>
-      <th style="padding:8px;text-align:left;font-size:11px;color:#6b7280">ELIMINADA</th>
-      <th style="padding:8px;text-align:left;font-size:11px;color:#6b7280">POR</th>
-      <th style="padding:8px"></th>
-    </tr></thead><tbody>`;
+    i = hdr + 1
+    for r in rows:
+        ws.cell(row=i, column=1, value=r["codigo"]).border = bd
+        ws.cell(row=i, column=2, value=r["area"]).border = bd
+        ws.cell(row=i, column=3, value=r["partida"]).border = bd
+        c4 = ws.cell(row=i, column=4, value=f"{r['avance'] or 0}%"); c4.border = bd; c4.fill = gris
+        # columnas amarillas para llenar
+        for col in (5, 6, 7):
+            cc = ws.cell(row=i, column=col); cc.border = bd; cc.fill = amar
+        i += 1
+    ultima = i - 1
 
-  for (const a of lista) {
-    const resp = a.proveedor || a.departamento || "—";
-    html += `<tr style="border-bottom:1px solid #f1f5f9">
-      <td style="padding:8px;font-family:monospace;font-size:12px">${a.codigo||""}</td>
-      <td style="padding:8px">${a.bloque||"—"}</td>
-      <td style="padding:8px">${a.area||"—"}</td>
-      <td style="padding:8px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${a.partida||""}</td>
-      <td style="padding:8px">${resp}</td>
-      <td style="padding:8px;font-size:12px;color:#6b7280">${a.eliminada_fecha||"—"}</td>
-      <td style="padding:8px;font-size:12px;color:#6b7280">${a.eliminada_por||"—"}</td>
-      <td style="padding:8px"><button onclick="restaurarAct(${a.id})" style="background:#1E7B4B;color:#fff;border:none;padding:6px 12px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer">↩ Restaurar</button></td>
-    </tr>`;
-  }
-  html += "</tbody></table>";
-  $("#elim-lista").innerHTML = html;
-}
+    # Validaciones: avance por lista 0/25/50/75/100, causa por lista de causas
+    if ultima >= hdr + 1:
+        dv_av = DataValidation(type="list", formula1='"0,25,50,75,100"', allow_blank=True)
+        ws.add_data_validation(dv_av)
+        dv_av.add(f"E{hdr+1}:E{ultima}")
+        # causas: si son pocas caben en formula directa; si no, usar hoja aparte
+        causas_txt = ",".join(c.replace(",", " ") for c in causas)
+        if len(causas_txt) < 240:
+            dv_ca = DataValidation(type="list", formula1=f'"{causas_txt}"', allow_blank=True)
+            ws.add_data_validation(dv_ca)
+            dv_ca.add(f"G{hdr+1}:G{ultima}")
+        else:
+            ws2 = wb.create_sheet("causas")
+            for k, c in enumerate(causas, 1):
+                ws2.cell(row=k, column=1, value=c)
+            dv_ca = DataValidation(type="list",
+                                   formula1=f"causas!$A$1:$A${len(causas)}", allow_blank=True)
+            ws.add_data_validation(dv_ca)
+            dv_ca.add(f"G{hdr+1}:G{ultima}")
 
-window.restaurarAct = async (id) => {
-  if (!confirm("¿Restaurar esta actividad? Volverá a aparecer en la tabla principal.")) return;
-  const r = await fetch(`/api/actividad/${id}/restaurar`, { method: "POST", headers: {"Content-Type":"application/json"}, body: "{}" });
-  const d = await r.json();
-  if (d.ok) {
-    toast("Actividad restaurada ✓");
-    await cargarEliminadas();
-    await cargarTodo();
-  }
-};
+    anchos = [11, 22, 42, 12, 14, 20, 26]
+    for j, w in enumerate(anchos, 1):
+        ws.column_dimensions[get_column_letter(j)].width = w
+    ws.freeze_panes = "A5"
+    out = os.path.join(BASE_DIR, "data", "plantilla_captura.xlsx")
+    wb.save(out)
+    prov = request.args.get("proveedor", "")
+    safe = "".join(ch for ch in (prov or "todos") if ch.isalnum() or ch in " _-")[:30].strip() or "todos"
+    return send_file(out, as_attachment=True, download_name=f"CAPTURA_{safe}_{hoy()}.xlsx")
 
-$("#elim-buscar").addEventListener("input", renderEliminadas);
 
-/* ============================================================
-   AVISOS + NOTIFICACIONES PUSH — enterarte al instante cuando
-   un proveedor reporta avance, propone algo nuevo o no reconoce
-   ============================================================ */
-function escAv(s){return String(s==null?"":s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));}
+@app.route("/api/importar_avances", methods=["POST"])
+@requiere_gestor
+def api_importar_avances():
+    """Lee un Excel con Código + NUEVO avance / fecha / causa y actualiza."""
+    import openpyxl
+    if "archivo" not in request.files:
+        return jsonify({"error": "No llegó ningún archivo"}), 400
+    f = request.files["archivo"]
+    try:
+        wb = openpyxl.load_workbook(f, data_only=True)
+    except Exception as e:
+        return jsonify({"error": f"No se pudo leer el Excel: {e}"}), 400
+    ws = wb["Captura"] if "Captura" in wb.sheetnames else wb.active
 
-function urlBase64ToUint8Array(base64String) {
-  const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
-  const rawData = atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
-  for (let i = 0; i < rawData.length; i++) outputArray[i] = rawData.charCodeAt(i);
-  return outputArray;
-}
+    # localizar la fila de encabezados y las columnas por su nombre
+    encabezados = {}
+    fila_hdr = None
+    for ri in range(1, min(12, ws.max_row + 1)):
+        vals = {(ws.cell(row=ri, column=ci).value or "").__str__().strip().lower(): ci
+                for ci in range(1, ws.max_column + 1)}
+        # la fila de encabezados tiene una celda que es EXACTAMENTE "código"/"codigo"
+        if "código" in vals or "codigo" in vals:
+            encabezados = vals; fila_hdr = ri; break
+    if not fila_hdr:
+        return jsonify({"error": "No encontré la fila de encabezados con la columna 'Código'"}), 400
 
-async function suscripcionActual() {
-  if (!("serviceWorker" in navigator) || !("PushManager" in window)) return null;
-  const reg = await navigator.serviceWorker.getRegistration("/");
-  if (!reg) return null;
-  return reg.pushManager.getSubscription();
-}
+    def col_de(*claves):
+        for k, ci in encabezados.items():
+            for clave in claves:
+                if clave in k:
+                    return ci
+        return None
+    c_cod = encabezados.get("código") or encabezados.get("codigo")
+    c_av = col_de("nuevo avance", "nuevo")
+    c_fe = col_de("fecha compromiso", "compromiso")
+    c_ca = col_de("causa")
 
-async function actualizarEstadoPush() {
-  const btn = $("#btn-avisos-activar");
-  const btnProbar = $("#btn-avisos-probar");
-  const estado = $("#avisos-push-estado");
-  if (!("serviceWorker" in navigator) || !("PushManager" in window)) {
-    btn.disabled = true;
-    btn.textContent = "Este navegador no soporta avisos";
-    estado.textContent = "Prueba desde Chrome (Android) o agrega la página a tu pantalla de inicio (iPhone).";
-    return;
-  }
-  const sub = await suscripcionActual();
-  if (sub) {
-    btn.textContent = "🔕 Desactivar avisos en este dispositivo";
-    btn.dataset.activo = "1";
-    btnProbar.hidden = false;
-    estado.textContent = "Avisos activados en este dispositivo ✓";
-  } else {
-    btn.textContent = "🔔 Activar avisos en este dispositivo";
-    btn.dataset.activo = "0";
-    btnProbar.hidden = true;
-    estado.textContent = "";
-  }
-}
+    db = get_db()
+    actualizadas, sin_match, errores = 0, [], 0
+    for ri in range(fila_hdr + 1, ws.max_row + 1):
+        codigo = ws.cell(row=ri, column=c_cod).value
+        if not codigo:
+            continue
+        codigo = str(codigo).strip()
+        act = db.execute("SELECT * FROM actividades WHERE codigo=?", (codigo,)).fetchone()
+        if not act:
+            sin_match.append(codigo); continue
+        cambios, args = [], []
+        # avance
+        if c_av:
+            v = ws.cell(row=ri, column=c_av).value
+            if v is not None and str(v).strip() != "":
+                try:
+                    av = int(float(str(v).replace("%", "").strip()))
+                    av = max(0, min(100, av))
+                    if av != (act["avance"] or 0):
+                        cambios.append("avance=?"); args.append(av)
+                        cambios.append("estatus=?"); args.append(estatus_por_avance(av))
+                except ValueError:
+                    errores += 1
+        # fecha compromiso
+        if c_fe:
+            v = ws.cell(row=ri, column=c_fe).value
+            if v is not None and str(v).strip() != "":
+                d = parse_date(str(v)[:10]) if not isinstance(v, datetime.datetime) else v.date()
+                if d:
+                    iso = d.isoformat()
+                    if iso != (act["f_fin"] or ""):
+                        cambios.append("f_fin=?"); args.append(iso)
+        # causa
+        if c_ca:
+            v = ws.cell(row=ri, column=c_ca).value
+            if v is not None and str(v).strip() != "":
+                causa = str(v).strip()
+                if causa != (act["causa_retraso"] or ""):
+                    cambios.append("causa_retraso=?"); args.append(causa)
+                    cambios.append("causa_por=?"); args.append("Importado de Excel")
+                    cambios.append("causa_fecha=?"); args.append(datetime.date.today().isoformat())
+        if cambios:
+            cambios.append("actualizado=?")
+            args.append(datetime.datetime.now().isoformat(timespec="seconds"))
+            args.append(act["id"])
+            db.execute(f"UPDATE actividades SET {','.join(cambios)} WHERE id=?", args)
+            actualizadas += 1
+    db.commit()
+    return jsonify({
+        "ok": True, "actualizadas": actualizadas,
+        "sin_coincidencia": sin_match, "errores": errores,
+    })
 
-$("#btn-avisos-activar").onclick = async () => {
-  const btn = $("#btn-avisos-activar");
-  btn.disabled = true;
-  try {
-    if (btn.dataset.activo === "1") {
-      const sub = await suscripcionActual();
-      if (sub) {
-        await fetch("/api/push/unsubscribe", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ endpoint: sub.endpoint }) });
-        await sub.unsubscribe();
-      }
-      toast("Avisos desactivados en este dispositivo");
-    } else {
-      const permiso = await Notification.requestPermission();
-      if (permiso !== "granted") {
-        toast("No se activaron los avisos — el navegador no dio permiso");
-        return;
-      }
-      const reg = await navigator.serviceWorker.register("/sw.js");
-      await navigator.serviceWorker.ready;
-      const r = await fetch("/api/push/vapid_public_key");
-      const d = await r.json();
-      if (!d.key) { toast("No se pudieron activar los avisos en el servidor"); return; }
-      const sub = await reg.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(d.key),
-      });
-      await fetch("/api/push/subscribe", { method: "POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify(sub.toJSON()) });
-      toast("✓ Avisos activados en este dispositivo");
-    }
-  } catch (e) {
-    if (e.name === "AbortError") {
-      toast("No se pudo activar — si estás en una ventana de incógnito/privada, ábrela en una ventana normal e inténtalo de nuevo.");
-    } else {
-      toast("No se pudo activar: " + (e.message || e));
-    }
-  }
-  btn.disabled = false;
-  await actualizarEstadoPush();
-};
 
-$("#btn-avisos-probar").onclick = async () => {
-  await fetch("/api/push/test", { method: "POST" });
-  toast("Aviso de prueba enviado");
-};
+# ----------------------------------------------------------------------------
+# Autenticación y portal de proveedores
+# ----------------------------------------------------------------------------
+@app.route("/api/login", methods=["POST"])
+def api_login():
+    data = request.get_json()
+    usuario = (data.get("usuario") or "").strip()
+    clave = data.get("clave") or ""
+    db = get_db()
+    u = db.execute("SELECT * FROM usuarios WHERE usuario=?", (usuario,)).fetchone()
+    if not u or u["clave"] != hash_clave(clave):
+        return jsonify({"error": "Usuario o contraseña incorrectos"}), 401
+    # candado: usuario desactivado no puede entrar
+    if "activo" in u.keys() and u["activo"] == 0:
+        return jsonify({"error": "Tu acceso está desactivado. Contacta al administrador."}), 403
+    # contar el acceso
+    try:
+        db.execute("UPDATE usuarios SET num_logins=COALESCE(num_logins,0)+1, ultimo_login=? WHERE id=?",
+                   (datetime.datetime.now().isoformat(timespec="seconds"), u["id"]))
+        db.commit()
+    except Exception:
+        pass
+    session["usuario"] = u["usuario"]
+    session["rol"] = u["rol"]
+    session["proveedor"] = u["proveedor"]
+    session["mundo"] = u["mundo"] if "mundo" in u.keys() else "obra"
+    return jsonify({"ok": True, "usuario": u["usuario"], "rol": u["rol"],
+                    "proveedor": u["proveedor"], "mundo": session["mundo"]})
 
-let AVISOS = [];
-async function cargarAvisos() {
-  try {
-    const r = await (await fetch("/api/avisos")).json();
-    AVISOS = r.avisos || [];
-    const badge = $("#badge-avisos");
-    if (r.no_vistos > 0) { badge.hidden = false; badge.textContent = r.no_vistos; }
-    else badge.hidden = true;
-  } catch(e) { AVISOS = []; }
-  renderAvisos();
-}
 
-const AVISO_ICONOS = { avance: "📋", propuesta: "🆕", no_reconocida: "⚠️", dependencia: "🔓" };
-function tiempoRelativo(iso) {
-  if (!iso) return "";
-  const dif = (Date.now() - new Date(iso.replace(" ", "T"))) / 1000;
-  if (dif < 60) return "hace un momento";
-  if (dif < 3600) return `hace ${Math.floor(dif/60)} min`;
-  if (dif < 86400) return `hace ${Math.floor(dif/3600)} h`;
-  return `hace ${Math.floor(dif/86400)} d`;
-}
+@app.route("/api/logout", methods=["POST"])
+def api_logout():
+    session.clear()
+    return jsonify({"ok": True})
 
-function renderAvisos() {
-  $("#avisos-vacio").hidden = AVISOS.length > 0;
-  $("#avisos-lista").innerHTML = AVISOS.map(a => `
-    <div class="aviso-item ${a.visto ? "" : "no-visto"}">
-      <span class="aviso-icono">${AVISO_ICONOS[a.tipo] || "🔔"}</span>
-      <div class="aviso-cuerpo">
-        <div class="aviso-detalle"><b>${escAv(a.proveedor||"")}</b> — ${escAv(a.detalle||"")}</div>
-        <div class="aviso-meta">${tiempoRelativo(a.fecha)}</div>
-      </div>
-    </div>`).join("");
-}
 
-$("#btn-avisos").onclick = async () => {
-  $("#overlay-avisos").hidden = false;
-  $("#panel-avisos").hidden = false;
-  await actualizarEstadoPush();
-  await cargarAvisos();
-  if (AVISOS.some(a => !a.visto)) {
-    await fetch("/api/avisos/marcar_visto", { method: "POST" });
-    $("#badge-avisos").hidden = true;
-  }
-};
-$("#btn-cerrar-avisos").onclick = cerrarAvisos;
-$("#overlay-avisos").onclick = cerrarAvisos;
-function cerrarAvisos() {
-  $("#overlay-avisos").hidden = true;
-  $("#panel-avisos").hidden = true;
-}
+@app.route("/api/quien_soy")
+def api_quien_soy():
+    if "usuario" not in session:
+        return jsonify({"login": False})
+    return jsonify({"login": True, "usuario": session["usuario"],
+                    "rol": session["rol"], "proveedor": session.get("proveedor"),
+                    "mundo": session.get("mundo", "obra")})
 
-cargarAvisos();
-setInterval(cargarAvisos, 60000);
+
+# --- Gestión de usuarios (solo admin) ---
+@app.route("/api/usuarios", methods=["GET"])
+@requiere_admin
+def api_usuarios():
+    db = get_db()
+    rows = db.execute("SELECT id,usuario,proveedor,rol,mundo,clave_cambiada,creado,activo,num_logins,ultimo_login,telefono FROM usuarios ORDER BY rol,mundo,usuario").fetchall()
+    return jsonify([dict(r) for r in rows])
+
+
+@app.route("/api/usuarios", methods=["POST"])
+@requiere_admin
+def api_crear_usuario():
+    db = get_db()
+    data = request.get_json()
+    usuario = (data.get("usuario") or "").strip()
+    clave = data.get("clave") or ""
+    proveedor = data.get("proveedor") or None
+    mundo = data.get("mundo", "obra")
+    telefono = (data.get("telefono") or "").strip() or None
+    # rol: por defecto proveedor. El admin puede crear supervisores.
+    rol = data.get("rol", "proveedor")
+    if rol not in ("proveedor", "supervisor", "supervisor_obra", "supervisor_depto"):
+        rol = "proveedor"
+    # el supervisor de obra vive en mundo 'obra'; el de depto en 'interno'
+    if rol in ("supervisor", "supervisor_obra"):
+        mundo = "obra"
+    elif rol == "supervisor_depto":
+        mundo = "interno"
+    if not usuario or not clave:
+        return jsonify({"error": "Usuario y contraseña son obligatorios"}), 400
+    try:
+        db.execute(
+            "INSERT INTO usuarios (usuario,clave,proveedor,rol,mundo,telefono,activo,num_logins,creado) VALUES (?,?,?,?,?,?,1,0,?)",
+            (usuario, hash_clave(clave), proveedor, rol, mundo, telefono,
+             datetime.datetime.now().isoformat(timespec="seconds")))
+        db.commit()
+    except sqlite3.IntegrityError:
+        return jsonify({"error": "Ese usuario ya existe"}), 400
+    return jsonify({"ok": True})
+
+
+@app.route("/api/usuario/<int:uid>", methods=["DELETE"])
+@requiere_admin
+def api_borrar_usuario(uid):
+    db = get_db()
+    u = db.execute("SELECT rol FROM usuarios WHERE id=?", (uid,)).fetchone()
+    if u and u["rol"] == "admin":
+        return jsonify({"error": "No se puede borrar al administrador"}), 400
+    db.execute("DELETE FROM usuarios WHERE id=?", (uid,))
+    db.commit()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/usuario/<int:uid>/clave", methods=["POST"])
+@requiere_admin
+def api_cambiar_clave(uid):
+    db = get_db()
+    data = request.get_json()
+    nueva = data.get("clave") or ""
+    if not nueva:
+        return jsonify({"error": "Escribe la nueva contraseña"}), 400
+    db.execute("UPDATE usuarios SET clave=? WHERE id=?", (hash_clave(nueva), uid))
+    db.commit()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/usuario/<int:uid>/activo", methods=["POST"])
+@requiere_admin
+def api_usuario_activo(uid):
+    """Activa o desactiva el acceso de un usuario (sin borrarlo)."""
+    db = get_db()
+    data = request.get_json() or {}
+    activo = 1 if data.get("activo") else 0
+    u = db.execute("SELECT rol FROM usuarios WHERE id=?", (uid,)).fetchone()
+    if u and u["rol"] == "admin":
+        return jsonify({"error": "No se puede desactivar al administrador"}), 400
+    db.execute("UPDATE usuarios SET activo=? WHERE id=?", (activo, uid))
+    db.commit()
+    return jsonify({"ok": True, "activo": activo})
+
+
+@app.route("/api/usuario/<int:uid>/telefono", methods=["POST"])
+@requiere_admin
+def api_usuario_telefono(uid):
+    """Guarda o actualiza el telefono (para el aviso por WhatsApp)."""
+    db = get_db()
+    data = request.get_json() or {}
+    tel = (data.get("telefono") or "").strip() or None
+    db.execute("UPDATE usuarios SET telefono=? WHERE id=?", (tel, uid))
+    db.commit()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/usuario/<int:uid>/whatsapp", methods=["GET"])
+@requiere_admin
+def api_usuario_whatsapp(uid):
+    """Arma el link de WhatsApp con un mensaje listo avisando de nuevas asignaciones.
+    No envia nada: devuelve el link para que el admin le de click."""
+    db = get_db()
+    u = db.execute("SELECT * FROM usuarios WHERE id=?", (uid,)).fetchone()
+    if not u:
+        return jsonify({"error": "Usuario no existe"}), 404
+    tel = (u["telefono"] or "").strip() if "telefono" in u.keys() else ""
+    if not tel:
+        return jsonify({"error": "Este usuario no tiene telefono registrado"}), 400
+    # contar nuevas por reconocer de ese proveedor
+    proveedor = u["proveedor"]
+    mundo = u["mundo"] if "mundo" in u.keys() else "obra"
+    col = "departamento" if mundo == "interno" else "proveedor"
+    n = db.execute(
+        f"SELECT COUNT(*) FROM actividades WHERE {col}=? AND reconocida='NO' "
+        "AND (estado_val IS NULL OR estado_val='validado') "
+        "AND (mundo=? OR (mundo IS NULL AND ?='obra'))",
+        (proveedor, mundo, mundo)).fetchone()[0]
+    # normalizar telefono: solo digitos; si no trae lada pais, anteponer 52 (Mexico)
+    solo_num = "".join(ch for ch in tel if ch.isdigit())
+    if len(solo_num) == 10:
+        solo_num = "52" + solo_num
+    liga = request.host_url.rstrip("/") + "/portal"
+    if n > 0:
+        texto = (f"Hola {proveedor or u['usuario']}, tienes {n} "
+                 f"{'nueva actividad asignada' if n == 1 else 'nuevas actividades asignadas'} "
+                 f"en el Control de Obra HAP. Entra a reconocerlas y reportar tu avance: {liga}")
+    else:
+        texto = (f"Hola {proveedor or u['usuario']}, te recuerdo revisar tus actividades "
+                 f"en el Control de Obra HAP: {liga}")
+    import urllib.parse
+    url = "https://wa.me/" + solo_num + "?text=" + urllib.parse.quote(texto)
+    return jsonify({"ok": True, "url": url, "mensaje": texto, "nuevas": n, "telefono": tel})
+
+
+# ----------------------------------------------------------------------------
+# API — Avisos (bitácora) y notificaciones push para el admin
+# ----------------------------------------------------------------------------
+@app.route("/api/avisos")
+@requiere_gestor
+def api_avisos():
+    db = get_db()
+    try:
+        limite = max(1, min(200, int(request.args.get("limite", 50))))
+    except (TypeError, ValueError):
+        limite = 50
+    filas = db.execute("SELECT * FROM avisos ORDER BY id DESC LIMIT ?", (limite,)).fetchall()
+    no_vistos = db.execute("SELECT COUNT(*) FROM avisos WHERE visto=0").fetchone()[0]
+    return jsonify({"avisos": [dict(r) for r in filas], "no_vistos": no_vistos})
+
+
+@app.route("/api/avisos/marcar_visto", methods=["POST"])
+@requiere_gestor
+def api_avisos_marcar_visto():
+    db = get_db()
+    db.execute("UPDATE avisos SET visto=1 WHERE visto=0")
+    db.commit()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/push/vapid_public_key")
+@requiere_login
+def api_push_vapid_public_key():
+    _, pub_b64 = _vapid_keys()
+    if not pub_b64:
+        return jsonify({"error": "Las notificaciones push no están disponibles en este servidor"}), 503
+    return jsonify({"key": pub_b64})
+
+
+@app.route("/api/push/subscribe", methods=["POST"])
+@requiere_gestor
+def api_push_subscribe():
+    usuario, rol, proveedor = usuario_actual()
+    data = request.get_json() or {}
+    endpoint = data.get("endpoint")
+    keys = data.get("keys") or {}
+    if not endpoint or not keys.get("p256dh") or not keys.get("auth"):
+        return jsonify({"error": "Suscripción inválida"}), 400
+    db = get_db()
+    db.execute(
+        "INSERT INTO push_subscriptions (usuario,endpoint,p256dh,auth,creado) VALUES (?,?,?,?,?) "
+        "ON CONFLICT(endpoint) DO UPDATE SET usuario=excluded.usuario, p256dh=excluded.p256dh, auth=excluded.auth",
+        (usuario, endpoint, keys["p256dh"], keys["auth"], datetime.datetime.now().isoformat(timespec="seconds")))
+    db.commit()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/push/unsubscribe", methods=["POST"])
+@requiere_gestor
+def api_push_unsubscribe():
+    data = request.get_json() or {}
+    endpoint = data.get("endpoint")
+    if endpoint:
+        db = get_db()
+        db.execute("DELETE FROM push_subscriptions WHERE endpoint=?", (endpoint,))
+        db.commit()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/push/estado")
+@requiere_gestor
+def api_push_estado():
+    """Para que el botón sepa si YA hay algo suscrito desde este mismo
+    usuario (informativo; el navegador manda su propio endpoint para saber
+    si ESTE dispositivo específico ya está suscrito)."""
+    usuario, rol, proveedor = usuario_actual()
+    db = get_db()
+    n = db.execute("SELECT COUNT(*) FROM push_subscriptions WHERE usuario=?", (usuario,)).fetchone()[0]
+    return jsonify({"dispositivos_activos": n})
+
+
+@app.route("/api/push/test", methods=["POST"])
+@requiere_gestor
+def api_push_test():
+    enviar_push_admins("🔔 Aviso de prueba", "Si ves esto, las notificaciones ya están funcionando en este celular/navegador.", "/")
+    return jsonify({"ok": True})
+
+
+# --- Portal del proveedor: ve y reporta SOLO lo suyo ---
+@app.route("/portal")
+def portal_page():
+    # blindaje: si por cualquier motivo un gestor cae aqui, lo regresamos al panel
+    if "usuario" in session and es_gestor(session.get("rol")):
+        return redirect("/")
+    return render_template("portal.html")
+
+
+@app.route("/api/portal/mapa")
+@requiere_login
+def api_portal_mapa():
+    """Mapa bloque->áreas para el formulario de nueva actividad.
+    Externo: solo sus bloques. Interno: todo el mapa de la obra (su labor cruza el hospital)."""
+    _, rol, proveedor = usuario_actual()
+    db = get_db()
+    col, mundo = col_duenio()
+    mapa = {}
+    if mundo == "interno":
+        # todo el mapa de la obra
+        filas = db.execute(
+            "SELECT DISTINCT bloque, area FROM actividades "
+            "WHERE bloque IS NOT NULL AND bloque<>'' AND area IS NOT NULL AND area<>'' "
+            "ORDER BY bloque, area").fetchall()
+        # bloques donde el depto YA tiene trabajo (para marcar lo que es 'fuera de zona')
+        suyos = [r[0] for r in db.execute(
+            f"SELECT DISTINCT bloque FROM actividades WHERE {col}=? AND bloque IS NOT NULL",
+            (proveedor,)).fetchall()]
+    else:
+        filas = db.execute(
+            f"SELECT DISTINCT bloque, area FROM actividades WHERE {col}=? "
+            "AND bloque IS NOT NULL AND bloque<>'' AND area IS NOT NULL AND area<>'' "
+            "ORDER BY bloque, area", (proveedor,)).fetchall()
+        suyos = None  # externo: todos los que ve ya son suyos
+    for r in filas:
+        mapa.setdefault(r["bloque"], []).append(r["area"])
+    return jsonify({"mapa": mapa, "mundo": mundo, "bloques_propios": suyos})
+
+
+@app.route("/api/cambiar_mi_clave", methods=["POST"])
+@requiere_login
+def api_cambiar_mi_clave():
+    usuario, _, _ = usuario_actual()
+    db = get_db()
+    data = request.get_json() or {}
+    clave_actual = data.get("clave_actual") or ""
+    clave_nueva = data.get("clave_nueva") or ""
+    if not clave_actual or not clave_nueva:
+        return jsonify({"error": "Ingresa tu contraseña actual y la nueva contraseña"}), 400
+    if len(clave_nueva) < 4:
+        return jsonify({"error": "La nueva contraseña debe tener al menos 4 caracteres"}), 400
+    
+    u = db.execute("SELECT * FROM usuarios WHERE usuario=?", (usuario,)).fetchone()
+    if not u or u["clave"] != hash_clave(clave_actual):
+        return jsonify({"error": "La contraseña actual es incorrecta"}), 400
+        
+    db.execute("UPDATE usuarios SET clave=?, clave_cambiada=1 WHERE usuario=?",
+               (hash_clave(clave_nueva), usuario))
+    db.commit()
+    return jsonify({"ok": True, "mensaje": "Contraseña actualizada exitosamente"})
+
+
+@app.route("/api/portal/avance_zona", methods=["GET"])
+@requiere_login
+def api_portal_avance_zona():
+    """Vista de solo lectura del avance de todos los gremios en la zona del proveedor."""
+    usuario, rol, proveedor = usuario_actual()
+    db = get_db()
+    col, mundo = col_duenio()
+    
+    bloque = request.args.get("bloque")
+    area = request.args.get("area")
+    
+    # Determinar qué bloques/áreas puede consultar
+    if mundo == "interno":
+        # Interno: ve todo el hospital
+        cond = ["(aplica IS NULL OR aplica<>'NO')", "(estado_val IS NULL OR estado_val='validado')", "(eliminada IS NULL OR eliminada=0)"]
+        args = []
+        bloques_disp = [r[0] for r in db.execute("SELECT DISTINCT bloque FROM actividades WHERE bloque IS NOT NULL AND bloque<>'' ORDER BY bloque").fetchall()]
+    else:
+        # Externo: ve los bloques donde tiene partidas asignadas
+        bloques_suyos = [r[0] for r in db.execute(
+            f"SELECT DISTINCT bloque FROM actividades WHERE {col}=? AND bloque IS NOT NULL AND bloque<>''",
+            (proveedor,)).fetchall()]
+        if not bloques_suyos:
+            return jsonify({"bloques_disponibles": [], "actividades": []})
+        marcas = ",".join("?" * len(bloques_suyos))
+        cond = [f"bloque IN ({marcas})", "(aplica IS NULL OR aplica<>'NO')", "(estado_val IS NULL OR estado_val='validado')", "(eliminada IS NULL OR eliminada=0)"]
+        args = list(bloques_suyos)
+        bloques_disp = sorted(bloques_suyos)
+        
+    if bloque:
+        cond.append("bloque = ?"); args.append(bloque)
+    if area:
+        cond.append("area = ?"); args.append(area)
+        
+    q = f"SELECT id, codigo, bloque, area, giro, proveedor, departamento, mundo, partida, tipo, tipo_partida, avance, estatus, f_inicio, f_fin FROM actividades WHERE {' AND '.join(cond)} ORDER BY bloque, area, id"
+    filas = db.execute(q, args).fetchall()
+    
+    return jsonify({
+        "bloques_disponibles": bloques_disp,
+        "actividades": [dict(r) for r in filas]
+    })
+
+
+@app.route("/api/portal/mis_actividades")
+@requiere_login
+def api_portal_mis():
+    _, rol, proveedor = usuario_actual()
+    if es_gestor(rol):
+        return jsonify({"error": "Los gestores usan el panel principal"}), 400
+    db = get_db()
+    col, mundo = col_duenio()
+    rows = db.execute(
+        f"SELECT * FROM actividades WHERE {col}=? AND (mundo=? OR (mundo IS NULL AND ?='obra')) "
+        "AND (reconocida IS NULL OR reconocida<>'RECHAZADA') "
+        "AND (eliminada IS NULL OR eliminada=0) "
+        "ORDER BY estado_val DESC, area, id",
+        (proveedor, mundo, mundo)).fetchall()
+    
+    salida = []
+    for r in rows:
+        d = dict(r)
+        dep_st = evaluar_dependencias_area(db, r["area"], r["tipo_partida"] or r["giro"])
+        d["dep_bloqueada"] = dep_st["bloqueada"]
+        d["dep_estado"] = dep_st["estado"]
+        d["dep_detalle"] = dep_st["detalle"]
+        salida.append(d)
+    return jsonify(salida)
+
+
+@app.route("/api/portal/reportar_avance/<int:aid>", methods=["POST"])
+@requiere_login
+def api_portal_reportar(aid):
+    """El proveedor declara avance en una partida oficial suya. Entra directo como 'declarado'."""
+    usuario, rol, proveedor = usuario_actual()
+    db = get_db()
+    a = db.execute("SELECT * FROM actividades WHERE id=?", (aid,)).fetchone()
+    col, _ = col_duenio()
+    if not a or a[col] != proveedor:
+        return jsonify({"error": "Esa partida no es tuya"}), 403
+    # candado: no puede reportar avance si no ha reconocido la actividad
+    if a["reconocida"] != "SÍ":
+        return jsonify({"error": "Primero tienes que reconocer esta actividad"}), 400
+    data = request.get_json() or {}
+    # candado: si ya está validada al 100% (y no hay un reporte pendiente de
+    # revisión), no se deja seguir reportando — antes se podía reenviar avance
+    # indefinidamente aunque la actividad ya estuviera cerrada.
+    ya_completa = (a["avance"] or 0) >= 100 and (a["avance_decl"] is None or a["avance_decl"] == a["avance"])
+    if ya_completa and "avance_decl" in data:
+        return jsonify({"error": "Esta actividad ya está validada al 100% — si necesitas corregir algo, contacta al administrador."}), 400
+    campos, args = [], []
+    if "avance_decl" in data:
+        av = max(0, min(100, int(data.get("avance_decl") or 0)))
+        registrar_historial(db, aid, "avance reportado", a["avance_decl"], av, usuario)
+        campos += ["avance_decl=?", "avance_decl_por=?", "avance_decl_fecha=?", "avance_decl_rechazado=0", "rechazo_motivo=NULL"]
+        args += [av, usuario, datetime.date.today().isoformat()]
+    for c in ("f_inicio", "f_fin", "definido", "definido_por", "nota_proveedor"):
+        if c in data:
+            registrar_historial(db, aid, c, a[c], data[c], usuario)
+            campos.append(f"{c}=?"); args.append(data[c])
+    if campos:
+        campos.append("actualizado=?"); args.append(datetime.datetime.now().isoformat(timespec="seconds"))
+        args.append(aid)
+        db.execute(f"UPDATE actividades SET {','.join(campos)} WHERE id=?", args)
+        # aviso para el admin
+        db.execute("INSERT INTO avisos (fecha,proveedor,usuario,tipo,detalle,visto) VALUES (?,?,?,?,?,0)",
+                   (datetime.datetime.now().isoformat(timespec="seconds"), proveedor, usuario,
+                    "avance", f"Reportó avance en {a['codigo']} · {(a['partida'] or '')[:50]}"))
+        db.commit()
+        enviar_push_admins(f"📋 {proveedor}", f"Reportó avance en {a['codigo']}: {(a['partida'] or '')[:60]}", "/validacion")
+    return jsonify({"ok": True})
+
+
+@app.route("/api/portal/reconocer/<int:aid>", methods=["POST"])
+@requiere_login
+def api_portal_reconocer(aid):
+    """El proveedor acepta que una partida es su trabajo. Sin esto no puede reportar avance."""
+    usuario, rol, proveedor = usuario_actual()
+    db = get_db()
+    a = db.execute("SELECT * FROM actividades WHERE id=?", (aid,)).fetchone()
+    col, _ = col_duenio()
+    if not a or a[col] != proveedor:
+        return jsonify({"error": "Esa partida no es tuya"}), 403
+    registrar_historial(db, aid, "reconocimiento", "sin reconocer", "reconocida", usuario)
+    db.execute("UPDATE actividades SET reconocida='SÍ', reconocida_por=?, reconocida_fecha=?, "
+               "no_reconocida_nota=NULL WHERE id=?",
+               (usuario, datetime.date.today().isoformat(), aid))
+    db.commit()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/portal/reconocer_bloque", methods=["POST"])
+@requiere_login
+def api_portal_reconocer_bloque():
+    """Reconoce en lote todas las pendientes de un bloque (o todas si no se manda bloque)."""
+    usuario, rol, proveedor = usuario_actual()
+    db = get_db()
+    data = request.get_json() or {}
+    bloque = data.get("bloque")
+    col, mundo = col_duenio()
+    cond = f"{col}=? AND reconocida='NO' AND (estado_val IS NULL OR estado_val='validado') AND (mundo=? OR (mundo IS NULL AND ?='obra'))"
+    args = [proveedor, mundo, mundo]
+    if bloque:
+        cond += " AND bloque=?"; args.append(bloque)
+    filas = db.execute(f"SELECT id FROM actividades WHERE {cond}", args).fetchall()
+    for f in filas:
+        registrar_historial(db, f["id"], "reconocimiento", "sin reconocer", "reconocida (en lote)", usuario)
+    db.execute(f"UPDATE actividades SET reconocida='SÍ', reconocida_por=?, reconocida_fecha=? WHERE {cond}",
+               [usuario, datetime.date.today().isoformat()] + args)
+    db.commit()
+    return jsonify({"ok": True, "reconocidas": len(filas)})
+
+
+@app.route("/api/portal/no_reconozco/<int:aid>", methods=["POST"])
+@requiere_login
+def api_portal_no_reconozco(aid):
+    """El proveedor dice que esa partida NO es suya. Te avisa a ti para corregir."""
+    usuario, rol, proveedor = usuario_actual()
+    db = get_db()
+    a = db.execute("SELECT * FROM actividades WHERE id=?", (aid,)).fetchone()
+    col, _ = col_duenio()
+    if not a or a[col] != proveedor:
+        return jsonify({"error": "Esa partida no es tuya"}), 403
+    data = request.get_json() or {}
+    nota = (data.get("nota") or "").strip()
+    registrar_historial(db, aid, "no reconocida", "", nota or "el proveedor no reconoce esta actividad", usuario)
+    db.execute("UPDATE actividades SET no_reconocida_nota=?, reconocida='RECHAZADA' WHERE id=?", (nota or "No reconocida", aid))
+    db.execute("INSERT INTO avisos (fecha,proveedor,usuario,tipo,detalle,visto) VALUES (?,?,?,?,?,0)",
+               (datetime.datetime.now().isoformat(timespec="seconds"), proveedor, usuario,
+                "no_reconocida", f"No reconoce {a['codigo']}: {(a['partida'] or '')[:50]}"))
+    db.commit()
+    enviar_push_admins(f"⚠️ {proveedor}", f"No reconoce {a['codigo']}: {(a['partida'] or '')[:60]}", "/validacion")
+    return jsonify({"ok": True})
+
+
+@app.route("/api/portal/pendientes_reconocer")
+@requiere_login
+def api_portal_pend_reconocer():
+    """Conteo de lo que el proveedor tiene sin reconocer (para el botón de 'nuevas asignadas')."""
+    _, rol, proveedor = usuario_actual()
+    db = get_db()
+    col, mundo = col_duenio()
+    n = db.execute(f"SELECT COUNT(*) FROM actividades WHERE {col}=? AND reconocida='NO' "
+                   "AND (estado_val IS NULL OR estado_val='validado') "
+                   "AND (eliminada IS NULL OR eliminada=0) "
+                   "AND (mundo=? OR (mundo IS NULL AND ?='obra'))",
+                   (proveedor, mundo, mundo)).fetchone()[0]
+    return jsonify({"pendientes": n})
+
+
+@app.route("/api/portal/nueva", methods=["POST"])
+@requiere_login
+def api_portal_nueva():
+    """El proveedor propone una tarea NUEVA. Queda en estado 'propuesta' hasta que el admin valide."""
+    usuario, rol, proveedor = usuario_actual()
+    db = get_db()
+    data = request.get_json()
+    partida = (data.get("partida") or "").strip()
+    if not partida:
+        return jsonify({"error": "Escribe qué actividad es"}), 400
+    col, mundo = col_duenio()
+    # detectar ANTES de insertar si el interno propone en un bloque donde NO tenía trabajo
+    fuera_zona = 0
+    if mundo == "interno" and data.get("bloque"):
+        tiene = db.execute(
+            f"SELECT COUNT(*) FROM actividades WHERE {col}=? AND bloque=?",
+            (proveedor, data.get("bloque"))).fetchone()[0]
+        fuera_zona = 1 if tiene == 0 else 0
+    # el giro y tipo se ponen solos según el proveedor/departamento (los más comunes de sus partidas)
+    ref = db.execute(
+        f"SELECT giro, tipo_partida, tipo_interno FROM actividades WHERE {col}=? "
+        "GROUP BY giro ORDER BY COUNT(*) DESC LIMIT 1", (proveedor,)).fetchone()
+    giro = (ref["giro"] if ref else "") or data.get("giro", "")
+    tipo_partida = (ref["tipo_partida"] if ref else "Construcción")
+    tipo_interno = data.get("tipo_interno") or (ref["tipo_interno"] if ref else None)
+    # columnas dueñas: en interno se llena departamento; en obra, proveedor
+    prov_val = proveedor if mundo == "obra" else None
+    depto_val = proveedor if mundo == "interno" else None
+    # código provisional. Antes usaba resolución de 1 segundo, así que dos
+    # propuestas que llegaran en el mismo segundo (doble clic, reintento de
+    # red) se quedaban con el MISMO código — bug real detectado en
+    # producción: 5 propuestas idénticas con el código PROP-0921230448.
+    # Ahora usa microsegundos (colisión prácticamente imposible) y además
+    # revisa que no exista ya ese código antes de usarlo, por si acaso.
+    base_codigo = "PROP-" + datetime.datetime.now().strftime("%m%d%H%M%S%f")
+    codigo = base_codigo
+    sufijo = 1
+    while db.execute("SELECT 1 FROM actividades WHERE codigo=?", (codigo,)).fetchone():
+        sufijo += 1
+        codigo = f"{base_codigo}-{sufijo}"
+    cur = db.execute(
+        """INSERT INTO actividades
+        (codigo,bloque,area,giro,proveedor,departamento,mundo,tipo_interno,partida,tipo_partida,aplica,avance,
+         avance_decl,f_inicio,f_fin,estatus,definido,definido_por,nota_proveedor,
+         origen,estado_val,creado_por,reconocida,reconocida_por,reconocida_fecha,fuera_zona,actualizado)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (codigo, data.get("bloque"), data.get("area"), giro, prov_val, depto_val, mundo, tipo_interno, partida,
+         tipo_partida, "SÍ", 0, int(data.get("avance_decl") or 0),
+         data.get("f_inicio"), data.get("f_fin"), "Pendiente",
+         data.get("definido", "NO"), data.get("definido_por"), data.get("nota_proveedor"),
+         "propuesta", "propuesta", usuario,
+         "SÍ", usuario, datetime.date.today().isoformat(), fuera_zona,
+         datetime.datetime.now().isoformat(timespec="seconds")))
+    detalle = f"Propuso nueva actividad: {partida[:60]}"
+    if fuera_zona:
+        detalle = f"⚠️ FUERA DE SU ZONA ({data.get('bloque')}): {partida[:50]}"
+    db.execute("INSERT INTO avisos (fecha,proveedor,usuario,tipo,detalle,visto) VALUES (?,?,?,?,?,0)",
+               (datetime.datetime.now().isoformat(timespec="seconds"), proveedor, usuario,
+                "propuesta", detalle))
+    db.commit()
+    enviar_push_admins(f"🆕 {proveedor}", detalle, "/validacion")
+    return jsonify({"ok": True, "codigo": codigo, "fuera_zona": bool(fuera_zona)})
+
+
+@app.route("/api/validacion/atencion")
+@requiere_gestor
+def api_val_atencion():
+    """Actividades que necesitan tu atención: rechazadas y las que un proveedor no reconoce."""
+    db = get_db()
+    rechazadas = db.execute(
+        "SELECT * FROM actividades WHERE (estado_val='rechazada' OR avance_decl_rechazado=1) AND (eliminada IS NULL OR eliminada=0) ORDER BY proveedor, actualizado DESC").fetchall()
+    no_recon = db.execute(
+        "SELECT * FROM actividades WHERE no_reconocida_nota IS NOT NULL AND no_reconocida_nota<>'' "
+        "AND reconocida<>'SÍ' AND (eliminada IS NULL OR eliminada=0) ORDER BY proveedor, actualizado DESC").fetchall()
+    return jsonify({
+        "rechazadas": [dict(r) for r in rechazadas],
+        "no_reconocidas": [dict(r) for r in no_recon],
+    })
+
+
+@app.route("/api/validacion/reactivar/<int:aid>", methods=["POST"])
+@requiere_gestor
+def api_val_reactivar(aid):
+    """Reactiva una actividad rechazada: vuelve a propuesta para revisarla de nuevo."""
+    db = get_db()
+    quien_admin = session.get("usuario", "admin")
+    registrar_historial(db, aid, "actividad propuesta", "rechazada", "reactivada", quien_admin)
+    db.execute("UPDATE actividades SET estado_val='propuesta', avance_decl_rechazado=0, actualizado=? WHERE id=?",
+               (datetime.datetime.now().isoformat(timespec="seconds"), aid))
+    db.commit()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/validacion/limpiar_no_reconocida/<int:aid>", methods=["POST"])
+@requiere_gestor
+def api_val_limpiar_noreco(aid):
+    """Después de corregir una actividad que el proveedor no reconocía, limpias la marca."""
+    db = get_db()
+    db.execute("UPDATE actividades SET no_reconocida_nota=NULL, reconocida='NO', reconocida_por=NULL, reconocida_fecha=NULL WHERE id=?", (aid,))
+    db.commit()
+    return jsonify({"ok": True})
+
+
+# --- Validación (admin) ---
+@app.route("/api/validacion/pendientes")
+@requiere_gestor
+def api_val_pendientes():
+    db = get_db()
+    props = db.execute(
+        "SELECT * FROM actividades WHERE estado_val='propuesta' AND (eliminada IS NULL OR eliminada=0) ORDER BY proveedor, actualizado DESC").fetchall()
+    # partidas oficiales con avance declarado distinto al validado
+    decl = db.execute(
+        "SELECT * FROM actividades WHERE origen='oficial' AND avance_decl IS NOT NULL "
+        "AND avance_decl <> avance AND (eliminada IS NULL OR eliminada=0) ORDER BY proveedor, actualizado DESC").fetchall()
+    return jsonify({
+        "propuestas": [dict(r) for r in props],
+        "avances": [dict(r) for r in decl],
+    })
+
+
+@app.route("/api/validacion/aviso_conteo")
+@requiere_gestor
+def api_val_conteo():
+    db = get_db()
+    p = db.execute("SELECT COUNT(*) FROM actividades WHERE estado_val='propuesta' "
+                   "AND (eliminada IS NULL OR eliminada=0)").fetchone()[0]
+    a = db.execute("SELECT COUNT(*) FROM actividades WHERE origen='oficial' "
+                   "AND avance_decl IS NOT NULL AND avance_decl <> avance "
+                   "AND (eliminada IS NULL OR eliminada=0)").fetchone()[0]
+    # "Necesitan tu atención": rechazadas + no reconocidas. Antes el numerito
+    # del menú NO las contaba, así que nunca cuadraba con la suma de las 3
+    # listas de la pantalla de Validación (por ejemplo 10+1+15 pero el badge
+    # decía 24). Ahora sí suma las 3 categorías.
+    aten = db.execute(
+        "SELECT COUNT(*) FROM actividades WHERE "
+        "((estado_val='rechazada' OR avance_decl_rechazado=1) "
+        " OR (no_reconocida_nota IS NOT NULL AND no_reconocida_nota<>'' AND reconocida<>'SÍ')) "
+        "AND (eliminada IS NULL OR eliminada=0)").fetchone()[0]
+    return jsonify({"propuestas": p, "avances": a, "atencion": aten, "total": p + a + aten})
+
+
+@app.route("/api/validacion/aprobar/<int:aid>", methods=["POST"])
+@requiere_gestor
+def api_val_aprobar(aid):
+    db = get_db()
+    a = db.execute("SELECT * FROM actividades WHERE id=?", (aid,)).fetchone()
+    if not a:
+        return jsonify({"error": "no existe"}), 404
+    data = request.get_json() or {}
+    quien_admin = session.get("usuario", "admin")
+    if a["estado_val"] == "propuesta":
+        # aprobar la tarea nueva: pasa a oficial y validada
+        av = a["avance_decl"] if a["avance_decl"] is not None else 0
+        registrar_historial(db, aid, "actividad propuesta", "propuesta", "aprobada y validada", quien_admin)
+        db.execute("UPDATE actividades SET origen='oficial', estado_val='validado', "
+                   "avance=?, estatus=?, avance_decl_rechazado=0, rechazo_motivo=NULL, actualizado=? WHERE id=?",
+                   (av, estatus_por_avance(av),
+                    datetime.datetime.now().isoformat(timespec="seconds"), aid))
+    else:
+        # firmar el avance declarado: el avance oficial toma el valor declarado
+        av = a["avance_decl"] if a["avance_decl"] is not None else a["avance"]
+        registrar_historial(db, aid, "avance validado", a["avance"], av, quien_admin)
+        db.execute("UPDATE actividades SET avance=?, estatus=?, avance_decl_rechazado=0, rechazo_motivo=NULL, actualizado=? WHERE id=?",
+                   (av, estatus_por_avance(av),
+                    datetime.datetime.now().isoformat(timespec="seconds"), aid))
+    db.commit()
+    crear_validacion_interna_si_aplica(db, aid)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/validacion/rechazar/<int:aid>", methods=["POST"])
+@requiere_gestor
+def api_val_rechazar(aid):
+    db = get_db()
+    a = db.execute("SELECT * FROM actividades WHERE id=?", (aid,)).fetchone()
+    if not a:
+        return jsonify({"error": "no existe"}), 404
+    data = request.get_json() or {}
+    motivo = (data.get("motivo") or "Rechazado por administración").strip()
+    quien_admin = session.get("usuario", "admin")
+    fecha_hoy = datetime.date.today().isoformat()
+    
+    if a["estado_val"] == "propuesta":
+        # rechazar tarea nueva: se marca rechazada con motivo
+        registrar_historial(db, aid, "actividad propuesta", "propuesta", f"rechazada: {motivo}", quien_admin)
+        db.execute("UPDATE actividades SET estado_val='rechazada', rechazo_motivo=?, rechazado_por=?, "
+                   "rechazado_fecha=?, actualizado=? WHERE id=?",
+                   (motivo, quien_admin, fecha_hoy, datetime.datetime.now().isoformat(timespec="seconds"), aid))
+    else:
+        # rechazar avance declarado: se guarda el rechazo con su motivo para que el proveedor se entere en su portal
+        registrar_historial(db, aid, "avance reportado", a["avance_decl"], f"rechazado por admin ({motivo})", quien_admin)
+        db.execute("UPDATE actividades SET avance_decl_rechazado=1, rechazo_motivo=?, rechazado_por=?, "
+                   "rechazado_fecha=?, avance_decl=NULL, avance_decl_por=NULL, avance_decl_fecha=NULL, "
+                   "actualizado=? WHERE id=?",
+                   (motivo, quien_admin, fecha_hoy, datetime.datetime.now().isoformat(timespec="seconds"), aid))
+    db.commit()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/validacion/aprobar_todas", methods=["POST"])
+@requiere_gestor
+def api_val_aprobar_todas():
+    db = get_db()
+    data = request.get_json() or {}
+    ids = data.get("ids", [])
+    if not ids:
+        return jsonify({"error": "sin ids"}), 400
+    n = 0
+    quien_admin = session.get("usuario", "admin")
+    for aid in ids:
+        a = db.execute("SELECT * FROM actividades WHERE id=?", (aid,)).fetchone()
+        if not a:
+            continue
+        av = a["avance_decl"] if a["avance_decl"] is not None else a["avance"]
+        if a["estado_val"] == "propuesta":
+            registrar_historial(db, aid, "actividad propuesta", "propuesta", "aprobada y validada", quien_admin)
+            db.execute("UPDATE actividades SET origen='oficial', estado_val='validado', "
+                       "avance=?, estatus=?, avance_decl_rechazado=0, rechazo_motivo=NULL, actualizado=? WHERE id=?",
+                       (av, estatus_por_avance(av),
+                        datetime.datetime.now().isoformat(timespec="seconds"), aid))
+        else:
+            registrar_historial(db, aid, "avance validado", a["avance"], av, quien_admin)
+            db.execute("UPDATE actividades SET avance=?, estatus=?, avance_decl_rechazado=0, rechazo_motivo=NULL, actualizado=? WHERE id=?",
+                       (av, estatus_por_avance(av),
+                        datetime.datetime.now().isoformat(timespec="seconds"), aid))
+        n += 1
+    db.commit()
+    for aid in ids:
+        crear_validacion_interna_si_aplica(db, aid)
+    return jsonify({"ok": True, "aprobadas": n})
+
+
+# ----------------------------------------------------------------------------
+# API — Dependencias (Modelo por área)
+# ----------------------------------------------------------------------------
+@app.route("/api/dependencias", methods=["GET"])
+@requiere_login
+def api_dependencias_list():
+    db = get_db()
+    area = request.args.get("area")
+    q = "SELECT * FROM dependencias"
+    args = []
+    if area:
+        q += " WHERE area=?"; args.append(area)
+    q += " ORDER BY area, id"
+    rows = db.execute(q, args).fetchall()
+    
+    salida = []
+    for r in rows:
+        d = dict(r)
+        st = evaluar_dependencias_area(db, r["area"], r["tipo_sucesor"])
+        d["evaluacion"] = st
+        salida.append(d)
+    return jsonify(salida)
+
+
+@app.route("/api/dependencias", methods=["POST"])
+@requiere_gestor
+def api_dependencias_crear():
+    db = get_db()
+    data = request.get_json() or {}
+    area = (data.get("area") or "").strip()
+    sucesor = (data.get("tipo_sucesor") or "").strip()
+    predecesores = (data.get("tipos_predecesores") or "").strip()
+    umbral = max(1, min(100, int(data.get("umbral") or 100)))
+    paralelo = 1 if data.get("permite_paralelo") else 0
+    
+    if not area or not sucesor or not predecesores:
+        return jsonify({"error": "Área, tipo sucesor y tipos predecesores son obligatorios"}), 400
+        
+    db.execute(
+        "INSERT INTO dependencias (area, tipo_sucesor, tipos_predecesores, umbral, permite_paralelo, creado) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (area, sucesor, predecesores, umbral, paralelo, datetime.datetime.now().isoformat(timespec="seconds"))
+    )
+    db.commit()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/dependencias/<int:did>", methods=["DELETE"])
+@requiere_gestor
+def api_dependencias_borrar(did):
+    db = get_db()
+    db.execute("DELETE FROM dependencias WHERE id=?", (did,))
+    db.commit()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/dependencias/<int:did>/forzar_liberacion", methods=["POST"])
+@requiere_gestor
+def api_dependencias_forzar(did):
+    db = get_db()
+    data = request.get_json() or {}
+    nota = (data.get("nota") or "").strip()
+    if not nota:
+        return jsonify({"error": "Se requiere una nota justificando la liberación anticipada"}), 400
+        
+    admin_user = session.get("usuario", "admin")
+    fecha_hoy = datetime.date.today().isoformat()
+    
+    dep = db.execute("SELECT * FROM dependencias WHERE id=?", (did,)).fetchone()
+    if not dep:
+        return jsonify({"error": "Dependencia no encontrada"}), 404
+        
+    db.execute(
+        "UPDATE dependencias SET liberacion_forzada=1, forzada_por=?, forzada_fecha=?, forzada_nota=? WHERE id=?",
+        (admin_user, fecha_hoy, nota, did)
+    )
+    db.execute(
+        "INSERT INTO avisos (fecha, proveedor, usuario, tipo, detalle, visto) VALUES (?, ?, ?, ?, ?, 0)",
+        (datetime.datetime.now().isoformat(timespec="seconds"), "Admin", admin_user, "dependencia",
+         f"Liberación anticipada forzada de {dep['tipo_sucesor']} en {dep['area']}: {nota}")
+    )
+    db.commit()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/dependencias/<int:did>/deshacer_forzar", methods=["POST"])
+@requiere_gestor
+def api_dependencias_deshacer_forzar(did):
+    db = get_db()
+    db.execute("UPDATE dependencias SET liberacion_forzada=0, forzada_por=NULL, forzada_fecha=NULL, forzada_nota=NULL WHERE id=?", (did,))
+    db.commit()
+    return jsonify({"ok": True})
+
+
+# ----------------------------------------------------------------------------
+# API — Reportes para Departamentos Internos (PDF / Excel)
+# ----------------------------------------------------------------------------
+@app.route("/api/hoja_departamento.pdf")
+@requiere_login
+def hoja_departamento_pdf():
+    from reportlab.lib.pagesizes import letter, landscape
+    from reportlab.lib import colors
+    from reportlab.lib.units import cm
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    
+    depto = request.args.get("departamento", "")
+    titulo_txt = request.args.get("titulo", "")
+    
+    db = get_db()
+    cond = ["(mundo='interno' OR departamento IS NOT NULL)", "(eliminada IS NULL OR eliminada=0)"]
+    args = []
+    if depto:
+        cond.append("departamento = ?"); args.append(depto)
+    for campo in ("bloque", "area", "estatus"):
+        v = request.args.get(campo)
+        if v:
+            cond.append(f"{campo} = ?"); args.append(v)
+            
+    q = f"SELECT * FROM actividades WHERE {' AND '.join(cond)} ORDER BY bloque, area, id"
+    rows = db.execute(q, args).fetchall()
+    
+    hoy_d = datetime.date.today()
+    out = os.path.join(BASE_DIR, "data", "hoja_departamento.pdf")
+    doc = SimpleDocTemplate(out, pagesize=landscape(letter),
+                            leftMargin=1*cm, rightMargin=1*cm, topMargin=1*cm, bottomMargin=1*cm)
+    styles = getSampleStyleSheet()
+    titulo = ParagraphStyle("t", parent=styles["Title"], fontSize=13, textColor=colors.HexColor("#3A2C52"))
+    small = ParagraphStyle("s", parent=styles["Normal"], fontSize=7, leading=8)
+    
+    encabezado = titulo_txt or (f"Hoja de actualización de avance — Departamento: {depto}" if depto else "Reporte de actividades — Departamentos Internos HAP")
+    elems = [Paragraph(encabezado, titulo),
+             Paragraph(f"Fecha: {hoy_d.strftime('%d/%m/%Y')} · Unidad Quirúrgica Torre B · Uso interno HAP", styles["Normal"]),
+             Spacer(1, 8)]
+             
+    data = [["Código", "Bloque / Área", "Tipo tarea", "Actividad / Partida", "Avance\nactual", "NUEVO\navance", "Fecha\ncompromiso", "Retra-\nsada", "Observaciones"]]
+    filas_retraso = []
+    
+    for idx, r in enumerate(rows):
+        fin = parse_date(r["f_fin"])
+        retrasada = fin and (r["avance"] or 0) < 100 and (fin - hoy_d).days < 0
+        bloque_area = f"{r['bloque'] or ''}\n{r['area'] or ''}"
+        data.append([
+            r["codigo"] or "",
+            Paragraph(bloque_area, small),
+            Paragraph(r["tipo_interno"] or r["tipo"] or "Instalación", small),
+            Paragraph(r["partida"] or "", small),
+            f"{r['avance'] or 0}%",
+            "______",
+            r["f_fin"] or "__________",
+            "SÍ" if retrasada else "",
+            "________________"
+        ])
+        if retrasada:
+            filas_retraso.append(idx + 1)
+            
+    t = Table(data, colWidths=[2*cm, 4*cm, 2.8*cm, 6.2*cm, 1.5*cm, 1.6*cm, 2.2*cm, 1.3*cm, 4.5*cm], repeatRows=1)
+    estilo = [
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#3A2C52")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTSIZE", (0, 0), (-1, -1), 7),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("GRID", (0, 0), (-1, -1), 0.4, colors.grey),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F9F7FB")]),
+    ]
+    for fr in filas_retraso:
+        estilo.append(("BACKGROUND", (0, fr), (-1, fr), colors.HexColor("#F8D7DA")))
+    t.setStyle(TableStyle(estilo))
+    elems.append(t)
+    doc.build(elems)
+    safe = "".join(ch for ch in (depto or "departamento") if ch.isalnum() or ch in " _-")[:30].strip() or "depto"
+    return send_file(out, as_attachment=True, download_name=f"HOJA_DEPTO_{safe}_{hoy()}.pdf")
+
+
+@app.route("/api/hoja_departamento.xlsx")
+@requiere_login
+def hoja_departamento_xlsx():
+    import openpyxl
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+    
+    depto = request.args.get("departamento", "")
+    db = get_db()
+    cond = ["(mundo='interno' OR departamento IS NOT NULL)", "(eliminada IS NULL OR eliminada=0)"]
+    args = []
+    if depto:
+        cond.append("departamento = ?"); args.append(depto)
+    for campo in ("bloque", "area", "estatus"):
+        v = request.args.get(campo)
+        if v:
+            cond.append(f"{campo} = ?"); args.append(v)
+            
+    q = f"SELECT * FROM actividades WHERE {' AND '.join(cond)} ORDER BY bloque, area, id"
+    rows = db.execute(q, args).fetchall()
+    
+    hoy_d = datetime.date.today()
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Actualización Depto"
+    encabezado = f"HOJA DE ACTUALIZACIÓN DE AVANCE — DEPARTAMENTO: {depto or 'INTERNO'}"
+    ws["A1"] = encabezado
+    ws["A1"].font = Font(bold=True, size=13, color="3A2C52")
+    ws.merge_cells("A1:I1")
+    ws["A2"] = f"Fecha: {hoy_d.strftime('%d/%m/%Y')}   ·   Uso interno HAP — Anotar nuevo avance y fecha compromiso."
+    ws["A2"].font = Font(size=9, italic=True, color="555555")
+    ws.merge_cells("A2:I2")
+    
+    cols = ["Código", "Bloque", "Área", "Tipo Tarea", "Actividad / Partida", "Avance actual",
+            "NUEVO avance %", "Fecha compromiso", "Observaciones"]
+    hdr = 4
+    for j, c in enumerate(cols, 1):
+        cell = ws.cell(row=hdr, column=j, value=c)
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="3A2C52")
+        cell.alignment = Alignment(horizontal="center", wrap_text=True)
+    thin = Side(style="thin", color="CCCCCC")
+    bd = Border(left=thin, right=thin, top=thin, bottom=thin)
+    
+    i = hdr + 1
+    for r in rows:
+        vals = [r["codigo"], r["bloque"], r["area"], r["tipo_interno"] or r["tipo"] or "Instalación",
+                r["partida"], f"{r['avance'] or 0}%", "", r["f_fin"] or "", ""]
+        for j, v in enumerate(vals, 1):
+            cell = ws.cell(row=i, column=j, value=v)
+            cell.border = bd
+            cell.alignment = Alignment(wrap_text=True, vertical="top")
+        i += 1
+    anchos = [10, 18, 22, 16, 38, 12, 13, 16, 28]
+    for j, w in enumerate(anchos, 1):
+        ws.column_dimensions[get_column_letter(j)].width = w
+    ws.freeze_panes = "A5"
+    safe = "".join(ch for ch in (depto or "departamento") if ch.isalnum() or ch in " _-")[:30].strip() or "depto"
+    out = os.path.join(BASE_DIR, "data", "hoja_departamento.xlsx")
+    wb.save(out)
+    return send_file(out, as_attachment=True, download_name=f"HOJA_DEPTO_{safe}_{hoy()}.xlsx")
+
+
+# ----------------------------------------------------------------------------
+# API — Respaldos de base de datos
+# ----------------------------------------------------------------------------
+@app.route("/api/respaldo", methods=["POST"])
+@requiere_admin
+def api_respaldo():
+    res = generar_respaldo_bd()
+    if res:
+        return jsonify({"ok": True, "archivo": os.path.basename(res)})
+    return jsonify({"error": "No se pudo generar el respaldo"}), 500
+
+
+@app.route("/api/respaldo/descargar", methods=["GET"])
+@requiere_admin
+def api_respaldo_descargar():
+    # Genera una copia consistente (API de backup de SQLite) y la manda al
+    # navegador; además queda guardada en el servidor (data/backups).
+    dest = generar_respaldo_bd()
+    if dest and os.path.exists(dest):
+        return send_file(dest, as_attachment=True,
+                         download_name=f"obra_backup_{datetime.datetime.now().strftime('%Y-%m-%d_%H%M')}.db")
+    return jsonify({"error": "No se pudo generar el respaldo"}), 500
+
+
+@app.route("/api/validacion/panel")
+def validacion_page():
+    return render_template("validacion.html")
+
+
+@app.route("/usuarios")
+def usuarios_page():
+    return render_template("usuarios.html")
+
+
+@app.route("/validacion")
+def validacion_page_corta():
+    return render_template("validacion.html")
+
+
+
+def _sembrar_si_vacia():
+    """Primera vez en un servidor nuevo: si el disco esta vacio, copia la
+    base semilla con las 955 actividades. Asi no hay que subirla a mano."""
+    semilla = os.path.join(BASE_DIR, "semilla", "obra_inicial.db")
+    if not os.path.exists(semilla):
+        return
+    try:
+        necesita = not os.path.exists(DB_PATH)
+        if not necesita:
+            con = sqlite3.connect(DB_PATH)
+            try:
+                n = con.execute("SELECT COUNT(*) FROM actividades").fetchone()[0]
+                necesita = (n == 0)
+            except sqlite3.Error:
+                necesita = True
+            con.close()
+        if necesita:
+            import shutil
+            shutil.copy(semilla, DB_PATH)
+            print("  Base inicial sembrada desde semilla/obra_inicial.db")
+    except Exception as e:
+        print("  (no se pudo sembrar la base inicial:", e, ")")
+
+
+# --- Arranque cuando corre en internet (gunicorn no ejecuta el bloque de abajo) ---
+_ARRANQUE_MODULO = True
+try:
+    _sembrar_si_vacia()
+    init_db()
+    _foto_automatica()
+except Exception as _e:
+    print("Aviso al iniciar la base:", _e)
+
+
+# ──── Carga masiva de actividades por Excel ────
+@app.route("/api/carga_masiva", methods=["POST"])
+@requiere_gestor
+def api_carga_masiva():
+    db = get_db()
+    data = request.get_json()
+    acts = data.get("actividades", [])
+    if not acts:
+        return jsonify({"error": "No hay actividades para subir"}), 400
+
+    # Siguiente código disponible (misma lógica que usa la creación normal
+    # y la duplicación de actividades, ver siguiente_codigo()).
+    num = int(siguiente_codigo(db).split("-")[1])
+
+    ahora = datetime.datetime.now().isoformat(timespec="seconds")
+    codigos = []
+    for a in acts:
+        cod = f"ACT-{num:04d}"
+        db.execute(
+            """INSERT INTO actividades
+            (codigo,bloque,area,giro,proveedor,partida,tipo,tipo_partida,aplica,avance,
+             estatus,definido,mundo,f_fin,actualizado)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (cod, a.get("bloque",""), a.get("area",""), a.get("giro",""),
+             a.get("proveedor",""), a.get("partida",""),
+             a.get("tipo_partida","Construcción"), a.get("tipo_partida","Construcción"),
+             "SÍ", 0, "Pendiente", "NO", a.get("mundo","obra"),
+             a.get("f_fin") or None, ahora))
+        codigos.append(cod)
+        num += 1
+    db.commit()
+    return jsonify({"ok": True, "creadas": len(codigos), "codigos": codigos})
+
+
+@app.route("/api/plantilla_carga_masiva")
+@requiere_gestor
+def api_plantilla_carga_masiva():
+    import io
+    try:
+        from openpyxl import Workbook
+    except ImportError:
+        return "openpyxl no disponible", 500
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Actividades"
+    ws.append(["Bloque", "Área", "Especialidad", "Proveedor", "Partida", "Tipo de partida", "Fecha compromiso"])
+    ws.append(["Ejemplo: Cuneros", "Cuneros 1", "Eléctrico", "Daniel Contreras", "Contactos a 110V", "Construcción", "2026-10-15"])
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+    return send_file(buf, as_attachment=True, download_name="plantilla_carga_masiva.xlsx",
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+@app.route("/seguimiento")
+def seguimiento_page():
+    return render_template("seguimiento.html")
+
+
+@app.route("/api/seguimiento")
+@requiere_gestor
+def api_seguimiento():
+    """Módulo de Seguimiento y Cumplimiento — solo lectura, no modifica nada."""
+    db = get_db()
+    fecha_hoy = datetime.date.today().isoformat()
+    fecha_entrega = FECHA_ENTREGA
+
+    # Todos los responsables (proveedores + departamentos)
+    nombres = set()
+    for r in db.execute("SELECT DISTINCT proveedor FROM actividades WHERE proveedor IS NOT NULL AND proveedor<>'' AND (eliminada IS NULL OR eliminada=0)"):
+        nombres.add((r[0], "obra"))
+    for r in db.execute("SELECT DISTINCT departamento FROM actividades WHERE departamento IS NOT NULL AND departamento<>'' AND (eliminada IS NULL OR eliminada=0)"):
+        nombres.add((r[0], "interno"))
+
+    prov_info = {}
+    for r in db.execute("SELECT nombre, tipo, funcion FROM proveedores"):
+        prov_info[r["nombre"]] = {"tipo": r["tipo"] or "Externo", "funcion": r["funcion"] or ""}
+
+    usuarios_por = {}
+    for r in db.execute("SELECT proveedor, usuario, num_logins, ultimo_login, activo FROM usuarios WHERE rol='proveedor' AND proveedor IS NOT NULL"):
+        usuarios_por.setdefault(r["proveedor"], []).append(dict(r))
+
+    responsables = []
+    totales = {}
+    for m in ("obra", "interno"):
+        totales[m] = {"total":0,"terminadas":0,"proceso":0,"pendientes":0,"atrasadas":0,
+                      "riesgo":0,"pend_validar":0,"propuestas":0,"sin_reconocer":0}
+
+    fecha_riesgo = (datetime.date.today() + datetime.timedelta(days=14)).isoformat()
+
+    for nombre, mundo in sorted(nombres, key=lambda x: x[0].lower()):
+        col = "departamento" if mundo == "interno" else "proveedor"
+        acts = db.execute(f"SELECT * FROM actividades WHERE {col}=? AND (eliminada IS NULL OR eliminada=0)", (nombre,)).fetchall()
+        if not acts:
+            continue
+
+        n_total = len(acts)
+        n_terminadas = sum(1 for a in acts if a["estatus"] == "Terminada")
+        n_proceso = sum(1 for a in acts if a["estatus"] == "En proceso")
+        n_pendientes = sum(1 for a in acts if a["estatus"] == "Pendiente")
+        n_reconocidas = sum(1 for a in acts if a["reconocida"] == "SÍ")
+        n_sin_reconocer = sum(1 for a in acts if a["reconocida"] != "SÍ")
+        n_atrasadas = sum(1 for a in acts if a["f_fin"] and a["f_fin"] < fecha_hoy and a["estatus"] != "Terminada")
+        n_riesgo = sum(1 for a in acts if a["f_fin"] and fecha_hoy <= a["f_fin"] <= fecha_riesgo
+                       and (a["avance"] or 0) < 75 and a["estatus"] != "Terminada")
+        n_pend_validar = sum(1 for a in acts if a["avance_decl"] is not None and a["avance_decl"] > (a["avance"] or 0))
+        n_propuestas = sum(1 for a in acts if a["origen"] == "propuesta" and a["estado_val"] == "propuesta")
+
+        av_oficial = round(sum(a["avance"] or 0 for a in acts) / n_total, 1)
+        fechas_act = [a["actualizado"] for a in acts if a["actualizado"]]
+        ultimo_reporte = max(fechas_act) if fechas_act else None
+        dias_sin = None
+        if ultimo_reporte:
+            try:
+                dias_sin = (datetime.date.today() - datetime.date.fromisoformat(ultimo_reporte[:10])).days
+            except Exception:
+                pass
+
+        usus = usuarios_por.get(nombre, [])
+        tiene_usuario = len(usus) > 0
+        ultimo_login = None
+        num_logins_total = 0
+        for u in usus:
+            num_logins_total += u["num_logins"] or 0
+            if u["ultimo_login"] and (ultimo_login is None or u["ultimo_login"] > ultimo_login):
+                ultimo_login = u["ultimo_login"]
+
+        dias_sin_login = None
+        if ultimo_login:
+            try:
+                dias_sin_login = (datetime.date.today() - datetime.date.fromisoformat(ultimo_login[:10])).days
+            except Exception:
+                pass
+
+        # --- Semáforo ---
+        motivos = []
+        pend_admin = []
+        if n_pend_validar > 0:
+            pend_admin.append(f"{n_pend_validar} avances esperan validación del administrador")
+        if n_propuestas > 0:
+            pend_admin.append(f"{n_propuestas} propuestas esperan aprobación")
+
+        if not tiene_usuario and n_total > 0:
+            semaforo = "gris"
+            motivos.append("No cuenta con usuario para la plataforma")
+            if n_sin_reconocer > 0:
+                motivos.append(f"{n_sin_reconocer} actividades sin reconocer")
+        elif n_atrasadas >= 5 or (n_sin_reconocer > n_total * 0.5 and n_sin_reconocer > 10) or \
+             (dias_sin_login is not None and dias_sin_login > 14) or \
+             (tiene_usuario and num_logins_total == 0):
+            semaforo = "rojo"
+            if n_atrasadas > 0:
+                motivos.append(f"{n_atrasadas} actividades vencidas")
+            if n_sin_reconocer > 0:
+                motivos.append(f"{n_sin_reconocer} actividades sin reconocer")
+            if tiene_usuario and num_logins_total == 0:
+                motivos.append("Tiene usuario pero nunca ha ingresado")
+            elif dias_sin_login and dias_sin_login > 14:
+                motivos.append(f"Último acceso hace {dias_sin_login} días")
+            if n_riesgo > 0:
+                motivos.append(f"{n_riesgo} actividades en riesgo de vencer")
+        elif n_atrasadas > 0 or n_sin_reconocer > 5 or \
+             (dias_sin is not None and dias_sin > 7) or n_riesgo > 3:
+            semaforo = "amarillo"
+            if n_atrasadas > 0:
+                motivos.append(f"{n_atrasadas} actividades vencidas")
+            if n_sin_reconocer > 0:
+                motivos.append(f"{n_sin_reconocer} sin reconocer")
+            if dias_sin and dias_sin > 7:
+                motivos.append(f"{dias_sin} días sin actualización")
+            if n_riesgo > 0:
+                motivos.append(f"{n_riesgo} próximas a vencer")
+        else:
+            semaforo = "verde"
+            motivos.append("Al corriente")
+
+        accion = ""
+        if semaforo == "gris":
+            accion = "Crear usuario y solicitar reconocimiento de actividades."
+        elif semaforo == "rojo":
+            partes = []
+            if n_sin_reconocer > 10:
+                partes.append("reconocimiento")
+            if n_atrasadas > 0:
+                partes.append("actualización inmediata y fecha compromiso")
+            if tiene_usuario and num_logins_total == 0:
+                partes.append("que ingrese a la plataforma")
+            accion = "Solicitar " + " y ".join(partes) + "." if partes else "Dar seguimiento urgente."
+        elif semaforo == "amarillo":
+            accion = "Dar seguimiento y solicitar actualización."
+
+        info = prov_info.get(nombre, {"tipo": "Interno" if mundo == "interno" else "Externo", "funcion": ""})
+
+        responsables.append({
+            "nombre": nombre, "mundo": mundo, "tipo": info["tipo"],
+            "funcion": info.get("funcion", ""),
+            "total": n_total, "terminadas": n_terminadas, "proceso": n_proceso,
+            "pendientes": n_pendientes, "reconocidas": n_reconocidas,
+            "sin_reconocer": n_sin_reconocer, "atrasadas": n_atrasadas,
+            "riesgo": n_riesgo, "pend_validar": n_pend_validar,
+            "propuestas": n_propuestas, "av_oficial": av_oficial,
+            "ultimo_reporte": ultimo_reporte, "ultimo_login": ultimo_login,
+            "dias_sin_actualizar": dias_sin, "dias_sin_login": dias_sin_login,
+            "tiene_usuario": tiene_usuario, "num_logins": num_logins_total,
+            "semaforo": semaforo, "motivos": motivos, "pend_admin": pend_admin,
+            "accion": accion,
+        })
+
+        t = totales[mundo]
+        t["total"] += n_total
+        t["terminadas"] += n_terminadas
+        t["proceso"] += n_proceso
+        t["pendientes"] += n_pendientes
+        t["atrasadas"] += n_atrasadas
+        t["riesgo"] += n_riesgo
+        t["pend_validar"] += n_pend_validar
+        t["propuestas"] += n_propuestas
+        t["sin_reconocer"] += n_sin_reconocer
+
+    try:
+        dias_entrega = (datetime.date.fromisoformat(fecha_entrega) - datetime.date.today()).days
+    except Exception:
+        dias_entrega = 0
+    totales["dias_para_entrega"] = dias_entrega
+
+    return jsonify({"responsables": responsables, "totales": totales, "fecha": fecha_hoy})
+
+
+@app.route("/api/seguimiento/detalle/<nombre>")
+@requiere_gestor
+def api_seguimiento_detalle(nombre):
+    """Detalle de actividades de un responsable para el módulo de Seguimiento."""
+    db = get_db()
+    fecha_hoy = datetime.date.today().isoformat()
+    acts = db.execute("SELECT * FROM actividades WHERE (proveedor=? OR departamento=?) AND (eliminada IS NULL OR eliminada=0)", (nombre, nombre)).fetchall()
+    resultado = []
+    for a in acts:
+        pend_val = a["avance_decl"] is not None and a["avance_decl"] > (a["avance"] or 0)
+        vencida = bool(a["f_fin"] and a["f_fin"] < fecha_hoy and a["estatus"] != "Terminada")
+        resultado.append({
+            "id": a["id"], "codigo": a["codigo"], "bloque": a["bloque"], "area": a["area"],
+            "giro": a["giro"], "partida": a["partida"], "avance": a["avance"] or 0,
+            "avance_decl": a["avance_decl"], "estatus": a["estatus"],
+            "reconocida": a["reconocida"], "f_fin": a["f_fin"],
+            "vencida": vencida, "pend_validar": pend_val,
+            "origen": a["origen"], "estado_val": a["estado_val"],
+            "actualizado": a["actualizado"],
+        })
+    return jsonify(resultado)
+
+
+@app.route("/api/seguimiento/whatsapp/<nombre>")
+@requiere_gestor
+def api_seguimiento_whatsapp(nombre):
+    """Genera mensaje de seguimiento por WhatsApp para un responsable."""
+    db = get_db()
+    fecha_hoy = datetime.date.today().isoformat()
+    acts = db.execute("SELECT * FROM actividades WHERE (proveedor=? OR departamento=?) AND (eliminada IS NULL OR eliminada=0)", (nombre, nombre)).fetchall()
+    n_total = len(acts)
+    n_terminadas = sum(1 for a in acts if a["estatus"] == "Terminada")
+    n_pend = sum(1 for a in acts if a["estatus"] != "Terminada" and (a["avance"] or 0) < 100)
+    n_atrasadas = sum(1 for a in acts if a["f_fin"] and a["f_fin"] < fecha_hoy and a["estatus"] != "Terminada")
+    n_sin_reco = sum(1 for a in acts if a["reconocida"] != "SÍ")
+    av_global = round(sum(a["avance"] or 0 for a in acts) / n_total, 1) if n_total else 0
+
+    # Lista de actividades pendientes en sí (no solo el conteo), para que el
+    # proveedor vea de un vistazo QUÉ le falta sin tener que entrar al portal.
+    # Orden de urgencia: primero las vencidas (más vieja primero), luego las
+    # que tienen fecha compromiso (más próxima primero), y al final las que
+    # no tienen fecha todavía.
+    pendientes = [a for a in acts if a["estatus"] != "Terminada" and (a["avance"] or 0) < 100]
+
+    def orden_urgencia(a):
+        vencida = bool(a["f_fin"] and a["f_fin"] < fecha_hoy)
+        return (0 if vencida else (1 if a["f_fin"] else 2), a["f_fin"] or "9999-99-99")
+    pendientes.sort(key=orden_urgencia)
+
+    TOPE_LISTA = 15  # para no mandar un WhatsApp interminable si son muchas
+    lineas_pend = []
+    for a in pendientes[:TOPE_LISTA]:
+        vencida = bool(a["f_fin"] and a["f_fin"] < fecha_hoy)
+        marca = "🔴" if vencida else "•"
+        area = a["area"] or "—"
+        partida = a["partida"] or "(sin descripción)"
+        av = a["avance"] or 0
+        fecha_txt = f" — vence {a['f_fin']}" if a["f_fin"] else ""
+        lineas_pend.append(f"{marca} {area}: {partida} ({av}%){fecha_txt}")
+    restantes = len(pendientes) - len(lineas_pend)
+
+    lineas = []
+    lineas.append(f"📋 *Control de Obra HAP*")
+    lineas.append(f"Seguimiento y Cumplimiento")
+    lineas.append(f"")
+    lineas.append(f"Buen día. Al corte del *{fecha_hoy}*, el estatus de tus actividades es el siguiente:")
+    lineas.append(f"")
+    lineas.append(f"📊 *Resumen de {nombre}:*")
+    lineas.append(f"• Total de actividades: *{n_total}*")
+    lineas.append(f"• Terminadas: ✅ *{n_terminadas}*")
+    lineas.append(f"• Pendientes de actualización: ⚠️ *{n_pend}*")
+    if n_atrasadas:
+        lineas.append(f"• Con atraso: 🔴 *{n_atrasadas}*")
+    if n_sin_reco:
+        lineas.append(f"• Sin reconocer: ❌ *{n_sin_reco}*")
+    lineas.append(f"• Avance global: *{av_global}%*")
+    if lineas_pend:
+        lineas.append(f"")
+        lineas.append(f"📝 *Tus actividades pendientes:*")
+        lineas.extend(lineas_pend)
+        if restantes > 0:
+            lineas.append(f"…y {restantes} más — ingresa al portal para ver todas.")
+    lineas.append(f"")
+    lineas.append(f"Favor de ingresar a la plataforma, actualizar los avances y confirmar fechas compromiso.")
+    lineas.append(f"")
+    lineas.append(f"🔗 https://control-obra-hap.onrender.com/portal")
+
+    msg = "\n".join(lineas)
+    return jsonify({"mensaje": msg, "nombre": nombre})
+
+
+# ──── RUTA TEMPORAL: alta masiva mármol (borrar después de usar) ────
+@app.route("/api/migrar_marmol")
+@requiere_admin
+def migrar_marmol():
+    db = get_db()
+    # verificar que no se haya corrido ya
+    ya = db.execute("SELECT COUNT(*) c FROM actividades WHERE codigo='ACT-1101'").fetchone()["c"]
+    if ya:
+        return jsonify({"error": "Ya se ejecutó esta migración (ACT-1101 ya existe)"}), 400
+    nuevas = [
+        ("ACT-1101","Club médico y descanso","Vestidor doctoras","Mármol","Luis Carlos López","Barra para lavabo vestidores Dras. 3.00×0.50 mts — Mármol Crema Marfil"),
+        ("ACT-1102","Club médico y descanso","Vestidores doctores","Mármol","Luis Carlos López","Barra para lavabo vestidores Dres. 1.80×0.50 mts — Mármol Crema Marfil"),
+        ("ACT-1103","Club médico y descanso","Baño discapacitados mujeres","Mármol","Luis Carlos López","Barra para lavabo 75×50 cm — Granito Blanco Confeti"),
+        ("ACT-1104","Club médico y descanso","Baño discapacitados hombres","Mármol","Luis Carlos López","Barra para lavabo 75×50 cm — Granito Blanco Confeti"),
+        ("ACT-1105","Club médico y descanso","Vestidores doctores","Mármol","Luis Carlos López","Barra para lavabo baño hombres club médico 1.20×0.60 mts — Mármol Crema Marfil"),
+        ("ACT-1106","Club médico y descanso","Vestidor doctoras","Mármol","Luis Carlos López","Barra para lavabo baño mujeres club médico en escuadra 2.92×0.60 mts — Mármol Crema Marfil"),
+        ("ACT-1107","Recuperación pre","Cubículo anestesiólogo","Mármol","Luis Carlos López","Barra para cubículo anestesiólogo en escuadra 4.19×0.60 mts — Granito Gris Castello"),
+        ("ACT-1108","Club médico y descanso","Descanso médico","Mármol","Luis Carlos López","Barra mueble cafetera tipo grapa 1.45×0.65 + faldones + splash back — Granito Gris Castello"),
+        ("ACT-1109","Club médico y descanso","Descanso médico","Mármol","Luis Carlos López","Barra mueble club médico 2.80×0.65 + splash back 2.80×0.68 — Granito Gris Castello"),
+        ("ACT-1110","Club médico y descanso","Vestidores doctores","Mármol","Luis Carlos López","8 cubiertas para cabeceras mueble ropa sucia vestidores Dres. y Dras. — Granito Gris Castello"),
+        ("ACT-1111","Administrativas y técnicas","Jefatura","Mármol","Luis Carlos López","Cubierta para mueble jefatura 2.81×0.50 mts — Granito Gris Castello"),
+        ("ACT-1112","Administrativas y técnicas","Jefatura","Mármol","Luis Carlos López","Cubierta para mueble jefatura 1.20×0.50 mts — Granito Gris Castello"),
+    ]
+    ahora = datetime.datetime.now().isoformat(timespec="seconds")
+    creadas = []
+    for cod, bloque, area, giro, prov, partida in nuevas:
+        db.execute(
+            """INSERT INTO actividades
+            (codigo,bloque,area,giro,proveedor,partida,tipo,tipo_partida,aplica,avance,
+             estatus,definido,mundo,actualizado)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (cod, bloque, area, giro, prov, partida,
+             "Construcción", "Construcción", "SÍ", 0,
+             "Pendiente", "NO", "obra", ahora))
+        creadas.append(cod)
+    db.commit()
+    return jsonify({"ok": True, "creadas": creadas, "total": len(creadas)})
+
+
+# ──── RUTA TEMPORAL: reestructura de quirófanos sept-2026 (borrar después de usar) ────
+@app.route("/api/migrar_quirofanos_reestructura")
+@requiere_admin
+def migrar_quirofanos_reestructura():
+    """La Sala 5 se dividió en dos (nueva Sala 5 y Sala 6, ambas con la
+    especialidad de la Sala 4), la Sala 6 original pasa a ser Sala 7 con la
+    especialidad que tenía la Sala 5 original, la Sala 7 original pasa a
+    Sala 8 con su misma especialidad, y la Sala 8 original pasa a Sala 9 con
+    su misma especialidad. Las salas 1-4 no se tocan.
+
+    Todo se hace RENOMBRANDO el campo 'area' de las actividades que ya
+    existen — nunca se borra ni se vuelve a crear una fila existente — así
+    que avance, estatus, proveedor, fechas y notas quedan exactamente
+    igual que estaban. Solo se insertan actividades nuevas para la Sala 6,
+    que es la única realmente nueva, copiando el catálogo (giro/partida/
+    proveedor) de la Sala 4, todas en 0% y Pendiente.
+
+    El orden de los renombres importa: se hace de la sala más alta a la más
+    baja (8→9, luego 7→8, luego 6→7, luego 5→5) para que una sala recién
+    renombrada no se vuelva a mezclar con la siguiente antes de su turno.
+    Idempotente: si ya se corrió, no hace nada de nuevo."""
+    db = get_db()
+    ya = db.execute(
+        "SELECT COUNT(*) c FROM actividades WHERE bloque='Quirófanos' AND area='Q9 (Neuro/Trauma)'"
+    ).fetchone()["c"]
+    if ya:
+        return jsonify({"error": "Ya se ejecutó esta migración (ya existe la Sala 9)"}), 400
+
+    renombres = [
+        ("Q8 (Neuro/Trauma)", "Q9 (Neuro/Trauma)"),
+        ("Q7 (Neuro/Trauma/Cardiología)", "Q8 (Neuro/Trauma/Cardiología)"),
+        ("Q6 (Urología/Laparoscopia/Gastro/Tórax/Ortopedia)", "Q7 (Oncología/Gastro/ORL/Procto/Hernia)"),
+        ("Q5 (Oncología/Gastro/ORL/Procto/Hernia)", "Q5 (Gastro/ORL/Procto/Hernia)"),
+    ]
+    resumen = {}
+    for area_vieja, area_nueva in renombres:
+        cur = db.execute(
+            "UPDATE actividades SET area=? WHERE bloque='Quirófanos' AND area=?",
+            (area_nueva, area_vieja),
+        )
+        resumen[f"{area_vieja} -> {area_nueva}"] = cur.rowcount
+    db.commit()
+
+    # Sala 6 nueva: copia del catálogo de la Sala 4 (misma especialidad), desde cero
+    plantilla = db.execute(
+        "SELECT giro,proveedor,partida,tipo,tipo_partida FROM actividades "
+        "WHERE bloque='Quirófanos' AND area='Q4 (Gastro/ORL/Procto/Hernia)' "
+        "AND (eliminada IS NULL OR eliminada=0)"
+    ).fetchall()
+    ahora = datetime.datetime.now().isoformat(timespec="seconds")
+    num = int(siguiente_codigo(db).split("-")[1])
+    nuevos_codigos = []
+    for p in plantilla:
+        cod = f"ACT-{num:04d}"
+        db.execute(
+            """INSERT INTO actividades
+            (codigo,bloque,area,giro,proveedor,partida,tipo,tipo_partida,aplica,avance,
+             estatus,definido,mundo,actualizado)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+            (cod, "Quirófanos", "Q6 (Gastro/ORL/Procto/Hernia)", p["giro"], p["proveedor"],
+             p["partida"], p["tipo"], p["tipo_partida"], "SÍ", 0, "Pendiente", "NO", "obra", ahora),
+        )
+        nuevos_codigos.append(cod)
+        num += 1
+    db.commit()
+    resumen["Sala 6 (nueva, copiada de Sala 4)"] = len(nuevos_codigos)
+
+    return jsonify({"ok": True, "resumen": resumen, "codigos_nuevos_sala6": nuevos_codigos})
+
+
+if __name__ == "__main__":
+    print("=" * 60)
+    print("  PLATAFORMA DE CONTROL DE OBRA — HAP")
+    print("  Base de datos:", DB_PATH)
+    print("  Abre en tu navegador:  http://localhost:5000")
+    print("=" * 60)
+    puerto = int(os.environ.get("PORT", 5000))
+    host = "0.0.0.0" if os.environ.get("EN_INTERNET") else "127.0.0.1"
+    app.run(host=host, port=puerto, debug=False)
