@@ -58,10 +58,8 @@
 .p-ficha{background:#F5F7F8;border-radius:10px;padding:12px 14px;margin-bottom:14px}
 .p-ficha>div{margin-bottom:6px}
 .p-ficha .p-lbl{display:block;font-size:11px;color:#8a94a3;text-transform:uppercase}
-.p-avance-botones{display:flex;gap:8px;flex-wrap:wrap}
-.p-avance-botones button{flex:1;min-width:52px;padding:12px 0;border:2px solid #cbd2da;background:#fff;border-radius:10px;font-size:15px;font-weight:700;color:#4b5563;cursor:pointer}
-.p-avance-botones button:hover{border-color:#1E7B4B}
-.p-avance-botones button.sel{background:#1E7B4B;border-color:#1E7B4B;color:#fff}
+.p-avance-sel{width:100%;padding:13px 12px;border:2px solid #cbd2da;border-radius:10px;background:#fff;font-size:17px;font-weight:700;color:#1E7B4B;cursor:pointer}
+.p-avance-sel:focus{border-color:#1E7B4B;outline:none}
 @media(max-width:640px){
   .p-controles input[type=search]{flex:1;max-width:none}
   .p-grupo-cuerpo{grid-template-columns:1fr;padding:0 12px 14px}
