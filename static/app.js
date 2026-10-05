@@ -1183,11 +1183,27 @@ $("#btn-crear-dep").onclick = async () => {
 // ============================================================================
 $("#btn-respaldo-rapido").onclick = async () => {
   toast("Generando respaldo de seguridad...");
-  const res = await (await fetch("/api/respaldo", { method: "POST" })).json();
-  if (res.ok) {
-    toast(`Respaldo generado: ${res.archivo}`);
-  } else {
-    toast(res.error || "Error al generar respaldo");
+  try {
+    const resp = await fetch("/api/respaldo/descargar");
+    if (!resp.ok) {
+      let msg = "Error al generar respaldo";
+      try { msg = (await resp.json()).error || msg; } catch (e) { /* sin detalle */ }
+      toast(msg);
+      return;
+    }
+    const blob = await resp.blob();
+    const nombre = "obra_backup_" + new Date().toISOString().slice(0, 16).replace("T", "_").replace(":", "") + ".db";
+    const url = URL.createObjectURL(blob);
+    const enlace = document.createElement("a");
+    enlace.href = url;
+    enlace.download = nombre;
+    document.body.appendChild(enlace);
+    enlace.click();
+    enlace.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    toast("Respaldo descargado en tu equipo: " + nombre);
+  } catch (e) {
+    toast("No se pudo descargar el respaldo: " + (e.message || e));
   }
 };
 
