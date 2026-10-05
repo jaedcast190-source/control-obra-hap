@@ -347,16 +347,25 @@ function abrirReporte(id) {
   abrir("#ov-rep", "#panel-rep");
 }
 
+// El avance se elige en una lista de 10 en 10 (0, 10, 20 … 100).
+// Si una actividad trae un valor viejo que no es múltiplo de 10 (ej. 25),
+// se agrega temporalmente a la lista para que se vea tal cual lo que llevaba.
 function marcarBoton(cont, v) {
-  $$(cont + " button").forEach(b =>
-    b.classList.toggle("sel", parseInt(b.dataset.v) === parseInt(v)));
+  const lista = $(cont);
+  if (!lista || lista.tagName !== "SELECT") return;
+  const valor = String(parseInt(v) || 0);
+  if (![...lista.options].some(o => o.value === valor)) {
+    const op = document.createElement("option");
+    op.value = valor; op.textContent = valor + "%";
+    lista.appendChild(op);
+    [...lista.options].sort((a, b) => a.value - b.value).forEach(o => lista.appendChild(o));
+  }
+  lista.value = valor;
 }
 
-$$("#rep-botones button").forEach(b =>
-  b.addEventListener("click", () => {
-    $("#rep-avance").value = b.dataset.v;
-    marcarBoton("#rep-botones", b.dataset.v);
-  }));
+$("#rep-botones").addEventListener("change", (e) => {
+  $("#rep-avance").value = e.target.value;
+});
 
 async function guardarReporte() {
   const id = $("#rep-id").value;
@@ -378,11 +387,9 @@ async function guardarReporte() {
 }
 
 // ---- Proponer actividad nueva ----
-$$("#new-botones button").forEach(b =>
-  b.addEventListener("click", () => {
-    $("#new-avance").value = b.dataset.v;
-    marcarBoton("#new-botones", b.dataset.v);
-  }));
+$("#new-botones").addEventListener("change", (e) => {
+  $("#new-avance").value = e.target.value;
+});
 
 async function enviarNueva() {
   const partida = $("#new-partida").value.trim();
