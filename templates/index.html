@@ -34,6 +34,7 @@
         <button id="btn-dep-mgr" class="menu-despl-item" type="button">Dependencias</button>
         <button id="btn-cambiar-clave-admin" class="menu-despl-item" type="button">🔑 Mi contraseña</button>
         <button id="btn-respaldo-rapido" class="menu-despl-item perm-admin" type="button">💾 Respaldo</button>
+        <button id="btn-ajuste-decenas" class="menu-despl-item perm-admin" type="button">📐 Ajustar avances a 10 en 10</button>
         <button id="btn-ver-eliminadas" class="menu-despl-item perm-admin" type="button">🗑️ Eliminadas</button>
       </div>
     </div>
@@ -178,7 +179,7 @@
       <div class="campo"><label>¿Aplica?</label>
         <select id="e-aplica"><option>SÍ</option><option>NO</option></select></div>
       <div class="campo"><label>% Avance</label>
-        <input type="number" id="e-avance" min="0" max="100" step="5">
+        <input type="number" id="e-avance" min="0" max="100" step="10">
         <p class="ayuda" id="e-avance-decl-info" hidden></p>
       </div>
     </div>
@@ -350,6 +351,22 @@
   <div class="modal-pie">
     <button class="btn-sec" id="btn-cancelar-clave-admin">Cancelar</button>
     <button class="btn-pri" id="btn-guardar-clave-admin">Guardar</button>
+  </div>
+</div>
+
+<!-- Ajuste de avances a múltiplos de 10 (una sola vez, solo admin) -->
+<div class="overlay" id="overlay-ajuste" hidden></div>
+<div class="modal-add modal-ajuste" id="modal-ajuste" hidden>
+  <div class="modal-cab">
+    <h3>📐 Ajustar avances a 10 en 10</h3>
+    <button class="cerrar" id="btn-cerrar-ajuste">✕</button>
+  </div>
+  <div class="modal-cuerpo" id="ajuste-cuerpo">
+    <p class="ayuda">Cargando vista previa…</p>
+  </div>
+  <div class="modal-pie">
+    <button class="btn-sec" id="btn-cancelar-ajuste">Cancelar</button>
+    <button class="btn-pri" id="btn-aplicar-ajuste" disabled>Aplicar ajuste</button>
   </div>
 </div>
 
