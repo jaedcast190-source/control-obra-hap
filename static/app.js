@@ -329,7 +329,7 @@ function filaHtml(a, hoy) {
       <td class="celda-avance" data-id="${a.id}">
         <div class="mini-barra"><div class="mini-barra-fill ${full}" style="width:${av}%"></div><span>${av}%</span></div>
         <select class="sel-avance" data-id="${a.id}">
-          ${[0,25,50,75,100].map(v=>`<option value="${v}" ${v===av?"selected":""}>${v}%</option>`).join("")}
+          ${[0,10,20,30,40,50,60,70,80,90,100].concat(av % 10 ? [av] : []).sort((x,y)=>x-y).map(v=>`<option value="${v}" ${v===av?"selected":""}>${v}%</option>`).join("")}
         </select>
       </td>
       <td class="col-dep" style="text-align:center;">${depBadge}</td>
@@ -1206,6 +1206,84 @@ $("#btn-respaldo-rapido").onclick = async () => {
     toast("No se pudo descargar el respaldo: " + (e.message || e));
   }
 };
+
+// ============================================================================
+// Ajuste de avances a múltiplos de 10 (una sola vez, solo admin)
+// ============================================================================
+function abrirModalAjuste() {
+  $("#overlay-ajuste").hidden = false; $("#overlay-ajuste").style.display = "block";
+  $("#modal-ajuste").hidden = false;
+  $("#btn-aplicar-ajuste").disabled = true;
+  $("#btn-aplicar-ajuste").textContent = "Aplicar ajuste";
+  cargarVistaPreviaAjuste();
+}
+function cerrarModalAjuste() {
+  $("#overlay-ajuste").hidden = true; $("#overlay-ajuste").style.display = "none";
+  $("#modal-ajuste").hidden = true;
+}
+async function cargarVistaPreviaAjuste() {
+  const cuerpo = $("#ajuste-cuerpo");
+  cuerpo.innerHTML = '<p class="ayuda">Cargando vista previa…</p>';
+  try {
+    const resp = await fetch("/api/ajuste_decenas/vista_previa");
+    const r = await resp.json();
+    if (!resp.ok) { cuerpo.innerHTML = `<p class="ayuda">${escapa(r.error || "No se pudo cargar la vista previa.")}</p>`; return; }
+    if (!r.n_cambian) {
+      cuerpo.innerHTML = '<div class="aj-ok">✅ Todo está ya en múltiplos de 10. No hay nada que ajustar.</div>';
+      return;
+    }
+    const trans = r.transiciones.map(t =>
+      `<tr><td>${t.de}% → <b>${t.a}%</b></td><td class="der">${t.n}</td></tr>`).join("");
+    const resp_filas = r.por_responsable.filter(x => x.cambian > 0).map(x =>
+      `<tr><td>${escapa(x.nombre)}</td><td class="der">${x.cambian}</td><td class="der">${x.antes}% → <b>${x.despues}%</b></td></tr>`).join("");
+    cuerpo.innerHTML = `
+      <div class="aj-resumen">
+        <div class="aj-num aj-antes"><b>${r.avance_actual}%</b><span>Avance actual (Obra)</span></div>
+        <div class="aj-flecha">→</div>
+        <div class="aj-num aj-despues"><b>${r.avance_proyectado}%</b><span>Después del ajuste</span></div>
+      </div>
+      <p class="aj-titulo">Cuántas actividades cambian: ${r.n_cambian} de ${r.total_vigentes}</p>
+      <table class="aj-tabla"><thead><tr><th>Cambio</th><th class="der">Actividades</th></tr></thead><tbody>${trans}</tbody></table>
+      <p class="aj-titulo">Efecto por responsable</p>
+      <table class="aj-tabla"><thead><tr><th>Responsable</th><th class="der">Cambian</th><th class="der">Su avance</th></tr></thead><tbody>${resp_filas}</tbody></table>
+      <div class="aj-aviso">Antes de aplicar, la plataforma guarda un respaldo automático y deja cada cambio en el historial de la actividad.
+        No toca las eliminadas, las que no aplican, las 0% ni las 100%, ni el mundo Interno. Es un ajuste de escala: no es avance físico nuevo.</div>`;
+    $("#btn-aplicar-ajuste").disabled = false;
+  } catch (e) {
+    cuerpo.innerHTML = `<p class="ayuda">No se pudo cargar la vista previa: ${escapa(e.message || String(e))}</p>`;
+  }
+}
+async function aplicarAjusteDecenas() {
+  const btn = $("#btn-aplicar-ajuste");
+  if (btn.disabled) return;
+  btn.disabled = true; btn.textContent = "Aplicando…";
+  try {
+    const resp = await fetch("/api/ajuste_decenas/aplicar", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirmar: true }),
+    });
+    const r = await resp.json();
+    if (!resp.ok || !r.ok) {
+      $("#ajuste-cuerpo").innerHTML = `<div class="aj-aviso">⚠️ ${escapa(r.error || "No se pudo aplicar el ajuste.")}</div>`;
+      btn.textContent = "Aplicar ajuste";
+      return;
+    }
+    $("#ajuste-cuerpo").innerHTML = `<div class="aj-ok">✅ Listo: ${r.cambiadas} actividades ajustadas.<br>
+      Avance de Obra: <b>${r.avance_antes}% → ${r.avance_actual}%</b>.<br>
+      Respaldo previo guardado: ${escapa(r.respaldo || "")}</div>`;
+    btn.textContent = "Aplicado";
+    await cargarResumen();
+    await cargarActividades();
+  } catch (e) {
+    $("#ajuste-cuerpo").innerHTML = `<div class="aj-aviso">⚠️ No se pudo aplicar: ${escapa(e.message || String(e))}</div>`;
+    btn.textContent = "Aplicar ajuste";
+  }
+}
+$("#btn-ajuste-decenas").onclick = abrirModalAjuste;
+$("#btn-cerrar-ajuste").onclick = cerrarModalAjuste;
+$("#btn-cancelar-ajuste").onclick = cerrarModalAjuste;
+$("#overlay-ajuste").addEventListener("click", cerrarModalAjuste);
+$("#btn-aplicar-ajuste").onclick = aplicarAjusteDecenas;
 
 // ============================================================================
 // Cambio de Contraseña de Administrador
