@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plano de obra — Control de Obra HAP</title>
+<link rel="stylesheet" href="/static/estilos.css">
+<link rel="stylesheet" href="/static/plano.css">
+</head>
+<body>
+
+<header class="barra">
+  <div class="barra-izq">
+    <span class="logo">HAP</span>
+    <div>
+      <h1>Plano de obra</h1>
+      <p class="sub" id="pl-sub">Ubica cada actividad en el plano para que el proveedor la vea</p>
+    </div>
+  </div>
+  <div class="barra-der">
+    <a href="/" class="btn-reporte btn-reportes-sec">← Volver a captura</a>
+    <button id="btn-subir-plano" class="btn-reporte btn-reportes-sec perm-editar" hidden>⬆ Subir / cambiar plano</button>
+    <input type="file" id="file-plano" accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png" hidden>
+  </div>
+</header>
+
+<div class="pl-layout">
+  <aside class="pl-lado" id="pl-lado">
+    <div class="pl-pestanas">
+      <button id="tab-colocar" class="on perm-editar">📍 Ubicar actividad</button>
+      <button id="tab-colocados">📌 Colocados <span id="n-colocados">0</span></button>
+    </div>
+
+    <div class="pl-panel perm-editar" id="panel-colocar">
+      <h3>1 · Busca la actividad &nbsp; 2 · Toca el plano</h3>
+      <div class="pl-buscar"><input type="search" id="pl-q" placeholder="Código, partida, área, bloque…" autocomplete="off"></div>
+      <div class="pl-buscar"><select id="pl-prov"><option value="">Todos los proveedores</option></select></div>
+      <label class="pl-chk"><input type="checkbox" id="pl-solo-sin" checked> Solo las que aún no tienen pin</label>
+      <div class="pl-lista" id="pl-resultados"></div>
+    </div>
+
+    <div class="pl-panel" id="panel-colocados" hidden>
+      <div class="pl-buscar"><input type="search" id="pl-qc" placeholder="Buscar entre los pines…" autocomplete="off"></div>
+      <div class="pl-lista" id="pl-pines"></div>
+    </div>
+  </aside>
+
+  <main class="pl-centro">
+    <div id="pl-vista"></div>
+    <div class="pl-banner" id="pl-banner" hidden><span id="pl-banner-txt"></span><button id="pl-banner-cancelar" type="button">Cancelar</button></div>
+    <div class="plano-tarjeta" id="pl-tarjeta" hidden></div>
+  </main>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+<script src="/static/plano_visor.js"></script>
+<script src="/static/plano.js"></script>
+</body>
+</html>
