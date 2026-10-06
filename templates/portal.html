@@ -6,6 +6,7 @@
 <title>Mi avance — Control de Obra HAP</title>
 <link rel="stylesheet" href="/static/estilos.css">
 <link rel="stylesheet" href="/static/portal.css">
+<link rel="stylesheet" href="/static/plano.css">
 </head>
 <body>
 
@@ -20,6 +21,7 @@
   <div class="barra-der">
     <button id="btn-nuevas" class="btn-reporte">Sin nuevas</button>
     <button id="btn-mi-avance" class="btn-reporte btn-reportes-sec">📊 Mi avance</button>
+    <button id="btn-ver-plano" class="btn-reporte btn-reportes-sec" hidden>🗺 Plano</button>
     <button id="btn-zona" class="btn-reporte btn-reportes-sec">👁 Avance de mi zona</button>
     <button id="btn-nueva-p" class="btn-reporte btn-reportes-sec">+ Agregar actividad</button>
     <button id="btn-cambiar-clave" class="btn-reporte btn-reportes-sec">🔑 Mi contraseña</button>
@@ -47,6 +49,20 @@
 </div>
 
 <div class="p-lista" id="p-lista"></div>
+
+<!-- Vista del plano (solo mis actividades ubicadas por la dirección) -->
+<section class="p-plano-vista" id="p-plano-vista" hidden>
+  <div class="p-plano-barra">
+    <button id="btn-plano-volver" class="btn-sec" type="button">← Volver a mi lista</button>
+    <h2>🗺 Mis actividades en el plano</h2>
+    <div class="plano-leyenda"><span><i style="background:#7a8591"></i>Sin avance</span><span><i style="background:#D98E04"></i>En proceso</span><span><i style="background:#1E7B4B"></i>Listo</span></div>
+  </div>
+  <div style="position:relative">
+    <div id="p-plano-vp"></div>
+    <div class="plano-tarjeta" id="p-plano-tarjeta" hidden></div>
+  </div>
+  <p class="p-plano-vacio" id="p-plano-vacio" hidden>La dirección todavía no ha ubicado tus actividades en el plano.</p>
+</section>
 
 <!-- Panel para reportar avance de una partida existente -->
 <div class="overlay" id="ov-rep" hidden></div>
@@ -338,7 +354,9 @@
 
 <!-- Scripts al final: así ya existen TODOS los modales cuando el JS engancha los botones -->
 <script src="/static/limpiar_campos.js"></script>
+<script src="/static/plano_visor.js"></script>
 <script src="/static/portal.js"></script>
+<script src="/static/portal_plano.js"></script>
 
 </body>
 </html>
