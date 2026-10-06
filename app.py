@@ -439,6 +439,17 @@ def init_db():
         valor TEXT
     );
 
+    -- Pines de actividades sobre el plano de obra (x,y en fracción 0..1 del plano)
+    CREATE TABLE IF NOT EXISTS plano_pines (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        actividad_id INTEGER NOT NULL,
+        x            REAL NOT NULL,
+        y            REAL NOT NULL,
+        nota         TEXT,
+        creado       TEXT,
+        creado_por   TEXT
+    );
+
     -- Catálogo de proveedores con tipo (interno/externo) y de qué se encarga
     CREATE TABLE IF NOT EXISTS proveedores (
         id       INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -3847,6 +3858,222 @@ def migrar_quirofanos_reestructura():
     resumen["Sala 6 (nueva, copiada de Sala 4)"] = len(nuevos_codigos)
 
     return jsonify({"ok": True, "resumen": resumen, "codigos_nuevos_sala6": nuevos_codigos})
+
+
+# =====================================================================
+#  PLANO DE OBRA: el admin ubica cada actividad en el plano (pin) y el
+#  proveedor ve en el plano SOLO sus actividades, con su avance, y desde
+#  ahi abre la ventana de reportar avance.
+# =====================================================================
+PLANO_ARCHIVO = os.path.join(DATA_DIR, "plano_obra.img")
+PLANO_MAX_BYTES = 30 * 1024 * 1024
+PLANO_ANCHO_PX = 4600   # ancho al convertir el PDF a imagen
+
+
+def _config_get(db, clave, defecto=None):
+    r = db.execute("SELECT valor FROM config WHERE clave=?", (clave,)).fetchone()
+    return r["valor"] if r and r["valor"] is not None else defecto
+
+
+def _config_set(db, clave, valor):
+    db.execute("INSERT INTO config (clave,valor) VALUES (?,?) "
+               "ON CONFLICT(clave) DO UPDATE SET valor=excluded.valor", (clave, str(valor)))
+
+
+@app.route("/plano")
+def plano_page():
+    return render_template("plano.html")
+
+
+@app.route("/api/plano/info")
+@requiere_login
+def api_plano_info():
+    db = get_db()
+    existe = os.path.exists(PLANO_ARCHIVO)
+    return jsonify({
+        "existe": existe,
+        "version": _config_get(db, "plano_version", "0"),
+        "nombre": _config_get(db, "plano_nombre", ""),
+        "rol": session.get("rol"),
+        "puede_editar": session.get("rol") == "admin",
+    })
+
+
+@app.route("/api/plano/imagen")
+@requiere_login
+def api_plano_imagen():
+    if not os.path.exists(PLANO_ARCHIVO):
+        return jsonify({"error": "sin_plano"}), 404
+    mime = _config_get(get_db(), "plano_mime", "image/jpeg")
+    resp = send_file(PLANO_ARCHIVO, mimetype=mime, max_age=86400, conditional=True)
+    return resp
+
+
+@app.route("/api/plano/subir", methods=["POST"])
+@requiere_admin
+def api_plano_subir():
+    """Sube el plano (PDF de una hoja o imagen JPG/PNG). El PDF se convierte a imagen."""
+    f = request.files.get("archivo")
+    if not f or not f.filename:
+        return jsonify({"error": "Elige el archivo del plano (PDF, JPG o PNG)."}), 400
+    datos = f.read()
+    if len(datos) > PLANO_MAX_BYTES:
+        return jsonify({"error": "El archivo pesa más de 30 MB."}), 400
+    nombre = f.filename
+    if datos[:5] == b"%PDF-":
+        try:
+            import pymupdf
+        except ImportError:
+            try:
+                import fitz as pymupdf
+            except ImportError:
+                return jsonify({"error": "El servidor aún no puede convertir PDF. "
+                                         "Exporta el plano como imagen JPG o PNG y súbelo así."}), 500
+        try:
+            doc = pymupdf.open(stream=datos, filetype="pdf")
+            if doc.page_count < 1:
+                return jsonify({"error": "El PDF no tiene páginas."}), 400
+            pag = doc[0]
+            zoom = PLANO_ANCHO_PX / float(pag.rect.width)
+            pix = pag.get_pixmap(matrix=pymupdf.Matrix(zoom, zoom), alpha=False)
+            salida = pix.tobytes("jpg", jpg_quality=88)
+            mime = "image/jpeg"
+        except Exception as e:
+            return jsonify({"error": f"No se pudo leer el PDF: {e}"}), 400
+    elif datos[:3] == b"\xff\xd8\xff":
+        salida, mime = datos, "image/jpeg"
+    elif datos[:8] == b"\x89PNG\r\n\x1a\n":
+        salida, mime = datos, "image/png"
+    else:
+        return jsonify({"error": "Formato no válido. Sube un PDF, JPG o PNG."}), 400
+    tmp = PLANO_ARCHIVO + ".tmp"
+    with open(tmp, "wb") as fh:
+        fh.write(salida)
+    os.replace(tmp, PLANO_ARCHIVO)
+    db = get_db()
+    _config_set(db, "plano_mime", mime)
+    _config_set(db, "plano_nombre", nombre)
+    _config_set(db, "plano_version", datetime.datetime.now().strftime("%Y%m%d%H%M%S"))
+    db.commit()
+    return jsonify({"ok": True, "version": _config_get(db, "plano_version"), "kb": len(salida) // 1024})
+
+
+def _fila_pin(r):
+    return {
+        "id": r["pin_id"], "actividad_id": r["actividad_id"], "x": r["x"], "y": r["y"],
+        "nota": r["nota"] or "", "codigo": r["codigo"], "partida": r["partida"],
+        "bloque": r["bloque"], "area": r["area"], "giro": r["giro"],
+        "proveedor": r["proveedor"], "departamento": r["departamento"],
+        "avance": r["avance"] or 0, "avance_decl": r["avance_decl"],
+        "estatus": r["estatus"], "reconocida": r["reconocida"], "estado_val": r["estado_val"],
+    }
+
+
+@app.route("/api/plano/pines")
+@requiere_login
+def api_plano_pines():
+    """Pines visibles: gestores ven todos; proveedor/departamento solo los de sus actividades."""
+    db = get_db()
+    _, rol, proveedor = usuario_actual()
+    cond = ["(a.eliminada IS NULL OR a.eliminada=0)"]
+    args = []
+    if not es_gestor(rol):
+        col, mundo = col_duenio()
+        cond.append(f"a.{col}=?"); args.append(proveedor)
+        cond.append("(a.reconocida IS NULL OR a.reconocida<>'RECHAZADA')")
+    filas = db.execute(
+        "SELECT p.id AS pin_id, p.actividad_id, p.x, p.y, p.nota, a.codigo, a.partida, a.bloque, "
+        "a.area, a.giro, a.proveedor, a.departamento, a.avance, a.avance_decl, a.estatus, "
+        "a.reconocida, a.estado_val "
+        "FROM plano_pines p JOIN actividades a ON a.id=p.actividad_id "
+        f"WHERE {' AND '.join(cond)} ORDER BY p.id", args).fetchall()
+    return jsonify([_fila_pin(r) for r in filas])
+
+
+@app.route("/api/plano/actividades")
+@requiere_admin
+def api_plano_actividades():
+    """Buscador de actividades para ubicarlas en el plano."""
+    db = get_db()
+    q = (request.args.get("q") or "").strip()
+    prov = (request.args.get("proveedor") or "").strip()
+    solo_sin = request.args.get("solo_sin_pin") == "1"
+    cond = ["(a.eliminada IS NULL OR a.eliminada=0)", "(a.aplica IS NULL OR a.aplica<>'NO')"]
+    args = []
+    if q:
+        for palabra in q.split():
+            cond.append("(a.codigo LIKE ? OR a.partida LIKE ? OR a.area LIKE ? OR a.bloque LIKE ? "
+                        "OR a.giro LIKE ? OR a.proveedor LIKE ? OR a.departamento LIKE ?)")
+            args += [f"%{palabra}%"] * 7
+    if prov:
+        cond.append("(a.proveedor=? OR a.departamento=?)"); args += [prov, prov]
+    if solo_sin:
+        cond.append("NOT EXISTS (SELECT 1 FROM plano_pines p2 WHERE p2.actividad_id=a.id)")
+    filas = db.execute(
+        "SELECT a.id, a.codigo, a.partida, a.bloque, a.area, a.giro, a.proveedor, a.departamento, "
+        "a.avance, (SELECT COUNT(*) FROM plano_pines p WHERE p.actividad_id=a.id) AS n_pines "
+        f"FROM actividades a WHERE {' AND '.join(cond)} "
+        "ORDER BY a.bloque, a.area, a.id LIMIT 80", args).fetchall()
+    provs = [r[0] for r in db.execute(
+        "SELECT DISTINCT proveedor FROM actividades WHERE proveedor IS NOT NULL AND proveedor<>'' "
+        "AND (eliminada IS NULL OR eliminada=0) ORDER BY proveedor").fetchall()]
+    return jsonify({"actividades": [dict(r) for r in filas], "proveedores": provs})
+
+
+def _leer_xy(data):
+    try:
+        x = float(data.get("x")); y = float(data.get("y"))
+    except (TypeError, ValueError):
+        return None, None
+    if not (0 <= x <= 1 and 0 <= y <= 1):
+        return None, None
+    return round(x, 5), round(y, 5)
+
+
+@app.route("/api/plano/pines", methods=["POST"])
+@requiere_admin
+def api_plano_pin_crear():
+    db = get_db()
+    data = request.get_json() or {}
+    x, y = _leer_xy(data)
+    if x is None:
+        return jsonify({"error": "Posición inválida en el plano."}), 400
+    a = db.execute("SELECT id FROM actividades WHERE id=?", (data.get("actividad_id"),)).fetchone()
+    if not a:
+        return jsonify({"error": "La actividad no existe."}), 404
+    cur = db.execute(
+        "INSERT INTO plano_pines (actividad_id,x,y,nota,creado,creado_por) VALUES (?,?,?,?,?,?)",
+        (a["id"], x, y, (data.get("nota") or "").strip()[:300],
+         datetime.datetime.now().isoformat(timespec="seconds"), session.get("usuario")))
+    db.commit()
+    return jsonify({"ok": True, "id": cur.lastrowid})
+
+
+@app.route("/api/plano/pines/<int:pid>", methods=["PUT"])
+@requiere_admin
+def api_plano_pin_editar(pid):
+    db = get_db()
+    data = request.get_json() or {}
+    if not db.execute("SELECT 1 FROM plano_pines WHERE id=?", (pid,)).fetchone():
+        return jsonify({"error": "El pin no existe."}), 404
+    if "x" in data or "y" in data:
+        x, y = _leer_xy(data)
+        if x is None:
+            return jsonify({"error": "Posición inválida en el plano."}), 400
+        db.execute("UPDATE plano_pines SET x=?, y=? WHERE id=?", (x, y, pid))
+    if "nota" in data:
+        db.execute("UPDATE plano_pines SET nota=? WHERE id=?", ((data.get("nota") or "").strip()[:300], pid))
+    db.commit()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/plano/pines/<int:pid>", methods=["DELETE"])
+@requiere_admin
+def api_plano_pin_borrar(pid):
+    db = get_db()
+    db.execute("DELETE FROM plano_pines WHERE id=?", (pid,))
+    db.commit()
+    return jsonify({"ok": True})
 
 
 if __name__ == "__main__":
