@@ -166,3 +166,11 @@
   .p-plano-capasbtn{display:inline-block}
   .p-plano-mapa{width:100%}
 }
+
+/* Cada filtro con su ✕ para quitarlo de un toque (aparece solo cuando hay algo elegido) */
+.pl-sel{position:relative;min-width:0}
+.pl-sel select{padding-right:22px}
+.pl-sel.con-valor select{padding-right:50px;border-color:#1E7B4B;background:#f3faf6;font-weight:600}
+.pl-x{position:absolute;right:24px;top:50%;transform:translateY(-50%);width:22px;height:22px;border:0;border-radius:50%;background:#d93025;color:#fff;font-size:12px;font-weight:800;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
+.pl-x[hidden]{display:none}
+.pl-x:hover{background:#b42318}
