@@ -206,10 +206,17 @@
   // ---------- buscar actividades (igual que la pantalla principal) ----------
   let CAT = null;   // catálogos para los filtros (bloques, áreas por bloque, especialidades, responsables)
 
+  // La primera opción es la que "borra" el filtro: mientras hay algo elegido dice "✕ Quitar filtro".
+  function etiquetarQuitar(el) {
+    const o = el.options[0];
+    if (o) o.textContent = el.value ? "✕ Quitar filtro" : (el.dataset.titulo || "");
+  }
   function llenarSelect(id, titulo, valores, actual) {
     const el = $(id);
+    el.dataset.titulo = titulo;
     el.innerHTML = '<option value="">' + titulo + '</option>' + valores.map(v => '<option value="' + esc(v) + '">' + esc(v) + '</option>').join("");
     if (actual && valores.indexOf(actual) >= 0) el.value = actual;
+    etiquetarQuitar(el);
   }
   function llenarFiltros(d) {
     CAT = d;
@@ -254,6 +261,7 @@
   $("#pl-bloque").addEventListener("change", () => { $("#pl-area").value = ""; llenarAreas(); buscarActividades(); });
   ["#pl-area", "#pl-giro", "#pl-prov", "#pl-solo-sin"].forEach(id => $(id).addEventListener("change", buscarActividades));
   $("#pl-prov").addEventListener("change", () => { REF_UBICAR = null; aplicarVista(); });
+  ["#pl-bloque", "#pl-area", "#pl-giro", "#pl-prov"].forEach(id => $(id).addEventListener("change", () => etiquetarQuitar($(id))));
   $("#pl-limpiar").addEventListener("click", () => {
     $("#pl-q").value = ""; ["#pl-bloque", "#pl-area", "#pl-giro", "#pl-prov"].forEach(id => $(id).value = "");
     $("#pl-solo-sin").checked = false; llenarAreas(); buscarActividades();
