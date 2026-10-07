@@ -36,6 +36,7 @@
         <button id="btn-cambiar-clave-admin" class="menu-despl-item" type="button">🔑 Mi contraseña</button>
         <button id="btn-respaldo-rapido" class="menu-despl-item perm-admin" type="button">💾 Respaldo</button>
         <button id="btn-ajuste-decenas" class="menu-despl-item perm-admin" type="button">📐 Ajustar avances a 10 en 10</button>
+        <button id="btn-regresar-obra" class="menu-despl-item perm-admin" type="button">↩️ Regresar a Obra (Marquinox / Muñoz)</button>
         <button id="btn-ver-eliminadas" class="menu-despl-item perm-admin" type="button">🗑️ Eliminadas</button>
       </div>
     </div>
@@ -368,6 +369,21 @@
   <div class="modal-pie">
     <button class="btn-sec" id="btn-cancelar-ajuste">Cancelar</button>
     <button class="btn-pri" id="btn-aplicar-ajuste" disabled>Aplicar ajuste</button>
+  </div>
+</div>
+
+<div class="overlay" id="overlay-regreso" hidden></div>
+<div class="modal-add modal-ajuste" id="modal-regreso" hidden>
+  <div class="modal-cab">
+    <h3>↩️ Regresar actividades a Obra</h3>
+    <button class="cerrar" id="btn-cerrar-regreso">✕</button>
+  </div>
+  <div class="modal-cuerpo" id="regreso-cuerpo">
+    <p class="ayuda">Buscando actividades…</p>
+  </div>
+  <div class="modal-pie">
+    <button class="btn-sec" id="btn-cancelar-regreso">Cancelar</button>
+    <button class="btn-pri" id="btn-aplicar-regreso" disabled>Regresar a Obra</button>
   </div>
 </div>
 
