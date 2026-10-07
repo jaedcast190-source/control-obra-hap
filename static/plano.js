@@ -77,27 +77,60 @@
   $("#tab-colocar").addEventListener("click", () => pestana("colocar"));
   $("#tab-colocados").addEventListener("click", () => { pestana("colocados"); renderPines(); });
 
-  // ---------- buscar actividades ----------
+  // ---------- buscar actividades (igual que la pantalla principal) ----------
+  let CAT = null;   // catálogos para los filtros (bloques, áreas por bloque, especialidades, responsables)
+
+  function llenarSelect(id, titulo, valores, actual) {
+    const el = $(id);
+    el.innerHTML = '<option value="">' + titulo + '</option>' + valores.map(v => '<option value="' + esc(v) + '">' + esc(v) + '</option>').join("");
+    if (actual && valores.indexOf(actual) >= 0) el.value = actual;
+  }
+  function llenarFiltros(d) {
+    CAT = d;
+    llenarSelect("#pl-bloque", "Bloque", d.bloques, $("#pl-bloque").value);
+    llenarAreas();
+    llenarSelect("#pl-giro", "Especialidad", d.giros, $("#pl-giro").value);
+    llenarSelect("#pl-prov", "Responsable", d.proveedores, $("#pl-prov").value);
+  }
+  function llenarAreas() {
+    if (!CAT) return;
+    const b = $("#pl-bloque").value;
+    const lista = [...new Set(CAT.areas.filter(x => !b || x.bloque === b).map(x => x.area))];
+    llenarSelect("#pl-area", "Área", lista, $("#pl-area").value);
+  }
+
   async function buscarActividades() {
-    const q = $("#pl-q").value.trim(), prov = $("#pl-prov").value;
-    const solo = $("#pl-solo-sin").checked ? "1" : "0";
+    const par = new URLSearchParams({
+      q: $("#pl-q").value.trim(), bloque: $("#pl-bloque").value, area: $("#pl-area").value,
+      giro: $("#pl-giro").value, proveedor: $("#pl-prov").value,
+      solo_sin_pin: $("#pl-solo-sin").checked ? "1" : "0",
+    });
     try {
-      const d = await api("/api/plano/actividades?q=" + encodeURIComponent(q) + "&proveedor=" + encodeURIComponent(prov) + "&solo_sin_pin=" + solo);
-      if ($("#pl-prov").options.length <= 1) {
-        $("#pl-prov").innerHTML = '<option value="">Todos los proveedores</option>' + d.proveedores.map(p => '<option>' + esc(p) + '</option>').join("");
-      }
-      $("#pl-resultados").innerHTML = d.actividades.length ? d.actividades.map(a =>
-        '<button type="button" class="pl-item' + (COLOCANDO && COLOCANDO.id === a.id ? " activo" : "") + '" data-id="' + a.id + '">' +
-        '<div class="i-cod">' + esc(a.codigo) + (a.n_pines ? '<span class="pl-badge">📍 ' + a.n_pines + '</span>' : '') + '</div>' +
-        '<div class="i-par">' + esc(a.partida) + '</div>' +
-        '<div class="i-met">' + esc([a.bloque, a.area, a.proveedor || a.departamento].filter(Boolean).join(" · ")) + ' · ' + (a.avance || 0) + '%</div></button>'
-      ).join("") : '<p class="pl-sinplano" style="padding:16px">Sin resultados.</p>';
+      const d = await api("/api/plano/actividades?" + par.toString());
+      if (!CAT) llenarFiltros(d);
+      $("#pl-contador").textContent = d.total > d.actividades.length
+        ? "Mostrando " + d.actividades.length + " de " + d.total
+        : d.total + (d.total === 1 ? " actividad" : " actividades");
+      let html = "", grupo = "";
+      d.actividades.forEach(a => {
+        const g = [a.bloque, a.area].filter(Boolean).join(" · ");
+        if (g !== grupo) { grupo = g; html += '<div class="pl-grupo">' + esc(g || "Sin área") + '</div>'; }
+        html += '<button type="button" class="pl-item' + (a.n_pines ? " con-pin" : "") + (COLOCANDO && COLOCANDO.id === a.id ? " activo" : "") + '" data-id="' + a.id + '">' +
+          '<div class="i-cod">' + esc(a.codigo) + (a.n_pines ? '<span class="pl-badge">📍 ' + a.n_pines + '</span>' : '') + '<span class="i-av">' + (a.avance || 0) + '%</span></div>' +
+          '<div class="i-par">' + esc(a.partida) + '</div>' +
+          '<div class="i-met">' + esc([a.giro, a.proveedor || a.departamento].filter(Boolean).join(" · ")) + '</div></button>';
+      });
+      $("#pl-resultados").innerHTML = html || '<p class="pl-sinplano" style="padding:16px">Sin resultados.</p>';
       $("#pl-resultados").dataset.lista = JSON.stringify(d.actividades);
     } catch (e) { toast(e.message); }
   }
   $("#pl-q").addEventListener("input", () => { clearTimeout(tBusca); tBusca = setTimeout(buscarActividades, 250); });
-  $("#pl-prov").addEventListener("change", buscarActividades);
-  $("#pl-solo-sin").addEventListener("change", buscarActividades);
+  $("#pl-bloque").addEventListener("change", () => { $("#pl-area").value = ""; llenarAreas(); buscarActividades(); });
+  ["#pl-area", "#pl-giro", "#pl-prov", "#pl-solo-sin"].forEach(id => $(id).addEventListener("change", buscarActividades));
+  $("#pl-limpiar").addEventListener("click", () => {
+    $("#pl-q").value = ""; ["#pl-bloque", "#pl-area", "#pl-giro", "#pl-prov"].forEach(id => $(id).value = "");
+    $("#pl-solo-sin").checked = false; llenarAreas(); buscarActividades();
+  });
   $("#pl-resultados").addEventListener("click", (e) => {
     const b = e.target.closest(".pl-item"); if (!b) return;
     const lista = JSON.parse($("#pl-resultados").dataset.lista || "[]");
