@@ -1286,6 +1286,82 @@ $("#overlay-ajuste").addEventListener("click", cerrarModalAjuste);
 $("#btn-aplicar-ajuste").onclick = aplicarAjusteDecenas;
 
 // ============================================================================
+// Regresar a Obra actividades que se movieron por error a Interno (solo admin)
+// ============================================================================
+const PROV_REGRESO = ["Marquinox", "Muñoz"];
+function abrirModalRegreso() {
+  $("#overlay-regreso").hidden = false; $("#overlay-regreso").style.display = "block";
+  $("#modal-regreso").hidden = false;
+  $("#btn-aplicar-regreso").disabled = true;
+  $("#btn-aplicar-regreso").textContent = "Regresar a Obra";
+  cargarVistaPreviaRegreso();
+}
+function cerrarModalRegreso() {
+  $("#overlay-regreso").hidden = true; $("#overlay-regreso").style.display = "none";
+  $("#modal-regreso").hidden = true;
+}
+async function cargarVistaPreviaRegreso() {
+  const cuerpo = $("#regreso-cuerpo");
+  cuerpo.innerHTML = '<p class="ayuda">Buscando actividades…</p>';
+  try {
+    const resp = await fetch("/api/regresar_a_obra/vista_previa?proveedores=" + encodeURIComponent(PROV_REGRESO.join(",")));
+    const r = await resp.json();
+    if (!resp.ok) { cuerpo.innerHTML = `<p class="ayuda">${escapa(r.error || "No se pudo cargar la vista previa.")}</p>`; return; }
+    if (!r.total) {
+      cuerpo.innerHTML = '<div class="aj-ok">✅ No hay actividades de ' + PROV_REGRESO.join(" ni de ") + ' en Interno por regresar.</div>';
+      return;
+    }
+    const porProv = r.por_proveedor.map(x => `<tr><td>${escapa(x.proveedor)}</td><td class="der">${x.n}</td></tr>`).join("");
+    const filas = r.actividades.map(a =>
+      `<tr><td>${escapa(a.codigo || "")}</td><td>${escapa(a.partida || "")}</td><td>${escapa(a.area || "")}</td>` +
+      `<td class="der">${a.avance}%</td><td>${escapa(a.proveedor_original || "")}</td></tr>`).join("");
+    cuerpo.innerHTML = `
+      <p class="aj-titulo">Se van a regresar a Obra: ${r.total} actividades</p>
+      <table class="aj-tabla"><thead><tr><th>Proveedor original</th><th class="der">Actividades</th></tr></thead><tbody>${porProv}</tbody></table>
+      <p class="aj-titulo">Detalle</p>
+      <div style="max-height:260px;overflow:auto;font-size:12px">
+      <table class="aj-tabla"><thead><tr><th>Código</th><th>Partida</th><th>Área</th><th class="der">%</th><th>Era de</th></tr></thead><tbody>${filas}</tbody></table></div>
+      <div class="aj-aviso">Cada una regresa a su proveedor de antes, con su mismo avance (el avance y los pines no se tocan).
+        Las demás actividades de Interno (${r.se_quedan_en_interno}) se quedan como están. Antes de aplicar se guarda un respaldo automático
+        y cada cambio queda en el historial de la actividad.</div>`;
+    $("#btn-aplicar-regreso").disabled = false;
+  } catch (e) {
+    cuerpo.innerHTML = `<p class="ayuda">No se pudo cargar la vista previa: ${escapa(e.message || String(e))}</p>`;
+  }
+}
+async function aplicarRegresoObra() {
+  const btn = $("#btn-aplicar-regreso");
+  if (btn.disabled) return;
+  btn.disabled = true; btn.textContent = "Regresando…";
+  try {
+    const resp = await fetch("/api/regresar_a_obra/aplicar", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ confirmar: true, proveedores: PROV_REGRESO }),
+    });
+    const r = await resp.json();
+    if (!resp.ok || !r.ok) {
+      $("#regreso-cuerpo").innerHTML = `<div class="aj-aviso">⚠️ ${escapa(r.error || "No se pudo regresar.")}</div>`;
+      btn.textContent = "Regresar a Obra";
+      return;
+    }
+    const det = Object.entries(r.por_proveedor || {}).map(([k, v]) => `${escapa(k)}: ${v}`).join(" · ");
+    $("#regreso-cuerpo").innerHTML = `<div class="aj-ok">✅ Listo: ${r.regresadas} actividades regresaron a Obra.<br>${det}<br>
+      Respaldo previo guardado: ${escapa(r.respaldo || "")}</div>`;
+    btn.textContent = "Listo";
+    await cargarResumen();
+    await cargarActividades();
+  } catch (e) {
+    $("#regreso-cuerpo").innerHTML = `<div class="aj-aviso">⚠️ No se pudo regresar: ${escapa(e.message || String(e))}</div>`;
+    btn.textContent = "Regresar a Obra";
+  }
+}
+$("#btn-regresar-obra").onclick = abrirModalRegreso;
+$("#btn-cerrar-regreso").onclick = cerrarModalRegreso;
+$("#btn-cancelar-regreso").onclick = cerrarModalRegreso;
+$("#overlay-regreso").addEventListener("click", cerrarModalRegreso);
+$("#btn-aplicar-regreso").onclick = aplicarRegresoObra;
+
+// ============================================================================
 // Cambio de Contraseña de Administrador
 // ============================================================================
 function abrirClaveAdmin() {
