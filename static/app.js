@@ -166,9 +166,11 @@ async function cargarResumen() {
   if (dias <= 30) $("#contador").classList.add("critico");
 }
 
+let FILTRO_PIN = "";   // "" = todas · "con" = ya están en el plano · "sin" = faltan por ubicar
 async function cargarActividades() {
   const params = new URLSearchParams();
   params.set("mundo", MUNDO);
+  if (FILTRO_PIN) params.set("pin", FILTRO_PIN);
   if ($("#f-bloque").value) params.set("bloque", $("#f-bloque").value);
   if ($("#f-area").value) params.set("area", $("#f-area").value);
   if ($("#f-proveedor").value) params.set("proveedor", $("#f-proveedor").value);
@@ -336,8 +338,7 @@ function filaHtml(a, hoy) {
       <td class="${finCls}">${escapa(a.f_fin || "")}</td>
       <td>${badge(a.estatus)}</td>
       <td class="acciones-fila">
-        <span class="editar-ico" title="Editar">✎</span>
-        <span class="hist-ico" data-id="${a.id}" title="Ver historial">🕑</span>
+        <span class="pin-ico ${a.n_pines ? "con" : "sin"}" data-id="${a.id}" title="${a.n_pines ? "Está en el plano · toca para verla" : (ROL_ACTUAL === "admin" ? "Sin pin · toca para ubicarla en el plano" : "Aún sin pin en el plano")}">📍</span>
         <span class="borrar-ico" data-id="${a.id}" title="Eliminar">🗑</span>
       </td>
     </tr>`;
@@ -351,15 +352,17 @@ function enlazarFilas() {
       if (e.target.closest(".col-dep")) return;
       if (e.target.closest(".col-check")) return;
       if (e.target.closest(".borrar-ico")) return;
-      if (e.target.closest(".hist-ico")) return;
+      if (e.target.closest(".pin-ico")) return;
       abrirPanel(tr.dataset.id);
     })
   );
-  // ícono de historial: abre la línea de tiempo de esa actividad
-  $$(".hist-ico").forEach((b) =>
+  // 📍: con pin → abre el plano centrado en ella; sin pin → el admin va a ubicarla
+  $$(".pin-ico").forEach((b) =>
     b.addEventListener("click", (e) => {
       e.stopPropagation();
-      abrirHistorial(b.dataset.id, e);
+      const tiene = b.classList.contains("con");
+      if (!tiene && ROL_ACTUAL !== "admin") { toast("Esta actividad aún no tiene pin en el plano."); return; }
+      location.href = "/plano?actividad=" + encodeURIComponent(b.dataset.id);
     })
   );
   // cambio rápido de avance en línea
@@ -420,6 +423,7 @@ async function abrirPanel(id) {
   if (!a) return;
   $("#panel-titulo").textContent = "Editar · " + (a.codigo || "actividad");
   $("#e-id").value = a.id;
+  $("#btn-hist-panel").hidden = false;
   const mundoAct = a.mundo || "obra";
   if ($("#e-mundo") && $("#e-mundo").tagName === "SELECT") $("#e-mundo").value = mundoAct;
   await actualizarPanelSegunMundo(mundoAct);
@@ -477,6 +481,8 @@ async function abrirPanel(id) {
 
 async function nuevaActividad() {
   $("#panel-titulo").textContent = "Nueva actividad";
+  $("#btn-hist-panel").hidden = true;
+  cerrarHistorial();
   ["e-id", "e-area", "e-bloque", "e-giro", "e-proveedor", "e-partida", "e-inicio", "e-fin", "e-duracion", "e-notas", "e-causa", "e-nota-prov"]
     .forEach((i) => ($("#" + i).value = ""));
   if ($("#e-mundo") && $("#e-mundo").tagName === "SELECT") $("#e-mundo").value = MUNDO;
@@ -546,6 +552,7 @@ function mostrarPanel() {
   hapProtegerHistorial();
 }
 function ocultarPanel() {
+  cerrarHistorial();
   const ov = $("#overlay"), pn = $("#panel");
   ov.hidden = true; pn.hidden = true;
   ov.style.display = "none";
@@ -696,10 +703,38 @@ $("#btn-limpiar").addEventListener("click", () => {
   $("#f-avance-min").value = "";
   $("#f-avance-max").value = "";
   $("#buscar").value = "";
+  FILTRO_PIN = ""; pintarBotonPin();
   llenarDatalist("#dl-area", CATALOGOS.areas);
   llenarListaResponsables();
   cargarActividades();
 });
+
+// ====== Ventanita "📍 Pines": filtrar actividades con / sin pin en el plano ======
+function pintarBotonPin() {
+  const b = $("#btn-filtro-pin");
+  b.classList.toggle("activo", !!FILTRO_PIN);
+  b.textContent = FILTRO_PIN === "con" ? "📍 Con pin ✕" : FILTRO_PIN === "sin" ? "📍 Sin pin ✕" : "📍 Pines";
+}
+async function abrirVentanaPin() {
+  $("#overlay-pin").hidden = false; $("#overlay-pin").style.display = "block";
+  $("#modal-pin").hidden = false; $("#modal-pin").style.display = "flex";
+  $$("#modal-pin .pinf-opc").forEach((o) => o.classList.toggle("on", o.dataset.pin === FILTRO_PIN));
+  try {
+    const c = await (await fetch("/api/plano/conteo?mundo=" + encodeURIComponent(MUNDO))).json();
+    $("#pinf-n-todas").textContent = c.total; $("#pinf-n-con").textContent = c.con; $("#pinf-n-sin").textContent = c.sin;
+  } catch (e) { /* sin conteo: se muestran los guiones */ }
+}
+function cerrarVentanaPin() {
+  $("#overlay-pin").hidden = true; $("#overlay-pin").style.display = "none";
+  $("#modal-pin").hidden = true; $("#modal-pin").style.display = "none";
+}
+$("#btn-filtro-pin").addEventListener("click", () => { if (FILTRO_PIN) { FILTRO_PIN = ""; pintarBotonPin(); cargarActividades(); } else abrirVentanaPin(); });
+$("#btn-cerrar-pin").addEventListener("click", cerrarVentanaPin);
+$("#btn-listo-pin").addEventListener("click", cerrarVentanaPin);
+$("#overlay-pin").addEventListener("click", cerrarVentanaPin);
+$$("#modal-pin .pinf-opc").forEach((o) => o.addEventListener("click", () => {
+  FILTRO_PIN = o.dataset.pin; pintarBotonPin(); cerrarVentanaPin(); cargarActividades();
+}));
 $("#btn-nueva").addEventListener("click", nuevaActividad);
 // interruptor Obra / Internos
 let TIPOS_INTERNOS = [];
@@ -776,6 +811,11 @@ document.addEventListener("click", cerrarTodosMenusDespl);
 document.addEventListener("keydown", (e) => { if (e.key === "Escape") cerrarTodosMenusDespl(); });
 envolverMenuDespl("#menu-admin", "#menu-admin-lista");
 envolverMenuDespl("#menu-reportes", "#menu-reportes-lista");
+$("#btn-hist-panel").addEventListener("click", (e) => {
+  e.stopPropagation();
+  const id = $("#e-id").value;
+  if (id) abrirHistorial(id);
+});
 const histCerrar = $("#hist-cerrar");
 if (histCerrar) histCerrar.addEventListener("click", cerrarHistorial);
 const btnSalirAdmin = $("#btn-salir-admin");
@@ -832,6 +872,10 @@ $("#duplicar-act").addEventListener("click", async () => {
 // Tecla Escape también cierra el panel
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
+  const mp = $("#modal-pin");
+  if (mp && !mp.hidden) { cerrarVentanaPin(); return; }
+  const gh = $("#panel-hist");
+  if (gh && !gh.hidden) { cerrarHistorial(); return; }
   const pnResumen = $("#panel-resumen-cat");
   if (pnResumen && !pnResumen.hidden) { ocultarResumenCategoria(); return; }
   ocultarPanel();
@@ -848,7 +892,7 @@ const NOMBRE_CAMPO = {
   "causa_retraso": "Causa de retraso", "nota_proveedor": "Nota del proveedor",
   "avance_decl": "Avance declarado",
 };
-async function abrirHistorial(id, ev) {
+async function abrirHistorial(id) {
   const d = await (await fetch("/api/actividad/" + id + "/historial")).json();
   const cont = $("#hist-cuerpo");
   const a = d.actividad || {};
@@ -871,23 +915,9 @@ async function abrirHistorial(id, ev) {
   const globo = $("#panel-hist");
   globo.hidden = false;
   globo.style.display = "block";
-  // posicionar el globo junto al ícono que se clickeó
-  if (ev) {
-    const r = ev.target.getBoundingClientRect();
-    const gw = 340;
-    // por defecto a la izquierda del ícono (los íconos están a la derecha de la tabla)
-    let left = r.left - gw - 10;
-    if (left < 10) left = r.right + 10; // si no cabe, va a la derecha
-    let top = r.top;
-    globo.style.left = left + "px";
-    globo.style.top = (window.scrollY + top) + "px";
-    // si se sale por abajo, lo subo
-    const gh = globo.offsetHeight;
-    if (top + gh > window.innerHeight) {
-      globo.style.top = (window.scrollY + Math.max(10, window.innerHeight - gh - 10)) + "px";
-    }
-  }
+  cuerpoScroll0();
 }
+function cuerpoScroll0() { const g = $("#panel-hist"); if (g) g.scrollTop = 0; }
 function cerrarHistorial() {
   const g = $("#panel-hist");
   g.hidden = true; g.style.display = "none";
@@ -895,7 +925,7 @@ function cerrarHistorial() {
 // cerrar el globo al hacer clic fuera de él
 document.addEventListener("click", (e) => {
   const g = $("#panel-hist");
-  if (g && !g.hidden && !g.contains(e.target) && !e.target.closest(".hist-ico")) {
+  if (g && !g.hidden && !g.contains(e.target) && !e.target.closest(".btn-hist-panel")) {
     cerrarHistorial();
   }
 });
