@@ -958,7 +958,9 @@ def expediente_page():
 @requiere_login
 def api_actividades():
     db = get_db()
-    q = "SELECT * FROM actividades"
+    # n_pines: cuántos pines tiene la actividad en el plano de obra (para el 📍 de la tabla)
+    q = ("SELECT actividades.*, (SELECT COUNT(*) FROM plano_pines pp WHERE pp.actividad_id=actividades.id) AS n_pines "
+         "FROM actividades")
     cond = ["(eliminada IS NULL OR eliminada=0)"]
     args = []
     bloque = request.args.get("bloque")
@@ -1003,6 +1005,12 @@ def api_actividades():
         b = "%" + sin_acentos(buscar) + "%"
         cond.append(f"(sinac(partida) LIKE ? OR sinac(area) LIKE ? OR sinac({col_resp}) LIKE ? OR sinac(bloque) LIKE ? OR sinac(codigo) LIKE ?)")
         args += [b] * 5
+    # filtro por pin en el plano: 'con' = ya ubicadas, 'sin' = faltan por ubicar
+    pin = request.args.get("pin")
+    if pin == "con":
+        cond.append("EXISTS (SELECT 1 FROM plano_pines pf WHERE pf.actividad_id=actividades.id)")
+    elif pin == "sin":
+        cond.append("NOT EXISTS (SELECT 1 FROM plano_pines pf WHERE pf.actividad_id=actividades.id)")
     # por defecto no mostramos las rechazadas en la tabla principal
     if request.args.get("incluir_rechazadas") != "1":
         cond.append("(estado_val IS NULL OR estado_val<>'rechazada')")
@@ -4020,7 +4028,37 @@ def api_plano_info():
         "nombre": _config_get(db, "plano_nombre", ""),
         "rol": session.get("rol"),
         "puede_editar": session.get("rol") == "admin",
+        "ver_otros": _config_get(db, "plano_ver_otros", "1") == "1",
     })
+
+
+@app.route("/api/plano/config", methods=["POST"])
+@requiere_admin
+def api_plano_config():
+    """Opciones del plano que decide el admin (hoy: si los proveedores ven a otros gremios)."""
+    data = request.get_json(silent=True) or {}
+    db = get_db()
+    if "ver_otros" in data:
+        _config_set(db, "plano_ver_otros", "1" if data.get("ver_otros") else "0")
+    db.commit()
+    return jsonify({"ok": True, "ver_otros": _config_get(db, "plano_ver_otros", "1") == "1"})
+
+
+@app.route("/api/plano/conteo")
+@requiere_login
+def api_plano_conteo():
+    """Cuántas actividades del mundo (obra/interno) ya tienen pin y cuántas faltan: para la ventanita de filtro."""
+    db = get_db()
+    mundo = request.args.get("mundo", "obra")
+    cond = ["(a.eliminada IS NULL OR a.eliminada=0)", "(a.estado_val IS NULL OR a.estado_val<>'rechazada')"]
+    args = []
+    if mundo != "todos":
+        cond.append("(a.mundo = ? OR (a.mundo IS NULL AND ? = 'obra'))"); args += [mundo, mundo]
+    r = db.execute(
+        "SELECT COUNT(*) AS total, SUM(CASE WHEN EXISTS (SELECT 1 FROM plano_pines p WHERE p.actividad_id=a.id) THEN 1 ELSE 0 END) AS con "
+        f"FROM actividades a WHERE {' AND '.join(cond)}", args).fetchone()
+    total, con = r["total"] or 0, r["con"] or 0
+    return jsonify({"total": total, "con": con, "sin": total - con})
 
 
 @app.route("/api/plano/imagen")
@@ -4082,8 +4120,35 @@ def api_plano_subir():
     return jsonify({"ok": True, "version": _config_get(db, "plano_version"), "kb": len(salida) // 1024})
 
 
-def _fila_pin(r):
+# Paleta de capas por responsable (azul, naranja, aqua, violeta, magenta; el resto va a "Otros").
+PLANO_PALETA = ["#2a78d6", "#eb6834", "#1baf7a", "#4a3aa7", "#e87ba4"]
+PLANO_COLOR_OTROS = "#8b949e"
+_SQL_RESP = "COALESCE(NULLIF(TRIM(a.proveedor),''), NULLIF(TRIM(a.departamento),''), 'Sin responsable')"
+
+
+def _capas_plano(db):
+    """Asigna color a cada responsable según cuántos pines tiene en TODO el plano (los 5 con más
+    pines tienen color propio; el resto se agrupa en 'Otros'). Es la misma asignación para el
+    admin y para los proveedores, así un gremio se ve del mismo color en todas partes."""
+    filas = db.execute(
+        f"SELECT {_SQL_RESP} AS resp, COUNT(*) AS n FROM plano_pines p "
+        "JOIN actividades a ON a.id=p.actividad_id "
+        "WHERE (a.eliminada IS NULL OR a.eliminada=0) GROUP BY resp "
+        "ORDER BY n DESC, resp COLLATE NOCASE").fetchall()
+    mapa = {}
+    for i, f in enumerate(filas):
+        if i < len(PLANO_PALETA):
+            mapa[f["resp"]] = (f["resp"], PLANO_PALETA[i])
+        else:
+            mapa[f["resp"]] = ("Otros", PLANO_COLOR_OTROS)
+    return mapa
+
+
+def _fila_pin(r, capas=None):
+    resp = (r["proveedor"] or "").strip() or (r["departamento"] or "").strip() or "Sin responsable"
+    capa, color = (capas or {}).get(resp, (resp, PLANO_COLOR_OTROS))
     return {
+        "resp": resp, "capa": capa, "color": color,
         "id": r["pin_id"], "actividad_id": r["actividad_id"], "x": r["x"], "y": r["y"],
         "nota": r["nota"] or "", "codigo": r["codigo"], "partida": r["partida"],
         "bloque": r["bloque"], "area": r["area"], "giro": r["giro"],
@@ -4111,7 +4176,38 @@ def api_plano_pines():
         "a.reconocida, a.estado_val "
         "FROM plano_pines p JOIN actividades a ON a.id=p.actividad_id "
         f"WHERE {' AND '.join(cond)} ORDER BY p.id", args).fetchall()
-    return jsonify([_fila_pin(r) for r in filas])
+    capas = _capas_plano(db)
+    return jsonify([_fila_pin(r, capas) for r in filas])
+
+
+@app.route("/api/plano/otros")
+@requiere_login
+def api_plano_otros():
+    """Solo consulta para proveedores/departamentos: dónde trabajan los OTROS gremios de su mismo
+    mundo y cuánto llevan. No incluye códigos ni notas, y el admin puede apagarlo."""
+    db = get_db()
+    _, rol, proveedor = usuario_actual()
+    if es_gestor(rol):
+        return jsonify({"habilitado": True, "pines": []})
+    if _config_get(db, "plano_ver_otros", "1") != "1":
+        return jsonify({"habilitado": False, "pines": []})
+    col, _m = col_duenio()
+    filas = db.execute(
+        "SELECT p.id AS pin_id, p.actividad_id, p.x, p.y, a.partida, a.bloque, a.area, a.giro, "
+        "a.proveedor, a.departamento, a.avance "
+        "FROM plano_pines p JOIN actividades a ON a.id=p.actividad_id "
+        f"WHERE (a.eliminada IS NULL OR a.eliminada=0) AND a.{col} IS NOT NULL AND TRIM(a.{col})<>'' "
+        f"AND a.{col}<>? AND (a.reconocida IS NULL OR a.reconocida<>'RECHAZADA') ORDER BY p.id",
+        (proveedor,)).fetchall()
+    capas = _capas_plano(db)
+    sal = []
+    for r in filas:
+        resp = (r[col] or "").strip()
+        capa, color = capas.get(resp, (resp, PLANO_COLOR_OTROS))
+        sal.append({"id": r["pin_id"], "x": r["x"], "y": r["y"], "partida": r["partida"],
+                    "bloque": r["bloque"], "area": r["area"], "avance": r["avance"] or 0,
+                    "resp": resp, "capa": capa, "color": color})
+    return jsonify({"habilitado": True, "pines": sal})
 
 
 @app.route("/api/plano/actividades")
