@@ -42,10 +42,10 @@
         </select></div>
       <div class="pl-buscar"><input type="search" id="pl-q" placeholder="Buscar actividad, partida, responsable, etc." autocomplete="off"></div>
       <div class="pl-filtros">
-        <select id="pl-bloque"><option value="">Bloque</option></select>
-        <select id="pl-area"><option value="">Área</option></select>
-        <select id="pl-giro"><option value="">Especialidad</option></select>
-        <select id="pl-prov"><option value="">Responsable</option></select>
+        <div class="pl-sel"><select id="pl-bloque"><option value="">Bloque</option></select><button type="button" class="pl-x" data-para="pl-bloque" title="Quitar este filtro" aria-label="Quitar filtro de Bloque" hidden>✕</button></div>
+        <div class="pl-sel"><select id="pl-area"><option value="">Área</option></select><button type="button" class="pl-x" data-para="pl-area" title="Quitar este filtro" aria-label="Quitar filtro de Área" hidden>✕</button></div>
+        <div class="pl-sel"><select id="pl-giro"><option value="">Especialidad</option></select><button type="button" class="pl-x" data-para="pl-giro" title="Quitar este filtro" aria-label="Quitar filtro de Especialidad" hidden>✕</button></div>
+        <div class="pl-sel"><select id="pl-prov"><option value="">Responsable</option></select><button type="button" class="pl-x" data-para="pl-prov" title="Quitar este filtro" aria-label="Quitar filtro de Responsable" hidden>✕</button></div>
       </div>
       <div class="pl-fila-info">
         <label class="pl-chk"><input type="checkbox" id="pl-solo-sin"> Solo sin pin</label>
