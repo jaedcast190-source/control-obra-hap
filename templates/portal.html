@@ -55,11 +55,14 @@
   <div class="p-plano-barra">
     <button id="btn-plano-volver" class="btn-sec" type="button">← Volver a mi lista</button>
     <h2>🗺 Mis actividades en el plano</h2>
-    <div class="plano-leyenda"><span><i style="background:#7a8591"></i>Sin avance</span><span><i style="background:#D98E04"></i>En proceso</span><span><i style="background:#1E7B4B"></i>Listo</span></div>
+    <button id="btn-plano-capas" class="btn-sec p-plano-capasbtn" type="button">Capas ▾</button>
   </div>
-  <div style="position:relative">
-    <div id="p-plano-vp"></div>
-    <div class="plano-tarjeta" id="p-plano-tarjeta" hidden></div>
+  <div class="p-plano-cuerpo">
+    <aside class="p-plano-panel" id="p-plano-panel"></aside>
+    <div class="p-plano-mapa">
+      <div id="p-plano-vp"></div>
+      <div class="plano-tarjeta" id="p-plano-tarjeta" hidden></div>
+    </div>
   </div>
   <p class="p-plano-vacio" id="p-plano-vacio" hidden>La dirección todavía no ha ubicado tus actividades en el plano.</p>
 </section>
