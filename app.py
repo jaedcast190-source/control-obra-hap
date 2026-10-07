@@ -3359,6 +3359,130 @@ def api_ajuste_decenas_aplicar():
 
 
 # ----------------------------------------------------------------------------
+# Regresar a OBRA actividades que se movieron por error a INTERNO (solo admin)
+# Se apoya en el historial: cada movimiento Obra->Interno dejó guardado el valor
+# anterior de proveedor, departamento, tipo, etc., así que se deshace con precisión
+# (sin tocar lo que ya era Interno desde antes ni lo de otros proveedores).
+# ----------------------------------------------------------------------------
+_CAMPOS_MOVIMIENTO = ("mundo", "proveedor", "departamento", "tipo_interno", "tipo_partida",
+                      "requiere_pruebas", "valida_depto")
+
+
+def _norm_nombre(t):
+    return " ".join(str(t or "").split()).casefold()
+
+
+def _valor_hist(v):
+    """El historial guarda str(None) como 'None'; se regresa a NULL real."""
+    return None if v in (None, "", "None") else v
+
+
+def _candidatas_regreso_obra(db, proveedores):
+    """Actividades hoy en Interno que antes eran de Obra de alguno de `proveedores`.
+    Devuelve lista de dicts con la actividad y los valores a restaurar."""
+    quer = {_norm_nombre(p) for p in proveedores if str(p or "").strip()}
+    salida = []
+    filas = db.execute(
+        "SELECT * FROM actividades WHERE mundo='interno' AND (eliminada IS NULL OR eliminada=0)").fetchall()
+    for a in filas:
+        mov = db.execute(
+            "SELECT fecha FROM historial WHERE actividad_id=? AND campo='mundo' "
+            "AND valor_antes='obra' AND valor_despues='interno' ORDER BY fecha DESC, id DESC LIMIT 1",
+            (a["id"],)).fetchone()
+        if not mov:
+            continue
+        f0 = datetime.datetime.fromisoformat(mov["fecha"])
+        f1 = (f0 + datetime.timedelta(seconds=3)).isoformat(timespec="seconds")
+        rows = db.execute(
+            "SELECT campo, valor_antes FROM historial WHERE actividad_id=? AND fecha>=? AND fecha<=? "
+            "AND campo IN (%s) ORDER BY id" % ",".join("?" * len(_CAMPOS_MOVIMIENTO)),
+            (a["id"], mov["fecha"], f1, *_CAMPOS_MOVIMIENTO)).fetchall()
+        restaurar = {}
+        for r in rows:
+            restaurar.setdefault(r["campo"], _valor_hist(r["valor_antes"]))
+        restaurar["mundo"] = "obra"
+        prov_orig = restaurar.get("proveedor") if "proveedor" in restaurar else a["proveedor"]
+        if _norm_nombre(prov_orig) not in quer:
+            continue
+        restaurar.setdefault("departamento", None)
+        restaurar["departamento"] = None
+        restaurar["tipo_interno"] = None
+        restaurar["proveedor"] = prov_orig
+        salida.append({"a": a, "restaurar": restaurar, "proveedor_original": prov_orig, "fecha_movimiento": mov["fecha"]})
+    return salida
+
+
+def _proveedores_regreso(request_args_or_data):
+    crudo = request_args_or_data
+    if isinstance(crudo, str):
+        crudo = [x for x in crudo.split(",")]
+    lista = [str(x).strip() for x in (crudo or []) if str(x).strip()]
+    return lista or ["Marquinox", "Muñoz"]
+
+
+@app.route("/api/regresar_a_obra/vista_previa")
+@requiere_admin
+def api_regresar_obra_vista_previa():
+    db = get_db()
+    provs = _proveedores_regreso(request.args.get("proveedores", ""))
+    cand = _candidatas_regreso_obra(db, provs)
+    por_prov = {}
+    for c in cand:
+        por_prov[c["proveedor_original"]] = por_prov.get(c["proveedor_original"], 0) + 1
+    internas = db.execute(
+        "SELECT COUNT(*) FROM actividades WHERE mundo='interno' AND (eliminada IS NULL OR eliminada=0)").fetchone()[0]
+    return jsonify({
+        "proveedores_buscados": provs,
+        "total": len(cand),
+        "por_proveedor": [{"proveedor": k, "n": v} for k, v in sorted(por_prov.items())],
+        "internas_total": internas,
+        "se_quedan_en_interno": internas - len(cand),
+        "actividades": [{
+            "id": c["a"]["id"], "codigo": c["a"]["codigo"], "partida": c["a"]["partida"],
+            "area": c["a"]["area"], "avance": c["a"]["avance"] or 0,
+            "departamento_actual": c["a"]["departamento"], "proveedor_original": c["proveedor_original"],
+            "movida": c["fecha_movimiento"]} for c in cand],
+    })
+
+
+@app.route("/api/regresar_a_obra/aplicar", methods=["POST"])
+@requiere_admin
+def api_regresar_obra_aplicar():
+    data = request.get_json(silent=True) or {}
+    if data.get("confirmar") is not True:
+        return jsonify({"error": "Falta confirmar."}), 400
+    db = get_db()
+    provs = _proveedores_regreso(data.get("proveedores") or [])
+    cand = _candidatas_regreso_obra(db, provs)
+    if not cand:
+        return jsonify({"ok": True, "regresadas": 0, "mensaje": "No había actividades por regresar."})
+    respaldo = generar_respaldo_bd()
+    if not respaldo:
+        return jsonify({"error": "No se pudo generar el respaldo previo; no se cambió nada."}), 500
+    usuario = session.get("usuario") or "admin"
+    ahora = datetime.datetime.now().isoformat(timespec="seconds")
+    try:
+        for c in cand:
+            a, rest = c["a"], c["restaurar"]
+            sets, args = [], []
+            for campo in _CAMPOS_MOVIMIENTO:
+                if campo in rest:
+                    sets.append(f"{campo}=?"); args.append(rest[campo])
+                    registrar_historial(db, a["id"], f"{campo} (regreso a Obra)", a[campo], rest[campo], usuario)
+            sets.append("actualizado=?"); args.append(ahora); args.append(a["id"])
+            db.execute(f"UPDATE actividades SET {','.join(sets)} WHERE id=?", args)
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        return jsonify({"error": f"No se pudo regresar: {e}"}), 500
+    por_prov = {}
+    for c in cand:
+        por_prov[c["proveedor_original"]] = por_prov.get(c["proveedor_original"], 0) + 1
+    return jsonify({"ok": True, "regresadas": len(cand), "por_proveedor": por_prov,
+                    "respaldo": os.path.basename(respaldo)})
+
+
+# ----------------------------------------------------------------------------
 # API — Respaldos de base de datos
 # ----------------------------------------------------------------------------
 @app.route("/api/respaldo", methods=["POST"])
