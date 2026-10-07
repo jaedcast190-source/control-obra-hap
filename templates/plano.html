@@ -33,9 +33,18 @@
 
     <div class="pl-panel perm-editar" id="panel-colocar">
       <h3>1 · Busca la actividad &nbsp; 2 · Toca el plano</h3>
-      <div class="pl-buscar"><input type="search" id="pl-q" placeholder="Código, partida, área, bloque…" autocomplete="off"></div>
-      <div class="pl-buscar"><select id="pl-prov"><option value="">Todos los proveedores</option></select></div>
-      <label class="pl-chk"><input type="checkbox" id="pl-solo-sin" checked> Solo las que aún no tienen pin</label>
+      <div class="pl-buscar"><input type="search" id="pl-q" placeholder="Buscar actividad, partida, responsable, etc." autocomplete="off"></div>
+      <div class="pl-filtros">
+        <select id="pl-bloque"><option value="">Bloque</option></select>
+        <select id="pl-area"><option value="">Área</option></select>
+        <select id="pl-giro"><option value="">Especialidad</option></select>
+        <select id="pl-prov"><option value="">Responsable</option></select>
+      </div>
+      <div class="pl-fila-info">
+        <label class="pl-chk"><input type="checkbox" id="pl-solo-sin"> Solo sin pin</label>
+        <span id="pl-contador" class="pl-contador"></span>
+        <button type="button" id="pl-limpiar" class="pl-limpiar">Limpiar</button>
+      </div>
       <div class="pl-lista" id="pl-resultados"></div>
     </div>
 
