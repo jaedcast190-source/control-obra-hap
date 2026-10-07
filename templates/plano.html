@@ -27,12 +27,19 @@
 <div class="pl-layout">
   <aside class="pl-lado" id="pl-lado">
     <div class="pl-pestanas">
-      <button id="tab-colocar" class="on perm-editar">📍 Ubicar actividad</button>
+      <button id="tab-colocar" class="on perm-editar">📍 Ubicar</button>
       <button id="tab-colocados">📌 Colocados <span id="n-colocados">0</span></button>
+      <button id="tab-capas">🗂 Capas</button>
     </div>
 
     <div class="pl-panel perm-editar" id="panel-colocar">
       <h3>1 · Busca la actividad &nbsp; 2 · Toca el plano</h3>
+      <div class="pl-ver"><label for="pl-vermodo">En el plano ver:</label>
+        <select id="pl-vermodo">
+          <option value="resp">Solo al responsable elegido</option>
+          <option value="todos">Todos (agrupados)</option>
+          <option value="ninguno">Ninguno</option>
+        </select></div>
       <div class="pl-buscar"><input type="search" id="pl-q" placeholder="Buscar actividad, partida, responsable, etc." autocomplete="off"></div>
       <div class="pl-filtros">
         <select id="pl-bloque"><option value="">Bloque</option></select>
@@ -52,10 +59,27 @@
       <div class="pl-buscar"><input type="search" id="pl-qc" placeholder="Buscar entre los pines…" autocomplete="off"></div>
       <div class="pl-lista" id="pl-pines"></div>
     </div>
+
+    <div class="pl-panel pl-panel-capas" id="panel-capas" hidden>
+      <div class="cp-fila-tit"><div class="cp-tit">Capas por proveedor</div>
+        <span><button type="button" class="cp-mini" id="cp-todas">Todas</button><button type="button" class="cp-mini" id="cp-ninguna">Ninguna</button></span></div>
+      <div id="cp-lista"></div>
+      <div class="cp-tit">Colorear pines por</div>
+      <div class="cp-seg" id="cp-color"><button type="button" data-m="prov" class="on">Proveedor</button><button type="button" data-m="avance">Avance</button></div>
+      <div class="cp-tit">Ver</div>
+      <label class="cp-sw"><input type="checkbox" id="cp-agrupar" checked><span class="tg"></span>Agrupar pines cercanos</label>
+      <label class="cp-sw"><input type="checkbox" id="cp-atenuar"><span class="tg"></span>Atenuar los demás gremios</label>
+      <p class="cp-ayuda">Toca una burbuja para ver quién tiene más actividades en esa zona. Al acercar el plano las burbujas se separan en pines.</p>
+      <div class="perm-editar" id="cp-admin">
+        <div class="cp-tit">Proveedores</div>
+        <label class="cp-sw"><input type="checkbox" id="cp-verotros" checked><span class="tg"></span>Pueden ver a otros gremios en su zona (solo consulta)</label>
+      </div>
+    </div>
   </aside>
 
   <main class="pl-centro">
     <div id="pl-vista"></div>
+    <div class="pl-tag" id="pl-tag" hidden></div>
     <div class="pl-banner" id="pl-banner" hidden><span id="pl-banner-txt"></span><button id="pl-banner-cancelar" type="button">Cancelar</button></div>
     <div class="plano-tarjeta" id="pl-tarjeta" hidden></div>
   </main>
