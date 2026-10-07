@@ -4117,31 +4117,51 @@ def api_plano_pines():
 @app.route("/api/plano/actividades")
 @requiere_admin
 def api_plano_actividades():
-    """Buscador de actividades para ubicarlas en el plano."""
+    """Buscador de actividades para ubicarlas en el plano. Busca igual que la pantalla
+    principal (sin importar acentos ni mayúsculas, en código, partida, área, bloque y
+    responsable) y trae los mismos filtros: bloque, área, especialidad y proveedor."""
     db = get_db()
     q = (request.args.get("q") or "").strip()
+    bloque = (request.args.get("bloque") or "").strip()
+    area = (request.args.get("area") or "").strip()
+    giro = (request.args.get("giro") or "").strip()
     prov = (request.args.get("proveedor") or "").strip()
     solo_sin = request.args.get("solo_sin_pin") == "1"
-    cond = ["(a.eliminada IS NULL OR a.eliminada=0)", "(a.aplica IS NULL OR a.aplica<>'NO')"]
+    base = ["(a.eliminada IS NULL OR a.eliminada=0)", "(a.aplica IS NULL OR a.aplica<>'NO')"]
+    cond = list(base)
     args = []
-    if q:
-        for palabra in q.split():
-            cond.append("(a.codigo LIKE ? OR a.partida LIKE ? OR a.area LIKE ? OR a.bloque LIKE ? "
-                        "OR a.giro LIKE ? OR a.proveedor LIKE ? OR a.departamento LIKE ?)")
-            args += [f"%{palabra}%"] * 7
+    for palabra in q.split():
+        b = "%" + sin_acentos(palabra) + "%"
+        cond.append("(sinac(a.codigo) LIKE ? OR sinac(a.partida) LIKE ? OR sinac(a.area) LIKE ? OR sinac(a.bloque) LIKE ? "
+                    "OR sinac(a.giro) LIKE ? OR sinac(a.proveedor) LIKE ? OR sinac(a.departamento) LIKE ?)")
+        args += [b] * 7
+    if bloque:
+        cond.append("a.bloque=?"); args.append(bloque)
+    if area:
+        cond.append("a.area=?"); args.append(area)
+    if giro:
+        cond.append("a.giro=?"); args.append(giro)
     if prov:
         cond.append("(a.proveedor=? OR a.departamento=?)"); args += [prov, prov]
     if solo_sin:
         cond.append("NOT EXISTS (SELECT 1 FROM plano_pines p2 WHERE p2.actividad_id=a.id)")
+    where = " AND ".join(cond)
+    total = db.execute(f"SELECT COUNT(*) FROM actividades a WHERE {where}", args).fetchone()[0]
     filas = db.execute(
-        "SELECT a.id, a.codigo, a.partida, a.bloque, a.area, a.giro, a.proveedor, a.departamento, "
+        "SELECT a.id, a.codigo, a.partida, a.bloque, a.area, a.giro, a.proveedor, a.departamento, a.mundo, "
         "a.avance, (SELECT COUNT(*) FROM plano_pines p WHERE p.actividad_id=a.id) AS n_pines "
-        f"FROM actividades a WHERE {' AND '.join(cond)} "
-        "ORDER BY a.bloque, a.area, a.id LIMIT 80", args).fetchall()
+        f"FROM actividades a WHERE {where} "
+        "ORDER BY a.bloque, a.area, a.id LIMIT 300", args).fetchall()
+    bw = " AND ".join(base)
+    bloques = [r[0] for r in db.execute(f"SELECT DISTINCT a.bloque FROM actividades a WHERE {bw} AND a.bloque IS NOT NULL AND a.bloque<>'' ORDER BY 1")]
+    areas = [{"bloque": r[0], "area": r[1]} for r in db.execute(
+        f"SELECT DISTINCT a.bloque, a.area FROM actividades a WHERE {bw} AND a.area IS NOT NULL AND a.area<>'' ORDER BY 1,2")]
+    giros = [r[0] for r in db.execute(f"SELECT DISTINCT a.giro FROM actividades a WHERE {bw} AND a.giro IS NOT NULL AND a.giro<>'' ORDER BY 1")]
     provs = [r[0] for r in db.execute(
-        "SELECT DISTINCT proveedor FROM actividades WHERE proveedor IS NOT NULL AND proveedor<>'' "
-        "AND (eliminada IS NULL OR eliminada=0) ORDER BY proveedor").fetchall()]
-    return jsonify({"actividades": [dict(r) for r in filas], "proveedores": provs})
+        f"SELECT DISTINCT COALESCE(NULLIF(a.proveedor,''), a.departamento) FROM actividades a WHERE {bw} "
+        "AND COALESCE(NULLIF(a.proveedor,''), a.departamento) IS NOT NULL AND COALESCE(NULLIF(a.proveedor,''), a.departamento)<>'' ORDER BY 1")]
+    return jsonify({"actividades": [dict(r) for r in filas], "total": total, "limite": 300,
+                    "bloques": bloques, "areas": areas, "giros": giros, "proveedores": provs})
 
 
 def _leer_xy(data):
