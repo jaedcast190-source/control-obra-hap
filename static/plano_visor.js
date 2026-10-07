@@ -27,6 +27,10 @@
     this.minEscala = 0.1; this.maxEscala = 12;
     this.pines = []; this.seleccion = null;
     this.modoColocar = false;
+    this.agrupar = false;          // true = pines cercanos se funden en burbujas con número
+    this.clusters = [];            // burbujas visibles ahora: { id, x, y, pines }
+    this.seleccionCluster = null;
+    this._escalaPintada = 0; this._rafPintar = 0;
     this.imgW = 0; this.imgH = 0;
     this._punteros = new Map();
     this._construir();
@@ -75,6 +79,10 @@
   PlanoVisor.prototype._aplicar = function () {
     this.lienzo.style.transform = "translate(" + this.tx + "px," + this.ty + "px) scale(" + this.escala + ")";
     this.cont.style.setProperty("--inv", String(1 / this.escala));
+    if (this.agrupar && this.pines.length && Math.abs(this.escala - this._escalaPintada) > 1e-6) {
+      const self = this;
+      if (!this._rafPintar) this._rafPintar = requestAnimationFrame(function () { self._rafPintar = 0; self.seleccionCluster = null; self._pintarPines(); });
+    }
   };
 
   // Mantiene el plano dentro de la vista (no se puede "perder" fuera de pantalla).
@@ -97,8 +105,11 @@
 
   // Encuadra todos los pines (con margen). Si no hay pines, muestra el plano completo.
   PlanoVisor.prototype.ajustarAPines = function () {
-    if (!this.imgW || !this.pines.length) { this.ajustar(); return; }
-    const xs = this.pines.map(p => p.x), ys = this.pines.map(p => p.y);
+    // encuadra lo propio: ignora pines ajenos (solo consulta) y los atenuados
+    let propios = this.pines.filter(p => !p._otro && p._t !== "tenue");
+    if (!propios.length) propios = this.pines;
+    if (!this.imgW || !propios.length) { this.ajustar(); return; }
+    const xs = propios.map(p => p.x), ys = propios.map(p => p.y);
     let x0 = Math.min.apply(null, xs), x1 = Math.max.apply(null, xs);
     let y0 = Math.min.apply(null, ys), y1 = Math.max.apply(null, ys);
     const cw = this.cont.clientWidth || 800, ch = this.cont.clientHeight || 500;
@@ -130,31 +141,149 @@
     this._limitar(); this._aplicar();
   };
 
+  // Cada pin puede traer: _c (color), _t ('pin' gota | 'punto' chico | 'tenue' casi invisible) y
+  // _n (texto dentro de la gota; por defecto el % de avance).
   PlanoVisor.prototype.setPines = function (lista) {
     this.pines = lista || [];
     this._pintarPines();
   };
 
+  PlanoVisor.prototype.setAgrupar = function (v) {
+    this.agrupar = !!v;
+    this._pintarPines();
+  };
+
+  // Agrupa en burbujas los pines que quedan a menos de `radio` píxeles de pantalla.
+  PlanoVisor.prototype._agrupar = function (lista) {
+    const radio = 46, esc = this.escala, W = this.imgW, H = this.imgH;
+    const libres = [], grupos = [];
+    lista.forEach(function (p) {
+      if (p._t === "punto" || p._t === "tenue") grupos.push({ pines: [p], x: p.x, y: p.y, solo: true });
+      else libres.push(p);
+    });
+    const usado = new Set();
+    for (let i = 0; i < libres.length; i++) {
+      const a = libres[i];
+      if (usado.has(a.id)) continue;
+      usado.add(a.id);
+      if (this.seleccion === a.id) { grupos.push({ pines: [a], x: a.x, y: a.y, solo: true }); continue; }
+      const g = [a];
+      for (let j = i + 1; j < libres.length; j++) {
+        const b = libres[j];
+        if (usado.has(b.id) || this.seleccion === b.id) continue;
+        if (Math.hypot((a.x - b.x) * W * esc, (a.y - b.y) * H * esc) < radio) { g.push(b); usado.add(b.id); }
+      }
+      if (g.length === 1) { grupos.push({ pines: g, x: a.x, y: a.y, solo: true }); continue; }
+      let sx = 0, sy = 0; g.forEach(function (q) { sx += q.x; sy += q.y; });
+      grupos.push({ pines: g, x: sx / g.length, y: sy / g.length, solo: false });
+    }
+    // segunda pasada: burbujas que quedan casi encimadas entre sí se funden en una sola
+    const dist = function (a, b) { return Math.hypot((a.x - b.x) * W * esc, (a.y - b.y) * H * esc); };
+    let cambio = true;
+    while (cambio) {
+      cambio = false;
+      const bur = grupos.filter(function (g) { return !g.solo; });
+      for (let i = 0; i < bur.length && !cambio; i++) {
+        for (let j = i + 1; j < bur.length && !cambio; j++) {
+          if (dist(bur[i], bur[j]) < radio) {
+            const a = bur[i], b = bur[j];
+            a.pines = a.pines.concat(b.pines);
+            let sx = 0, sy = 0; a.pines.forEach(function (q) { sx += q.x; sy += q.y; });
+            a.x = sx / a.pines.length; a.y = sy / a.pines.length;
+            grupos.splice(grupos.indexOf(b), 1);
+            cambio = true;
+          }
+        }
+      }
+    }
+    return grupos;
+  };
+
   PlanoVisor.prototype._pintarPines = function () {
     const self = this;
-    this.capa.innerHTML = this.pines.map(function (p) {
+    this._escalaPintada = this.escala;
+    const grupos = this.agrupar && this.imgW
+      ? this._agrupar(this.pines)
+      : this.pines.map(function (p) { return { pines: [p], x: p.x, y: p.y, solo: true }; });
+    this.clusters = [];
+    let html = "", nBurbujas = 0;
+    // primero lo tenue (queda debajo), luego puntos, pines y burbujas
+    const orden = { tenue: 0, punto: 1, pin: 2 };
+    grupos.sort(function (a, b) {
+      const ta = a.solo ? orden[a.pines[0]._t || "pin"] : 3, tb = b.solo ? orden[b.pines[0]._t || "pin"] : 3;
+      return ta - tb;
+    });
+    grupos.forEach(function (g) {
+      if (!g.solo) {
+        const idx = self.clusters.length;
+        self.clusters.push({ idx: idx, x: g.x, y: g.y, pines: g.pines });
+        nBurbujas++;
+        const n = g.pines.length;
+        const tam = Math.min(64, 30 + Math.round(Math.sqrt(n) * 7));
+        const sel = self.seleccionCluster === idx ? " sel" : "";
+        html += '<button type="button" class="plano-cl' + sel + '" data-cl="' + idx + '" ' +
+          'style="left:' + (g.x * 100) + '%;top:' + (g.y * 100) + '%;--c:' + colorGrupo(g.pines) + ';--s:' + tam + 'px" ' +
+          'title="' + n + ' actividades juntas · toca para ver el detalle"><span>' + n + '</span></button>';
+        return;
+      }
+      const p = g.pines[0];
       const av = Number(p.avance) || 0;
+      const color = p._c || colorAvance(av);
+      const tipo = p._t || "pin";
+      const tit = esc((p.codigo ? p.codigo + " · " : "") + (p.partida || "") + " · " + av + "%");
+      if (tipo === "punto" || tipo === "tenue") {
+        html += '<button type="button" class="plano-pt' + (tipo === "tenue" ? " tenue" : "") + (self.seleccion === p.id ? " sel" : "") + '" data-pin="' + p.id + '" ' +
+          'style="left:' + (p.x * 100) + '%;top:' + (p.y * 100) + '%;--c:' + color + '" title="' + tit + '"></button>';
+        return;
+      }
       const enRev = p.avance_decl != null && p.avance_decl !== p.avance;
       const sel = self.seleccion === p.id ? " sel" : "";
-      return '<button type="button" class="plano-pin' + sel + (enRev ? " en-rev" : "") + '" data-pin="' + p.id + '" ' +
-        'style="left:' + (p.x * 100) + '%;top:' + (p.y * 100) + '%;--c:' + colorAvance(av) + '" ' +
-        'title="' + esc((p.codigo || "") + " · " + (p.partida || "") + " · " + av + "%") + '">' +
-        '<span class="plano-pin-n">' + av + '</span></button>';
-    }).join("");
+      const txt = p._n != null ? p._n : av;
+      html += '<button type="button" class="plano-pin' + sel + (enRev ? " en-rev" : "") + '" data-pin="' + p.id + '" ' +
+        'style="left:' + (p.x * 100) + '%;top:' + (p.y * 100) + '%;--c:' + color + '" title="' + tit + '">' +
+        '<span class="plano-pin-n">' + esc(txt) + '</span></button>';
+    });
+    this.capa.innerHTML = html;
+    if (this.opc.onPintado) this.opc.onPintado({ pines: this.pines.length, burbujas: nBurbujas });
   };
+
+  function colorGrupo(pines) {
+    // Si todos comparten color (mismo gremio) la burbuja lo usa; si no, gris azulado neutro.
+    const cs = pines.map(function (p) { return p._c || colorAvance(p.avance); });
+    const c0 = cs[0];
+    if (cs.every(function (c) { return c === c0; })) return c0;
+    const cuenta = {}; cs.forEach(function (c) { cuenta[c] = (cuenta[c] || 0) + 1; });
+    let mejor = c0, n = 0;
+    Object.keys(cuenta).forEach(function (c) { if (cuenta[c] > n) { n = cuenta[c]; mejor = c; } });
+    return mejor;   // el color que domina en esa zona
+  }
 
   PlanoVisor.prototype.seleccionar = function (id, centrar) {
     this.seleccion = id;
+    this.seleccionCluster = null;
     this._pintarPines();
     if (centrar) {
       const p = this.pines.find(function (q) { return q.id === id; });
-      if (p) this.centrarEn(p.x, p.y, this.minEscala * 2.2);
+      if (p) { this.centrarEn(p.x, p.y, this.minEscala * 2.2); this._pintarPines(); }
     }
+  };
+
+  PlanoVisor.prototype.seleccionarCluster = function (idx) {
+    this.seleccionCluster = idx;
+    this._pintarPines();
+  };
+
+  // Acerca la vista para que quepan estos pines (y las burbujas se separen).
+  PlanoVisor.prototype.acercarA = function (pines) {
+    if (!pines || !pines.length || !this.imgW) return;
+    const xs = pines.map(function (p) { return p.x; }), ys = pines.map(function (p) { return p.y; });
+    const x0 = Math.min.apply(null, xs), x1 = Math.max.apply(null, xs), y0 = Math.min.apply(null, ys), y1 = Math.max.apply(null, ys);
+    const cw = this.cont.clientWidth || 800, ch = this.cont.clientHeight || 500;
+    const bw = Math.max(x1 - x0, 0.02) * 1.5, bh = Math.max(y1 - y0, 0.02) * 1.7;
+    const ajuste = Math.min(cw / (bw * this.imgW), ch / (bh * this.imgH));
+    this.escala = Math.min(this.maxEscala, Math.max(this.escala * 1.8, ajuste));
+    this.centrarEn((x0 + x1) / 2, (y0 + y1) / 2);
+    this._pintarPines();
   };
 
   PlanoVisor.prototype.setModoColocar = function (activo) {
@@ -224,8 +353,12 @@
       if (!estaba) return;
       if (self._punteros.size === 0 && inicio && !movido && e.type === "pointerup") {
         // toque simple: ¿sobre un pin o sobre el plano vacío?
-        const pinEl = inicio.objetivo && inicio.objetivo.closest ? inicio.objetivo.closest(".plano-pin") : null;
-        if (pinEl && !self.modoColocar) {
+        const clEl = inicio.objetivo && inicio.objetivo.closest ? inicio.objetivo.closest(".plano-cl") : null;
+        const pinEl = inicio.objetivo && inicio.objetivo.closest ? inicio.objetivo.closest(".plano-pin,.plano-pt") : null;
+        if (clEl && !self.modoColocar) {
+          const cl = self.clusters[Number(clEl.dataset.cl)];
+          if (cl) { self.seleccion = null; self.seleccionarCluster(cl.idx); if (self.opc.onCluster) self.opc.onCluster(cl); }
+        } else if (pinEl && !self.modoColocar) {
           const id = Number(pinEl.dataset.pin);
           const pin = self.pines.find(function (q) { return q.id === id; });
           if (pin) { self.seleccionar(id); if (self.opc.onPin) self.opc.onPin(pin); }
@@ -244,7 +377,7 @@
     cont.addEventListener("pointercancel", soltar);
 
     cont.addEventListener("dblclick", function (e) {
-      if (self.modoColocar || e.target.closest(".plano-pin") || e.target.closest(".plano-zoom")) return;
+      if (self.modoColocar || e.target.closest(".plano-pin,.plano-pt,.plano-cl") || e.target.closest(".plano-zoom")) return;
       const r = cont.getBoundingClientRect();
       self.zoomEn(2, e.clientX - r.left, e.clientY - r.top);
     });
@@ -252,6 +385,44 @@
     window.addEventListener("resize", function () { if (self.imgW) { self._limitar(); self._aplicar(); } });
   };
 
+  // Resumen de una zona: cuántas actividades tiene cada gremio (para la tarjeta de la burbuja).
+  function resumenZona(pines) {
+    const porCapa = {}, porResp = {}, areas = {}, bloques = {};
+    pines.forEach(function (p) {
+      const c = p.capa || p.resp || "—";
+      (porCapa[c] = porCapa[c] || { nombre: c, color: p.color || "#8b949e", n: 0 }).n++;
+      const r = p.resp || c; porResp[r] = (porResp[r] || 0) + 1;
+      const a = [p.bloque, p.area].filter(Boolean).join(" · ") || "Sin área"; areas[a] = (areas[a] || 0) + 1;
+      const bl = p.bloque || "Sin bloque"; bloques[bl] = (bloques[bl] || 0) + 1;
+    });
+    const capas = Object.keys(porCapa).map(function (k) { return porCapa[k]; }).sort(function (a, b) { return b.n - a.n; });
+    const resps = Object.keys(porResp).sort(function (a, b) { return porResp[b] - porResp[a]; });
+    const nomAreas = Object.keys(areas).sort(function (a, b) { return areas[b] - areas[a]; });
+    const nomBloques = Object.keys(bloques).sort(function (a, b) { return bloques[b] - bloques[a]; });
+    let zona = "";
+    if (nomAreas.length === 1) zona = nomAreas[0];
+    else if (nomAreas.length === 2) zona = nomAreas[0] + " y " + nomAreas[1];
+    else if (nomAreas.length > 2) zona = nomBloques[0] + " · " + nomAreas.length + " áreas";
+    return { total: pines.length, capas: capas, lider: resps[0] || "", lider_n: resps.length ? porResp[resps[0]] : 0, zona: zona, porResp: porResp };
+  }
+
+  // HTML de las barras por gremio (tarjeta de zona).
+  function htmlBarrasZona(res) {
+    const max = res.capas.length ? res.capas[0].n : 1;
+    return res.capas.map(function (c) {
+      return '<div class="pz-fila"><i style="background:' + c.color + '"></i><span class="pz-nom">' + esc(c.nombre) + '</span>' +
+        '<span class="pz-barra"><em style="width:' + Math.round(c.n / max * 100) + '%;background:' + c.color + '"></em></span><b>' + c.n + '</b></div>';
+    }).join("");
+  }
+
+  // Pines (de una lista) a menos de `radioFrac` del ancho del plano de un punto.
+  PlanoVisor.prototype.pinesCerca = function (lista, x, y, radioFrac) {
+    const W = this.imgW || 1, H = this.imgH || 1, r = radioFrac * W;
+    return lista.filter(function (p) { return Math.hypot((p.x - x) * W, (p.y - y) * H) <= r; });
+  };
+
   window.PlanoVisor = PlanoVisor;
+  window.PlanoResumenZona = resumenZona;
+  window.PlanoBarrasZona = htmlBarrasZona;
   window.PlanoColorAvance = colorAvance;
 })();
