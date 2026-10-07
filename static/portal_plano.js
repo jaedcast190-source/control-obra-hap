@@ -11,10 +11,9 @@
   async function iniciar() {
     try {
       INFO = await (await fetch("/api/plano/info")).json();
-      if (INFO && INFO.existe) {
-        const pines = await (await fetch("/api/plano/pines")).json();
-        if (Array.isArray(pines) && pines.length) $("#btn-ver-plano").hidden = false;
-      }
+      // El botón se muestra siempre que haya plano cargado; si el proveedor aún no tiene
+      // pines, al abrirlo se le explica que la dirección todavía no ubica sus actividades.
+      if (INFO && INFO.existe) $("#btn-ver-plano").hidden = false;
     } catch (e) { /* sin plano: el botón queda oculto */ }
   }
 
@@ -43,6 +42,7 @@
     PINES = await (await fetch("/api/plano/pines")).json();
     if (!Array.isArray(PINES)) PINES = [];
     $("#p-plano-vacio").hidden = PINES.length > 0;
+    $("#p-plano-vp").style.opacity = PINES.length ? "1" : ".55";
     VISOR.setPines(PINES);
     if (SEL) { const p = PINES.find(q => q.id === SEL); if (p) { VISOR.seleccionar(SEL); abrirTarjeta(p); } else cerrarTarjeta(); }
   }
