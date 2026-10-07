@@ -5,6 +5,40 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Control de Obra — Unidad Quirúrgica HAP</title>
 <link rel="stylesheet" href="/static/estilos.css">
+<style>
+/* 📍 pin en cada renglón: rojo = ya está en el plano, gris = falta ubicarlo */
+.pin-ico{cursor:pointer;font-size:15px;line-height:1;transition:transform .12s}
+.pin-ico:hover{transform:scale(1.2)}
+.pin-ico.sin{filter:grayscale(1);opacity:.4}
+.pin-ico.sin:hover{opacity:.8}
+.pin-ico.con{filter:none}
+.btn-pin-filtro{white-space:nowrap}
+.btn-pin-filtro.activo{background:#fdecea;border-color:#d93025;color:#b42318;font-weight:700}
+/* ventanita del filtro por pin */
+.pinf-opc{display:flex;align-items:center;gap:12px;width:100%;padding:12px 14px;margin-bottom:8px;border:2px solid #d9dee4;border-radius:10px;background:#fff;cursor:pointer;font:inherit;text-align:left}
+.pinf-opc:hover{border-color:#1E7B4B}
+.pinf-opc.on{border-color:#1E7B4B;background:#f3faf6}
+.pinf-opc .ic{font-size:22px;flex:none;width:28px;text-align:center}
+.pinf-opc .ic.gris{filter:grayscale(1);opacity:.45}
+.pinf-opc .tx{flex:1;min-width:0}
+.pinf-opc .tx b{display:block;font-size:14.5px;color:#1f2933}
+.pinf-opc .tx small{color:#6b7280;font-size:12.5px}
+.pinf-opc .n{font-weight:800;font-size:18px;color:#1f2933}
+/* botón de historial dentro del panel de edición */
+.panel-cab .cab-der{display:flex;align-items:center;gap:10px}
+.btn-hist-panel{border:1px solid #cbd2da;background:#fff;border-radius:8px;padding:5px 10px;font:inherit;font-size:13px;font-weight:700;color:#1F4E78;cursor:pointer}
+.btn-hist-panel:hover{background:#eef4fa}
+/* ventana del historial (se abre junto al panel de edición) */
+.panel-hist{position:fixed;z-index:400;top:64px;right:480px;width:360px;max-width:94vw;max-height:80vh;overflow-y:auto;
+  background:#fff;border:1px solid #d3dae0;border-radius:12px;box-shadow:0 12px 40px rgba(0,0,0,.28)}
+.panel-hist[hidden]{display:none !important}
+.panel-hist .hist-cab{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;padding:14px 16px 6px;position:sticky;top:0;background:#fff;border-radius:12px 12px 0 0}
+.panel-hist .hist-cab b{font-size:14.5px;color:#1F2937;line-height:1.3}
+.panel-hist .hist-cab .cerrar{background:none;border:none;font-size:16px;cursor:pointer;color:#8a94a3;line-height:1}
+.panel-hist .hist-sub{margin:0;padding:0 16px 8px;font-size:12px;color:#8a94a3;border-bottom:1px solid #eef1f4}
+.panel-hist .hist-cuerpo{padding:12px 16px 16px}
+@media (max-width:980px){.panel-hist{right:3vw;left:3vw;width:auto;top:56px}}
+</style>
 </head>
 <body>
 
@@ -109,6 +143,7 @@
     <input type="number" id="f-avance-max" placeholder="hasta %" min="0" max="100" inputmode="numeric">
   </div>
   <datalist id="dl-causa-global"></datalist>
+  <button id="btn-filtro-pin" class="btn-sec btn-pin-filtro" type="button" title="Filtrar por actividades con o sin pin en el plano">📍 Pines</button>
   <button id="btn-limpiar" class="btn-sec">Limpiar</button>
   <span class="flex"></span>
   <button id="btn-nueva" class="btn-pri">+ Nueva actividad</button>
@@ -134,7 +169,10 @@
 <aside class="panel" id="panel" hidden>
   <div class="panel-cab">
     <h2 id="panel-titulo">Editar actividad</h2>
-    <button class="cerrar" id="cerrar-panel">✕</button>
+    <div class="cab-der">
+      <button class="btn-hist-panel" id="btn-hist-panel" type="button" title="Quién cambió qué y cuándo" hidden>🕑 Historial</button>
+      <button class="cerrar" id="cerrar-panel">✕</button>
+    </div>
   </div>
   <div class="panel-cuerpo">
     <input type="hidden" id="e-id">
@@ -384,6 +422,25 @@
   <div class="modal-pie">
     <button class="btn-sec" id="btn-cancelar-regreso">Cancelar</button>
     <button class="btn-pri" id="btn-aplicar-regreso" disabled>Regresar a Obra</button>
+  </div>
+</div>
+
+<!-- Ventanita: filtrar por pin en el plano -->
+<div class="overlay" id="overlay-pin" hidden></div>
+<div class="modal-add" id="modal-pin" hidden>
+  <div class="modal-cab">
+    <h3>📍 Actividades en el plano</h3>
+    <button class="cerrar" id="btn-cerrar-pin">✕</button>
+  </div>
+  <div class="modal-cuerpo">
+    <p class="ayuda" style="margin-top:0">Elige cuáles quieres ver en la tabla. Se combina con los demás filtros.</p>
+    <button type="button" class="pinf-opc" data-pin=""><span class="ic">▦</span><span class="tx"><b>Todas</b><small>Con y sin pin</small></span><span class="n" id="pinf-n-todas">–</span></button>
+    <button type="button" class="pinf-opc" data-pin="con"><span class="ic">📍</span><span class="tx"><b>Con pin</b><small>Ya están ubicadas en el plano</small></span><span class="n" id="pinf-n-con">–</span></button>
+    <button type="button" class="pinf-opc" data-pin="sin"><span class="ic gris">📍</span><span class="tx"><b>Sin pin</b><small>Faltan por ubicar</small></span><span class="n" id="pinf-n-sin">–</span></button>
+  </div>
+  <div class="modal-pie">
+    <a class="btn-sec" href="/plano" style="text-decoration:none">🗺 Abrir el plano</a>
+    <button class="btn-pri" id="btn-listo-pin" type="button">Listo</button>
   </div>
 </div>
 
