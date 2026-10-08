@@ -4,8 +4,8 @@
 .plano-vp.plano-colocando{cursor:crosshair}
 .plano-lienzo{position:absolute;left:0;top:0;transform-origin:0 0;background:#fff;box-shadow:0 2px 14px rgba(0,0,0,.18)}
 .plano-img{display:block;width:100%;height:100%;pointer-events:none;-webkit-user-drag:none}
-.plano-capa{position:absolute;inset:0;pointer-events:none}
-.plano-cargando{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#6b7280;font-size:15px;background:#e9edf1}
+.plano-capa{position:absolute;left:0;top:0;right:0;bottom:0;pointer-events:none}
+.plano-cargando{position:absolute;left:0;top:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;color:#6b7280;font-size:15px;background:#e9edf1}
 .plano-cargando[hidden]{display:none}
 
 /* Pin: gota con el % de avance; mantiene su tamaño al hacer zoom */
@@ -85,10 +85,15 @@
   body.plano-abierto .barra-der{display:none}
   body.plano-abierto .barra{padding-bottom:10px}
   .pl-layout{flex-direction:column;height:auto}
-  .pl-lado{width:100%;max-width:none;border-right:0;border-bottom:1px solid #d9dee4;max-height:46vh}
-  .pl-centro{height:70vh}
+  .pl-lado{width:100%;max-width:none;border-right:0;border-bottom:1px solid #d9dee4;max-height:none}
+  .pl-panel{flex:none}
+  .pl-lista{flex:none;max-height:42vh;max-height:42dvh}
+  .pl-panel-capas{max-height:none}
+  /* cartelitos del mapa: el aviso azul arriba a lo ancho, y el resumen abajo para que no se encimen */
+  .pl-banner{left:12px;right:12px;top:10px;transform:none;max-width:none;justify-content:space-between;font-size:13.5px}
+  .pl-centro{flex:none;height:68vh;height:68dvh;min-height:380px}
   .pl-centro .plano-tarjeta{right:70px;width:auto}
-  .p-plano-vista .plano-vp{height:calc(100vh - 215px)}
+  .p-plano-vista .plano-vp{height:calc(100vh - 215px);height:calc(100dvh - 215px)}
 }
 
 /* Buscador de actividades del plano (igual que la pantalla principal) */
@@ -161,7 +166,8 @@
 .p-plano-capasbtn{display:none}
 @media (max-width:760px){
   .p-plano-cuerpo{flex-direction:column;gap:8px}
-  .p-plano-panel{width:100%;max-height:none;display:none}
+  .p-plano-panel{display:none;position:fixed;left:0;right:0;bottom:0;z-index:60;width:auto;max-height:50vh;max-height:50dvh;
+    border-radius:14px 14px 0 0;border-width:1px 0 0;box-shadow:0 -8px 28px rgba(0,0,0,.3);padding:8px 14px 18px;overflow-y:auto}
   .p-plano-panel.abierto{display:block}
   .p-plano-capasbtn{display:inline-block}
   .p-plano-mapa{width:100%}
@@ -174,3 +180,11 @@
 .pl-x{position:absolute;right:24px;top:50%;transform:translateY(-50%);width:22px;height:22px;border:0;border-radius:50%;background:#d93025;color:#fff;font-size:12px;font-weight:800;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0}
 .pl-x[hidden]{display:none}
 .pl-x:hover{background:#b42318}
+
+.cp-cerrar-movil{display:none;position:sticky;top:-8px;z-index:2;width:100%;margin:0 0 8px;padding:10px;border:0;border-radius:10px;background:#1E7B4B;color:#fff;font:inherit;font-weight:700;font-size:14.5px;cursor:pointer}
+
+/* Celular: va al FINAL del archivo para ganarle a las reglas base de arriba */
+@media (max-width:760px){
+  .pl-tag{top:auto;bottom:12px;left:12px;right:auto;max-width:calc(100% - 84px);font-size:12px}
+  .cp-cerrar-movil{display:block}
+}
