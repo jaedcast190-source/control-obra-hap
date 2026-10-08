@@ -465,6 +465,13 @@ def init_db():
         actividad_id INTEGER NOT NULL,
         PRIMARY KEY (trazo_id, actividad_id)
     );
+    -- Bloque/área(s) de tu lista a las que está ligado el trazo (una zona puede abarcar varias áreas)
+    CREATE TABLE IF NOT EXISTS plano_trazo_ub (
+        trazo_id INTEGER NOT NULL,
+        bloque   TEXT NOT NULL,
+        area     TEXT NOT NULL DEFAULT '',
+        PRIMARY KEY (trazo_id, bloque, area)
+    );
 
     -- Catálogo de proveedores con tipo (interno/externo) y de qué se encarga
     CREATE TABLE IF NOT EXISTS proveedores (
@@ -484,6 +491,12 @@ def init_db():
     );
     """
     )
+    # --- Migración: los trazos del plano guardan su mundo, tipo de elemento, especialidad principal y si traen solos las actividades de sus áreas ---
+    tcols = [r[1] for r in con.execute("PRAGMA table_info(plano_trazos)").fetchall()]
+    for c, tipo in (("giro", "TEXT"), ("tipo_elem", "TEXT"), ("mundo", "TEXT DEFAULT 'obra'"), ("auto", "INTEGER DEFAULT 0")):
+        if c not in tcols:
+            con.execute(f"ALTER TABLE plano_trazos ADD COLUMN {c} {tipo}")
+    con.execute("UPDATE plano_trazos SET mundo='obra' WHERE mundo IS NULL")
     # --- Migración: agrega columnas nuevas si la BD ya existía sin ellas ---
     cols = [r[1] for r in con.execute("PRAGMA table_info(actividades)").fetchall()]
     if "tipo_partida" not in cols:
@@ -4143,14 +4156,21 @@ PLANO_COLOR_OTROS = "#8b949e"
 _SQL_RESP = "COALESCE(NULLIF(TRIM(a.proveedor),''), NULLIF(TRIM(a.departamento),''), 'Sin responsable')"
 
 
-def _capas_plano(db):
+def _filtro_mundo_sql(mundo, alias="a"):
+    """Condición SQL para un mundo ('obra' | 'interno'); 'todos' o vacío = sin filtro."""
+    if mundo in ("obra", "interno"):
+        return f" AND ({alias}.mundo = '{mundo}' OR ({alias}.mundo IS NULL AND '{mundo}' = 'obra'))"
+    return ""
+
+
+def _capas_plano(db, mundo=None):
     """Asigna color a cada responsable según cuántos pines tiene en TODO el plano (los 5 con más
     pines tienen color propio; el resto se agrupa en 'Otros'). Es la misma asignación para el
     admin y para los proveedores, así un gremio se ve del mismo color en todas partes."""
     filas = db.execute(
         f"SELECT {_SQL_RESP} AS resp, COUNT(*) AS n FROM plano_pines p "
         "JOIN actividades a ON a.id=p.actividad_id "
-        "WHERE (a.eliminada IS NULL OR a.eliminada=0) GROUP BY resp "
+        "WHERE (a.eliminada IS NULL OR a.eliminada=0)" + _filtro_mundo_sql(mundo) + " GROUP BY resp "
         "ORDER BY n DESC, resp COLLATE NOCASE").fetchall()
     mapa = {}
     for i, f in enumerate(filas):
@@ -4183,17 +4203,22 @@ def api_plano_pines():
     _, rol, proveedor = usuario_actual()
     cond = ["(a.eliminada IS NULL OR a.eliminada=0)"]
     args = []
+    mundo_f = None
     if not es_gestor(rol):
         col, mundo = col_duenio()
         cond.append(f"a.{col}=?"); args.append(proveedor)
         cond.append("(a.reconocida IS NULL OR a.reconocida<>'RECHAZADA')")
+    else:
+        mundo_f = request.args.get("mundo")          # 'obra' | 'interno' | 'todos' (sin parámetro = todos)
+        if mundo_f in ("obra", "interno"):
+            cond.append("(a.mundo = ? OR (a.mundo IS NULL AND ? = 'obra'))"); args += [mundo_f, mundo_f]
     filas = db.execute(
         "SELECT p.id AS pin_id, p.actividad_id, p.x, p.y, p.nota, a.codigo, a.partida, a.bloque, "
         "a.area, a.giro, a.proveedor, a.departamento, a.avance, a.avance_decl, a.estatus, "
         "a.reconocida, a.estado_val "
         "FROM plano_pines p JOIN actividades a ON a.id=p.actividad_id "
         f"WHERE {' AND '.join(cond)} ORDER BY p.id", args).fetchall()
-    capas = _capas_plano(db)
+    capas = _capas_plano(db, mundo_f)
     return jsonify([_fila_pin(r, capas) for r in filas])
 
 
@@ -4240,7 +4265,10 @@ def api_plano_actividades():
     giro = (request.args.get("giro") or "").strip()
     prov = (request.args.get("proveedor") or "").strip()
     solo_sin = request.args.get("solo_sin_pin") == "1"
+    mundo_b = request.args.get("mundo")
     base = ["(a.eliminada IS NULL OR a.eliminada=0)", "(a.aplica IS NULL OR a.aplica<>'NO')"]
+    if mundo_b in ("obra", "interno"):
+        base.append(f"(a.mundo = '{mundo_b}' OR (a.mundo IS NULL AND '{mundo_b}' = 'obra'))")
     cond = list(base)
     args = []
     for palabra in q.split():
@@ -4253,7 +4281,8 @@ def api_plano_actividades():
     if area:
         cond.append("a.area=?"); args.append(area)
     if giro:
-        cond.append("a.giro=?"); args.append(giro)
+        giros_sel = [g for g in giro.split("|") if g]      # varias especialidades a la vez: "Pintura|Tablaroca"
+        cond.append("a.giro IN (" + ",".join("?" * len(giros_sel)) + ")"); args += giros_sel
     if prov:
         cond.append("(a.proveedor=? OR a.departamento=?)"); args += [prov, prov]
     if solo_sin:
@@ -4343,6 +4372,34 @@ def api_plano_pin_borrar(pid):
 TRAZO_TIPOS = ("linea", "zona")
 TRAZO_MAX_PUNTOS = 400
 
+# Color de cada trazo = color de su ESPECIALIDAD principal (nunca el del avance).
+# Hay 8 colores validados; cada especialidad recibe el suyo la primera vez que un trazo la usa y
+# ya no cambia. Las especialidades que llegan después comparten el gris de "Otras".
+GIRO_PALETA = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"]
+GIRO_COLOR_OTRAS = "#8b949e"
+
+
+def _mapa_colores_giro(db):
+    try:
+        m = json.loads(_config_get(db, "plano_giro_colores", "{}") or "{}")
+    except ValueError:
+        m = {}
+    return m if isinstance(m, dict) else {}
+
+
+def _asegurar_color_giro(db, giro):
+    """Le da color a una especialidad la primera vez que se usa como principal de un trazo."""
+    giro = (giro or "").strip()
+    if not giro:
+        return
+    m = _mapa_colores_giro(db)
+    if giro in m:
+        return
+    usados = {c for c in m.values() if c in GIRO_PALETA}
+    libre = next((c for c in GIRO_PALETA if c not in usados), None)
+    m[giro] = libre or GIRO_COLOR_OTRAS
+    _config_set(db, "plano_giro_colores", json.dumps(m, ensure_ascii=False))
+
 
 def _leer_puntos(data, tipo):
     """Valida la lista de puntos [[x,y],...]. Devuelve (lista, error)."""
@@ -4376,70 +4433,268 @@ def _ids_actividades(data):
             continue
         if i not in ids:
             ids.append(i)
-    return ids[:200]
+    return ids[:300]
+
+
+def _texto_corto(v, n=80):
+    return (str(v).strip() if v is not None else "")[:n]
+
+
+def _leer_ubicaciones(data):
+    """[{bloque, area}, ...] del cuerpo de la petición (sin repetidos, máx. 20)."""
+    sal, vistos = [], set()
+    for u in (data.get("ubicaciones") or []):
+        if not isinstance(u, dict):
+            continue
+        b, a = _texto_corto(u.get("bloque")), _texto_corto(u.get("area"))
+        if not b or (b, a) in vistos:
+            continue
+        vistos.add((b, a)); sal.append({"bloque": b, "area": a})
+    return sal[:20]
+
+
+def _guardar_ubicaciones(db, trazo_id, ubs):
+    db.execute("DELETE FROM plano_trazo_ub WHERE trazo_id=?", (trazo_id,))
+    for u in ubs:
+        db.execute("INSERT OR IGNORE INTO plano_trazo_ub (trazo_id,bloque,area) VALUES (?,?,?)", (trazo_id, u["bloque"], u["area"]))
+
+
+def _mas_comun(valores):
+    cuenta = {}
+    for v in valores:
+        v = (v or "").strip()
+        if v:
+            cuenta[v] = cuenta.get(v, 0) + 1
+    return max(sorted(cuenta), key=lambda k: cuenta[k]) if cuenta else None
 
 
 def _guardar_vinculos(db, trazo_id, ids):
+    """Cambia las actividades que se asignaron a mano SIN tocar la forma del trazo. Si el trazo aún no
+    tenía especialidad principal ni ubicación, las toma de lo que le asignaron (la más repetida);
+    si ya las tenía, no cambian."""
     db.execute("DELETE FROM plano_trazo_act WHERE trazo_id=?", (trazo_id,))
     for i in ids:
         if db.execute("SELECT 1 FROM actividades WHERE id=?", (i,)).fetchone():
             db.execute("INSERT OR IGNORE INTO plano_trazo_act (trazo_id,actividad_id) VALUES (?,?)", (trazo_id, i))
+    _completar_un_trazo(db, trazo_id)
 
 
-def _trazos_para(db, rol, proveedor):
-    """Trazos con sus actividades. Gestores: todo. Proveedor: solo los trazos donde tiene una
-    actividad; de las demás ve gremio y avance (sin código) si el admin lo permite."""
-    gestor = es_gestor(rol)
-    col, _m = col_duenio()
-    ver_otros = _config_get(db, "plano_ver_otros", "1") == "1"
+def _completar_un_trazo(db, trazo_id):
+    t = db.execute("SELECT giro FROM plano_trazos WHERE id=?", (trazo_id,)).fetchone()
+    if not t:
+        return
     filas = db.execute(
-        "SELECT t.id, t.tipo, t.nombre, t.puntos, ta.actividad_id, a.codigo, a.partida, a.giro, a.bloque, a.area, "
-        "a.proveedor, a.departamento, a.avance, a.avance_decl, a.reconocida, a.estado_val "
-        "FROM plano_trazos t "
-        "LEFT JOIN plano_trazo_act ta ON ta.trazo_id=t.id "
-        "LEFT JOIN actividades a ON a.id=ta.actividad_id AND (a.eliminada IS NULL OR a.eliminada=0) "
-        "ORDER BY t.id, a.giro, a.id").fetchall()
-    capas = _capas_plano(db)
-    por = {}
-    orden = []
-    for r in filas:
-        t = por.get(r["id"])
-        if t is None:
-            try:
-                pts = json.loads(r["puntos"])
-            except ValueError:
-                pts = []
-            t = por[r["id"]] = {"id": r["id"], "tipo": r["tipo"], "nombre": r["nombre"] or "",
-                                "puntos": pts, "actividades": []}
-            orden.append(r["id"])
-        if r["actividad_id"] is None or r["partida"] is None and r["codigo"] is None:
-            continue
-        resp = (r["proveedor"] or "").strip() or (r["departamento"] or "").strip() or "Sin responsable"
-        duenio = (r[col] or "").strip()
-        propia = gestor or (duenio != "" and duenio == proveedor)
-        if not gestor and (r["reconocida"] == "RECHAZADA"):
-            continue
-        capa, color = capas.get(resp, (resp, PLANO_COLOR_OTROS))
-        act = {"id": r["actividad_id"], "partida": r["partida"], "giro": r["giro"], "bloque": r["bloque"],
-               "area": r["area"], "resp": resp, "color": color, "avance": r["avance"] or 0, "propia": bool(propia)}
-        if propia:
-            act.update({"codigo": r["codigo"], "avance_decl": r["avance_decl"],
-                        "reconocida": r["reconocida"], "estado_val": r["estado_val"]})
-        t["actividades"].append(act)
+        "SELECT a.giro, a.bloque, a.area FROM plano_trazo_act ta JOIN actividades a ON a.id=ta.actividad_id "
+        "WHERE ta.trazo_id=? AND (a.eliminada IS NULL OR a.eliminada=0)", (trazo_id,)).fetchall()
+    if not filas:
+        return
+    if not (t["giro"] or "").strip():
+        g = _mas_comun(f["giro"] for f in filas)
+        if g:
+            db.execute("UPDATE plano_trazos SET giro=? WHERE id=?", (g, trazo_id))
+            _asegurar_color_giro(db, g)
+    if not db.execute("SELECT 1 FROM plano_trazo_ub WHERE trazo_id=?", (trazo_id,)).fetchone():
+        b = _mas_comun(f["bloque"] for f in filas)
+        if b:
+            a = _mas_comun(f["area"] for f in filas if (f["bloque"] or "").strip() == b) or ""
+            db.execute("INSERT OR IGNORE INTO plano_trazo_ub (trazo_id,bloque,area) VALUES (?,?,?)", (trazo_id, b, a))
+
+
+def _completar_trazos(db):
+    """Trazos hechos antes de existir 'especialidad principal' y 'ubicación': se completan una vez
+    con lo que ya tienen asignado (así toman su color y su área sin tocar su forma)."""
+    pend = db.execute(
+        "SELECT t.id FROM plano_trazos t WHERE ((t.giro IS NULL OR TRIM(t.giro)='') "
+        "OR NOT EXISTS (SELECT 1 FROM plano_trazo_ub u WHERE u.trazo_id=t.id)) "
+        "AND EXISTS (SELECT 1 FROM plano_trazo_act ta WHERE ta.trazo_id=t.id)").fetchall()
+    for r in pend:
+        _completar_un_trazo(db, r["id"])
+    if pend:
+        db.commit()
+
+
+# ---- Tipos de elemento (Muro, Piso, Plafón…): catálogo que el admin da de alta y edita ----
+TIPOS_ELEM_BASE = ["Muro", "Piso", "Plafón", "Tablaroca", "Pintura", "Azulejo"]
+
+
+def _tipos_elem(db):
+    try:
+        t = json.loads(_config_get(db, "plano_tipos_elem", "") or "null")
+    except ValueError:
+        t = None
+    return t if isinstance(t, list) else list(TIPOS_ELEM_BASE)
+
+
+def _guardar_tipos_elem(db, lista):
+    _config_set(db, "plano_tipos_elem", json.dumps(lista, ensure_ascii=False))
+
+
+@app.route("/api/plano/tipos")
+@requiere_login
+def api_plano_tipos():
+    db = get_db()
+    uso = {r[0]: r[1] for r in db.execute("SELECT tipo_elem, COUNT(*) FROM plano_trazos WHERE tipo_elem IS NOT NULL AND tipo_elem<>'' GROUP BY tipo_elem")}
+    return jsonify([{"nombre": n, "n": uso.get(n, 0)} for n in _tipos_elem(db)])
+
+
+@app.route("/api/plano/tipos", methods=["POST"])
+@requiere_gestor
+def api_plano_tipo_alta():
+    db = get_db()
+    nombre = _texto_corto((request.get_json(silent=True) or {}).get("nombre"), 40)
+    if not nombre:
+        return jsonify({"error": "Escribe el nombre del tipo."}), 400
+    lista = _tipos_elem(db)
+    if any(x.lower() == nombre.lower() for x in lista):
+        return jsonify({"error": "Ese tipo ya existe."}), 400
+    lista.append(nombre)
+    _guardar_tipos_elem(db, lista); db.commit()
+    return jsonify({"ok": True, "nombre": nombre})
+
+
+@app.route("/api/plano/tipos", methods=["PUT"])
+@requiere_gestor
+def api_plano_tipo_renombrar():
+    db = get_db()
+    d = request.get_json(silent=True) or {}
+    viejo, nuevo = _texto_corto(d.get("viejo"), 40), _texto_corto(d.get("nuevo"), 40)
+    lista = _tipos_elem(db)
+    if viejo not in lista or not nuevo:
+        return jsonify({"error": "No encontré ese tipo."}), 404
+    if nuevo.lower() != viejo.lower() and any(x.lower() == nuevo.lower() for x in lista):
+        return jsonify({"error": "Ya existe un tipo con ese nombre."}), 400
+    lista[lista.index(viejo)] = nuevo
+    _guardar_tipos_elem(db, lista)
+    db.execute("UPDATE plano_trazos SET tipo_elem=? WHERE tipo_elem=?", (nuevo, viejo))
+    db.commit()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/plano/tipos", methods=["DELETE"])
+@requiere_gestor
+def api_plano_tipo_borrar():
+    db = get_db()
+    nombre = _texto_corto(request.args.get("nombre"), 40)
+    lista = _tipos_elem(db)
+    if nombre not in lista:
+        return jsonify({"error": "No encontré ese tipo."}), 404
+    n = db.execute("SELECT COUNT(*) FROM plano_trazos WHERE tipo_elem=?", (nombre,)).fetchone()[0]
+    if n and request.args.get("forzar") != "1":
+        return jsonify({"error": f"Hay {n} trazos con este tipo.", "en_uso": n}), 409
+    lista.remove(nombre)
+    _guardar_tipos_elem(db, lista)
+    db.execute("UPDATE plano_trazos SET tipo_elem='' WHERE tipo_elem=?", (nombre,))
+    db.commit()
+    return jsonify({"ok": True})
+
+
+_SQL_ACT_TRAZO = ("a.id AS actividad_id, a.codigo, a.partida, a.giro, a.bloque, a.area, a.proveedor, a.departamento, "
+                  "a.mundo, a.avance, a.avance_decl, a.reconocida, a.estado_val")
+
+
+def _trazos_para(db, rol, proveedor, mundo=None):
+    """Trazos con sus actividades (las asignadas a mano + las de sus áreas si el trazo es automático).
+    Gestores: ven el mundo pedido ('obra' | 'interno' | 'todos'). Proveedor/departamento: solo su mundo
+    y solo los trazos donde tiene al menos una actividad; de las demás ve gremio y avance (sin código)
+    si el admin lo permite."""
+    gestor = es_gestor(rol)
+    col, mundo_ses = col_duenio()
+    ver_otros = _config_get(db, "plano_ver_otros", "1") == "1"
+    _completar_trazos(db)
+    colores = _mapa_colores_giro(db)
+    capas = _capas_plano(db, None if gestor and mundo not in ("obra", "interno") else (mundo if gestor else mundo_ses))
+    if gestor:
+        mundo_q = mundo if mundo in ("obra", "interno") else None
+    else:
+        mundo_q = mundo_ses
+    sql_t = "SELECT id, tipo, nombre, puntos, giro, tipo_elem, COALESCE(mundo,'obra') AS mundo, COALESCE(auto,0) AS auto FROM plano_trazos"
+    args_t = []
+    if mundo_q:
+        sql_t += " WHERE COALESCE(mundo,'obra')=?"; args_t.append(mundo_q)
+    sql_t += " ORDER BY id"
+    trazos = db.execute(sql_t, args_t).fetchall()
+    ubs = {}
+    for u in db.execute("SELECT trazo_id, bloque, area FROM plano_trazo_ub ORDER BY bloque, area"):
+        ubs.setdefault(u["trazo_id"], []).append({"bloque": u["bloque"], "area": u["area"]})
+    manual = {}
+    for r in db.execute(
+            f"SELECT ta.trazo_id, {_SQL_ACT_TRAZO} FROM plano_trazo_act ta JOIN actividades a ON a.id=ta.actividad_id "
+            "WHERE (a.eliminada IS NULL OR a.eliminada=0) ORDER BY a.giro, a.id"):
+        manual.setdefault(r["trazo_id"], []).append(r)
+
     sal = []
-    for tid in orden:
-        t = por[tid]
-        acts = t["actividades"]
+    for tr in trazos:
+        try:
+            pts = json.loads(tr["puntos"])
+        except ValueError:
+            pts = []
+        lista_ub = ubs.get(tr["id"], [])
+        filas = list(manual.get(tr["id"], []))
+        ids = {f["actividad_id"] for f in filas}
+        auto_ids = set()
+        if tr["auto"] and lista_ub:
+            cond = ["(a.eliminada IS NULL OR a.eliminada=0)", "(a.aplica IS NULL OR a.aplica<>'NO')",
+                    "(a.estado_val IS NULL OR a.estado_val<>'rechazada')"]
+            args = []
+            piezas = []
+            for u in lista_ub:
+                if u["area"]:
+                    piezas.append("(a.bloque=? AND a.area=?)"); args += [u["bloque"], u["area"]]
+                else:
+                    piezas.append("(a.bloque=?)"); args.append(u["bloque"])
+            cond.append("(" + " OR ".join(piezas) + ")")
+            cond.append("(a.mundo = ? OR (a.mundo IS NULL AND ? = 'obra'))"); args += [tr["mundo"], tr["mundo"]]
+            for r in db.execute(f"SELECT {_SQL_ACT_TRAZO} FROM actividades a WHERE {' AND '.join(cond)} ORDER BY a.giro, a.id", args):
+                if r["actividad_id"] not in ids:
+                    filas.append(r); ids.add(r["actividad_id"]); auto_ids.add(r["actividad_id"])
+        acts = []
+        for r in filas:
+            resp = (r["proveedor"] or "").strip() or (r["departamento"] or "").strip() or "Sin responsable"
+            esmundo_int = (r["mundo"] or "obra") == "interno"
+            duenio = ((r["departamento"] if esmundo_int else r["proveedor"]) or "").strip()
+            propia = gestor or (duenio != "" and duenio == proveedor)
+            if not gestor and r["reconocida"] == "RECHAZADA":
+                continue
+            capa, color = capas.get(resp, (resp, PLANO_COLOR_OTROS))
+            giro_a = (r["giro"] or "").strip()
+            act = {"id": r["actividad_id"], "partida": r["partida"], "giro": r["giro"], "bloque": r["bloque"],
+                   "area": r["area"], "resp": resp, "color": color, "avance": r["avance"] or 0, "propia": bool(propia),
+                   "auto": r["actividad_id"] in auto_ids,
+                   "color_giro": colores.get(giro_a, GIRO_COLOR_OTRAS) if giro_a else GIRO_COLOR_OTRAS}
+            if propia:
+                act.update({"codigo": r["codigo"], "avance_decl": r["avance_decl"],
+                            "reconocida": r["reconocida"], "estado_val": r["estado_val"]})
+            acts.append(act)
         if not gestor:
             if not any(a["propia"] for a in acts):
                 continue
             if not ver_otros:
-                acts = t["actividades"] = [a for a in acts if a["propia"]]
+                acts = [a for a in acts if a["propia"]]
         n = len(acts)
-        t["n_act"] = n
-        t["n_listas"] = sum(1 for a in acts if (a["avance"] or 0) >= 100)
-        t["avance"] = int(round(sum((a["avance"] or 0) for a in acts) / n)) if n else 0
-        sal.append(t)
+        g = {}
+        for a in acts:
+            k = (a["giro"] or "").strip() or "Sin especialidad"
+            e = g.setdefault(k, {"giro": k, "n": 0, "color": colores.get(k, GIRO_COLOR_OTRAS) if k != "Sin especialidad" else GIRO_COLOR_OTRAS})
+            e["n"] += 1
+        giros = sorted(g.values(), key=lambda e: (-e["n"], e["giro"]))
+        giro_st = (tr["giro"] or "").strip()
+        principal = giro_st or (giros[0]["giro"] if giros and giros[0]["giro"] != "Sin especialidad" else "")
+        if principal and not giro_st:
+            # el trazo aún no tenía especialidad principal: se fija ahora (así su color ya no cambia solo)
+            db.execute("UPDATE plano_trazos SET giro=? WHERE id=?", (principal, tr["id"]))
+            _asegurar_color_giro(db, principal)
+            colores = _mapa_colores_giro(db)
+            db.commit()
+        sal.append({
+            "id": tr["id"], "tipo": tr["tipo"], "nombre": tr["nombre"] or "", "puntos": pts, "mundo": tr["mundo"],
+            "tipo_elem": tr["tipo_elem"] or "", "auto": bool(tr["auto"]), "ubicaciones": lista_ub,
+            "giro": giro_st, "giro_efectivo": principal,
+            "color": colores.get(principal, GIRO_COLOR_OTRAS) if principal else GIRO_COLOR_OTRAS,
+            "actividades": acts, "n_act": n, "n_auto": len(auto_ids),
+            "n_listas": sum(1 for a in acts if (a["avance"] or 0) >= 100),
+            "avance": int(round(sum((a["avance"] or 0) for a in acts) / n)) if n else 0,
+            "giros": giros,
+        })
     return sal
 
 
@@ -4447,7 +4702,12 @@ def _trazos_para(db, rol, proveedor):
 @requiere_login
 def api_plano_trazos():
     _, rol, proveedor = usuario_actual()
-    return jsonify(_trazos_para(get_db(), rol, proveedor))
+    return jsonify(_trazos_para(get_db(), rol, proveedor, request.args.get("mundo")))
+
+
+def _validar_trazo_comun(data):
+    mundo = data.get("mundo")
+    return mundo if mundo in ("obra", "interno") else None
 
 
 @app.route("/api/plano/trazos", methods=["POST"])
@@ -4461,10 +4721,19 @@ def api_plano_trazo_crear():
     pts, err = _leer_puntos(data, tipo)
     if err:
         return jsonify({"error": err}), 400
+    mundo = _validar_trazo_comun(data) or "obra"
+    giro = _texto_corto(data.get("giro"))
+    ubs = _leer_ubicaciones(data)
+    nombre = (data.get("nombre") or "").strip()[:120]
+    if not nombre and ubs:                              # el nombre sale de la ubicación ligada
+        nombre = " + ".join((u["area"] or u["bloque"]) for u in ubs)[:120]
     cur = db.execute(
-        "INSERT INTO plano_trazos (tipo,nombre,puntos,creado,creado_por) VALUES (?,?,?,?,?)",
-        (tipo, (data.get("nombre") or "").strip()[:120], json.dumps(pts),
-         datetime.datetime.now().isoformat(timespec="seconds"), session.get("usuario")))
+        "INSERT INTO plano_trazos (tipo,nombre,puntos,creado,creado_por,giro,tipo_elem,mundo,auto) VALUES (?,?,?,?,?,?,?,?,?)",
+        (tipo, nombre, json.dumps(pts), datetime.datetime.now().isoformat(timespec="seconds"), session.get("usuario"),
+         giro, _texto_corto(data.get("tipo_elem"), 40), mundo, 1 if data.get("auto") else 0))
+    _guardar_ubicaciones(db, cur.lastrowid, ubs)
+    if giro:
+        _asegurar_color_giro(db, giro)
     _guardar_vinculos(db, cur.lastrowid, _ids_actividades(data))
     db.commit()
     return jsonify({"ok": True, "id": cur.lastrowid})
@@ -4485,6 +4754,16 @@ def api_plano_trazo_editar(tid):
         db.execute("UPDATE plano_trazos SET puntos=? WHERE id=?", (json.dumps(pts), tid))
     if "nombre" in data:
         db.execute("UPDATE plano_trazos SET nombre=? WHERE id=?", ((data.get("nombre") or "").strip()[:120], tid))
+    if "ubicaciones" in data:
+        _guardar_ubicaciones(db, tid, _leer_ubicaciones(data))
+    if "tipo_elem" in data:
+        db.execute("UPDATE plano_trazos SET tipo_elem=? WHERE id=?", (_texto_corto(data.get("tipo_elem"), 40), tid))
+    if "auto" in data:
+        db.execute("UPDATE plano_trazos SET auto=? WHERE id=?", (1 if data.get("auto") else 0, tid))
+    if "giro" in data:
+        g = _texto_corto(data.get("giro"))
+        db.execute("UPDATE plano_trazos SET giro=? WHERE id=?", (g, tid))
+        _asegurar_color_giro(db, g)
     if "actividades" in data:
         _guardar_vinculos(db, tid, _ids_actividades(data))
     db.commit()
@@ -4496,6 +4775,7 @@ def api_plano_trazo_editar(tid):
 def api_plano_trazo_borrar(tid):
     db = get_db()
     db.execute("DELETE FROM plano_trazo_act WHERE trazo_id=?", (tid,))
+    db.execute("DELETE FROM plano_trazo_ub WHERE trazo_id=?", (tid,))
     db.execute("DELETE FROM plano_trazos WHERE id=?", (tid,))
     db.commit()
     return jsonify({"ok": True})
