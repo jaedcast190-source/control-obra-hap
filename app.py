@@ -450,6 +450,22 @@ def init_db():
         creado_por   TEXT
     );
 
+    -- Trazos sobre el plano: una línea (muro, pintura, tablaroca) o una zona (plafón, piso).
+    -- Cada trazo puede tener varias actividades de distintos gremios asignadas.
+    CREATE TABLE IF NOT EXISTS plano_trazos (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        tipo       TEXT NOT NULL,          -- 'linea' | 'zona'
+        nombre     TEXT,
+        puntos     TEXT NOT NULL,          -- JSON [[x,y],...] en fracción 0..1 del plano
+        creado     TEXT,
+        creado_por TEXT
+    );
+    CREATE TABLE IF NOT EXISTS plano_trazo_act (
+        trazo_id     INTEGER NOT NULL,
+        actividad_id INTEGER NOT NULL,
+        PRIMARY KEY (trazo_id, actividad_id)
+    );
+
     -- Catálogo de proveedores con tipo (interno/externo) y de qué se encarga
     CREATE TABLE IF NOT EXISTS proveedores (
         id       INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -4028,6 +4044,7 @@ def api_plano_info():
         "nombre": _config_get(db, "plano_nombre", ""),
         "rol": session.get("rol"),
         "puede_editar": session.get("rol") == "admin",
+        "puede_trazar": es_gestor(session.get("rol")),
         "ver_otros": _config_get(db, "plano_ver_otros", "1") == "1",
     })
 
@@ -4211,7 +4228,7 @@ def api_plano_otros():
 
 
 @app.route("/api/plano/actividades")
-@requiere_admin
+@requiere_gestor
 def api_plano_actividades():
     """Buscador de actividades para ubicarlas en el plano. Busca igual que la pantalla
     principal (sin importar acentos ni mayúsculas, en código, partida, área, bloque y
@@ -4312,6 +4329,174 @@ def api_plano_pin_editar(pid):
 def api_plano_pin_borrar(pid):
     db = get_db()
     db.execute("DELETE FROM plano_pines WHERE id=?", (pid,))
+    db.commit()
+    return jsonify({"ok": True})
+
+
+# ---------------------------------------------------------------------
+#  TRAZOS: líneas (muros, pintura, tablaroca) y zonas (plafones, pisos)
+#  dibujadas sobre el plano, con las actividades de varios gremios
+#  asignadas. El color/avance del trazo sale del promedio de sus actividades.
+#  Dibujan el admin y los supervisores; el proveedor solo ve los trazos donde
+#  tiene al menos una actividad.
+# ---------------------------------------------------------------------
+TRAZO_TIPOS = ("linea", "zona")
+TRAZO_MAX_PUNTOS = 400
+
+
+def _leer_puntos(data, tipo):
+    """Valida la lista de puntos [[x,y],...]. Devuelve (lista, error)."""
+    crudo = data.get("puntos")
+    if not isinstance(crudo, list):
+        return None, "Faltan los puntos del trazo."
+    pts = []
+    for p in crudo:
+        try:
+            x, y = float(p[0]), float(p[1])
+        except (TypeError, ValueError, IndexError, KeyError):
+            return None, "Hay un punto inválido en el trazo."
+        if not (0 <= x <= 1 and 0 <= y <= 1):
+            return None, "Hay un punto fuera del plano."
+        pts.append([round(x, 5), round(y, 5)])
+    minimo = 2 if tipo == "linea" else 3
+    if len(pts) < minimo:
+        return None, ("Una línea necesita al menos 2 puntos." if tipo == "linea"
+                      else "Una zona necesita al menos 3 puntos.")
+    if len(pts) > TRAZO_MAX_PUNTOS:
+        return None, "El trazo tiene demasiados puntos."
+    return pts, None
+
+
+def _ids_actividades(data):
+    ids = []
+    for v in (data.get("actividades") or []):
+        try:
+            i = int(v)
+        except (TypeError, ValueError):
+            continue
+        if i not in ids:
+            ids.append(i)
+    return ids[:200]
+
+
+def _guardar_vinculos(db, trazo_id, ids):
+    db.execute("DELETE FROM plano_trazo_act WHERE trazo_id=?", (trazo_id,))
+    for i in ids:
+        if db.execute("SELECT 1 FROM actividades WHERE id=?", (i,)).fetchone():
+            db.execute("INSERT OR IGNORE INTO plano_trazo_act (trazo_id,actividad_id) VALUES (?,?)", (trazo_id, i))
+
+
+def _trazos_para(db, rol, proveedor):
+    """Trazos con sus actividades. Gestores: todo. Proveedor: solo los trazos donde tiene una
+    actividad; de las demás ve gremio y avance (sin código) si el admin lo permite."""
+    gestor = es_gestor(rol)
+    col, _m = col_duenio()
+    ver_otros = _config_get(db, "plano_ver_otros", "1") == "1"
+    filas = db.execute(
+        "SELECT t.id, t.tipo, t.nombre, t.puntos, ta.actividad_id, a.codigo, a.partida, a.giro, a.bloque, a.area, "
+        "a.proveedor, a.departamento, a.avance, a.avance_decl, a.reconocida, a.estado_val "
+        "FROM plano_trazos t "
+        "LEFT JOIN plano_trazo_act ta ON ta.trazo_id=t.id "
+        "LEFT JOIN actividades a ON a.id=ta.actividad_id AND (a.eliminada IS NULL OR a.eliminada=0) "
+        "ORDER BY t.id, a.giro, a.id").fetchall()
+    capas = _capas_plano(db)
+    por = {}
+    orden = []
+    for r in filas:
+        t = por.get(r["id"])
+        if t is None:
+            try:
+                pts = json.loads(r["puntos"])
+            except ValueError:
+                pts = []
+            t = por[r["id"]] = {"id": r["id"], "tipo": r["tipo"], "nombre": r["nombre"] or "",
+                                "puntos": pts, "actividades": []}
+            orden.append(r["id"])
+        if r["actividad_id"] is None or r["partida"] is None and r["codigo"] is None:
+            continue
+        resp = (r["proveedor"] or "").strip() or (r["departamento"] or "").strip() or "Sin responsable"
+        duenio = (r[col] or "").strip()
+        propia = gestor or (duenio != "" and duenio == proveedor)
+        if not gestor and (r["reconocida"] == "RECHAZADA"):
+            continue
+        capa, color = capas.get(resp, (resp, PLANO_COLOR_OTROS))
+        act = {"id": r["actividad_id"], "partida": r["partida"], "giro": r["giro"], "bloque": r["bloque"],
+               "area": r["area"], "resp": resp, "color": color, "avance": r["avance"] or 0, "propia": bool(propia)}
+        if propia:
+            act.update({"codigo": r["codigo"], "avance_decl": r["avance_decl"],
+                        "reconocida": r["reconocida"], "estado_val": r["estado_val"]})
+        t["actividades"].append(act)
+    sal = []
+    for tid in orden:
+        t = por[tid]
+        acts = t["actividades"]
+        if not gestor:
+            if not any(a["propia"] for a in acts):
+                continue
+            if not ver_otros:
+                acts = t["actividades"] = [a for a in acts if a["propia"]]
+        n = len(acts)
+        t["n_act"] = n
+        t["n_listas"] = sum(1 for a in acts if (a["avance"] or 0) >= 100)
+        t["avance"] = int(round(sum((a["avance"] or 0) for a in acts) / n)) if n else 0
+        sal.append(t)
+    return sal
+
+
+@app.route("/api/plano/trazos")
+@requiere_login
+def api_plano_trazos():
+    _, rol, proveedor = usuario_actual()
+    return jsonify(_trazos_para(get_db(), rol, proveedor))
+
+
+@app.route("/api/plano/trazos", methods=["POST"])
+@requiere_gestor
+def api_plano_trazo_crear():
+    db = get_db()
+    data = request.get_json(silent=True) or {}
+    tipo = data.get("tipo")
+    if tipo not in TRAZO_TIPOS:
+        return jsonify({"error": "El tipo de trazo debe ser línea o zona."}), 400
+    pts, err = _leer_puntos(data, tipo)
+    if err:
+        return jsonify({"error": err}), 400
+    cur = db.execute(
+        "INSERT INTO plano_trazos (tipo,nombre,puntos,creado,creado_por) VALUES (?,?,?,?,?)",
+        (tipo, (data.get("nombre") or "").strip()[:120], json.dumps(pts),
+         datetime.datetime.now().isoformat(timespec="seconds"), session.get("usuario")))
+    _guardar_vinculos(db, cur.lastrowid, _ids_actividades(data))
+    db.commit()
+    return jsonify({"ok": True, "id": cur.lastrowid})
+
+
+@app.route("/api/plano/trazos/<int:tid>", methods=["PUT"])
+@requiere_gestor
+def api_plano_trazo_editar(tid):
+    db = get_db()
+    data = request.get_json(silent=True) or {}
+    t = db.execute("SELECT tipo FROM plano_trazos WHERE id=?", (tid,)).fetchone()
+    if not t:
+        return jsonify({"error": "El trazo no existe."}), 404
+    if "puntos" in data:
+        pts, err = _leer_puntos(data, t["tipo"])
+        if err:
+            return jsonify({"error": err}), 400
+        db.execute("UPDATE plano_trazos SET puntos=? WHERE id=?", (json.dumps(pts), tid))
+    if "nombre" in data:
+        db.execute("UPDATE plano_trazos SET nombre=? WHERE id=?", ((data.get("nombre") or "").strip()[:120], tid))
+    if "actividades" in data:
+        _guardar_vinculos(db, tid, _ids_actividades(data))
+    db.commit()
+    return jsonify({"ok": True})
+
+
+@app.route("/api/plano/trazos/<int:tid>", methods=["DELETE"])
+@requiere_gestor
+def api_plano_trazo_borrar(tid):
+    db = get_db()
+    db.execute("DELETE FROM plano_trazo_act WHERE trazo_id=?", (tid,))
+    db.execute("DELETE FROM plano_trazos WHERE id=?", (tid,))
     db.commit()
     return jsonify({"ok": True})
 
