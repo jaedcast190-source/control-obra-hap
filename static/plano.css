@@ -183,8 +183,80 @@
 
 .cp-cerrar-movil{display:none;position:sticky;top:-8px;z-index:2;width:100%;margin:0 0 8px;padding:10px;border:0;border-radius:10px;background:#1E7B4B;color:#fff;font:inherit;font-weight:700;font-size:14.5px;cursor:pointer}
 
+/* ---- Trazos: líneas (muros, pintura) y zonas (plafones) sobre el plano ---- */
+.plano-svg{position:absolute;left:0;top:0;width:100%;height:100%;overflow:visible;pointer-events:none}
+.plano-svg .tr{pointer-events:none;--c:#7a8591}
+.plano-svg .tr-casing{fill:none;stroke:#fff;stroke-width:9px;stroke-linecap:round;stroke-linejoin:round;opacity:.92;vector-effect:non-scaling-stroke}
+.plano-svg .tr-trazo{fill:none;stroke:var(--c);stroke-width:5px;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}
+.plano-svg .tr-hit{fill:none;stroke:rgba(0,0,0,0);stroke-width:calc(26px * var(--inv));stroke-linecap:round;stroke-linejoin:round;pointer-events:stroke;cursor:pointer}
+.plano-svg .tr-zona{fill:var(--c);fill-opacity:.24;stroke:var(--c);stroke-width:3px;stroke-linejoin:round;vector-effect:non-scaling-stroke;pointer-events:visiblePainted;cursor:pointer}
+.plano-svg .tr-z:hover .tr-zona{fill-opacity:.34}
+.plano-svg .tr.sel .tr-trazo{stroke-width:7px}
+.plano-svg .tr.sel .tr-casing{stroke:#2563eb;stroke-width:13px;opacity:.55}
+.plano-svg .tr.sel .tr-zona{fill-opacity:.38;stroke-width:5px;stroke-dasharray:10 5}
+.plano-svg .tr.tenue{opacity:.25}
+.plano-svg .tr-borr{--c:#2563eb}
+.plano-svg .tr-borr .tr-trazo{stroke-dasharray:9 6}
+.plano-svg .tr-borr .tr-zona{fill-opacity:.16;stroke-dasharray:9 6}
+.plano-colocando .plano-svg .tr-hit,.plano-colocando .plano-svg .tr-zona{pointer-events:none;cursor:crosshair}
+.plano-capa-tr{position:absolute;left:0;top:0;right:0;bottom:0;pointer-events:none}
+.plano-tr-etq{position:absolute;display:none;transform:translate(-50%,-50%) scale(var(--inv));transform-origin:50% 50%;
+  background:#fff;color:#1f2933;border:2px solid var(--c);border-radius:11px;padding:1px 7px;font:800 12px/1.35 system-ui,sans-serif;white-space:nowrap;
+  box-shadow:0 1px 4px rgba(0,0,0,.35);pointer-events:none}
+.plano-cerca .plano-tr-etq,.plano-tr-etq.sel{display:block}
+.plano-vtx{position:absolute;width:20px;height:20px;margin:0;padding:0;border-radius:50%;background:#fff;border:3px solid #2563eb;
+  transform:translate(-50%,-50%) scale(var(--inv));transform-origin:50% 50%;box-shadow:0 1px 4px rgba(0,0,0,.5);pointer-events:none;box-sizing:border-box}
+button.plano-vtx{pointer-events:auto;cursor:move;width:24px;height:24px;touch-action:none}
+.plano-vtx.nuevo{width:14px;height:14px;background:#2563eb;border-color:#fff}
+.plano-vtx.nuevo.ini{width:18px;height:18px;background:#fff;border-color:#2563eb}
+
+/* Panel Trazos */
+.pl-panel-trazos{overflow-y:auto}
+#tz-inicio,#tz-editor{display:flex;flex-direction:column;gap:8px;min-height:0}
+#tz-inicio{flex:1}
+#tz-inicio[hidden],#tz-editor[hidden]{display:none}
+.tz-herr{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}
+.tz-herr button{display:flex;flex-direction:column;align-items:center;gap:1px;padding:9px 4px;border:1px solid #cbd2da;border-radius:10px;background:#fff;cursor:pointer;font:inherit;color:#1f2933}
+.tz-herr button:hover{border-color:#1E7B4B;background:#f3faf6}
+.tz-herr i{font-style:normal;font-size:22px;line-height:1;color:#1E7B4B}
+.tz-herr b{font-size:13px}
+.tz-herr small{font-size:10.5px;color:#6b7280;text-align:center;line-height:1.2}
+.tz-item{border-left:5px solid var(--c,#7a8591)}
+.tz-item .i-av{float:right;font-weight:800;color:var(--c,#1E7B4B)}
+.tz-volver{align-self:flex-start;padding:0;font-size:13px}
+.tz-chips{display:flex;flex-wrap:wrap;gap:5px}
+.tz-chips button{border:1px solid #cbd2da;background:#f4f6f8;border-radius:14px;padding:3px 10px;font-size:12.5px;font-weight:600;color:#374151;cursor:pointer}
+.tz-chips button:hover{border-color:#1E7B4B;color:#1E7B4B}
+.tz-av{background:#f7f9fb;border:1px solid #e1e6eb;border-radius:10px;padding:6px 10px}
+.tz-av .pt-avance{margin:2px 0}
+.tz-av-txt{font-size:12.5px;color:#4b5563}
+.tz-asig,.tz-mini{display:flex;flex-direction:column;gap:5px}
+.tz-mini{max-height:190px;overflow-y:auto;margin:4px 0}
+.tz-fila{display:flex;align-items:center;gap:8px;border:1px solid #e1e6eb;border-left:5px solid var(--g,#8b949e);border-radius:8px;padding:5px 8px;background:#fff}
+.tz-cuad{display:none}
+.tz-tx{flex:1;min-width:0;font-size:13px;line-height:1.25;color:#1f2933}
+.tz-tx small{display:block;font-size:11.5px;color:#6b7280}
+.tz-pct{font-weight:800;font-size:13px}
+.tz-quitar{border:0;background:#fde8e6;color:#b42318;border-radius:50%;width:24px;height:24px;font-size:12px;font-weight:800;cursor:pointer;flex:none}
+.tz-res{max-height:34vh;min-height:90px;flex:none}
+.tz-res-item.ya{opacity:.55;cursor:default}
+.tz-res-item .i-av{float:right;font-weight:800;color:#1E7B4B}
+.tz-acc{margin-top:2px}
+.pl-banner button.ok{background:#1E7B4B;color:#fff}
+.pl-pestanas button{padding-left:2px;padding-right:2px;font-size:12px;min-width:0}
+.pl-pestanas button span{font-weight:800}
+
+.tz-fila.tz-mia{background:#f3faf6}
+.tz-fila button.tzc-rep,.tz-fila button.tzc-lista{flex:none;border:0;border-radius:8px;padding:6px 10px;font:inherit;font-size:12.5px;font-weight:700;cursor:pointer;background:#1E7B4B;color:#fff}
+.tz-fila button.tzc-lista{background:#fff;color:#1E7B4B;border:1px solid #1E7B4B}
+.tz-ok{flex:none;font-size:16px}
+
 /* Celular: va al FINAL del archivo para ganarle a las reglas base de arriba */
 @media (max-width:760px){
   .pl-tag{top:auto;bottom:12px;left:12px;right:auto;max-width:calc(100% - 84px);font-size:12px}
   .cp-cerrar-movil{display:block}
+  /* al saltar al mapa o a la lista, que no los tape la barra de arriba */
+  #pl-lado,.pl-centro{scroll-margin-top:128px}
+  .pl-banner{font-size:13px;gap:8px;padding:8px 10px}
+  .pl-banner button{padding:6px 8px}
 }
