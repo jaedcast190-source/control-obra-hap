@@ -281,6 +281,10 @@
     if (a) empezarColocar(a);
   });
 
+  function esCelular() { return window.matchMedia && window.matchMedia("(max-width:760px)").matches; }
+  function irAlMapa() { if (esCelular()) { try { document.querySelector(".pl-centro").scrollIntoView({ behavior: "smooth", block: "start" }); } catch (e) { /* sin scroll */ } } }
+  function irALaLista() { if (esCelular()) { try { document.querySelector("#pl-lado").scrollIntoView({ behavior: "smooth", block: "start" }); } catch (e) { /* sin scroll */ } } }
+
   function empezarColocar(a) {
     if (!INFO.existe) { toast("Primero sube el plano."); return; }
     MOVIENDO = null; COLOCANDO = a;
@@ -291,6 +295,7 @@
     $("#pl-banner-txt").textContent = "Toca en el plano dónde va: " + a.codigo + " · " + (a.partida || "").slice(0, 60);
     $("#pl-banner").hidden = false;
     document.querySelectorAll(".pl-item").forEach(el => el.classList.toggle("activo", Number(el.dataset.id) === a.id));
+    irAlMapa();
   }
   function terminarModo() {
     COLOCANDO = null; MOVIENDO = null;
@@ -315,6 +320,7 @@
         if (pin) abrirTarjeta(pin);
         toast("Pin colocado: " + a.codigo);
         buscarActividades();
+        setTimeout(irALaLista, 900);
       } else if (MOVIENDO) {
         const id = MOVIENDO;
         await api("/api/plano/pines/" + id, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ x: f.x, y: f.y }) });
@@ -356,6 +362,7 @@
     aplicarVista();
     VISOR.seleccionar(pin.id, true);
     abrirTarjeta(pin);
+    irAlMapa();
   });
 
   // ---------- tarjeta del pin ----------
