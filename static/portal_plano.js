@@ -15,6 +15,10 @@
   let TRAZOS = [];          // muros / zonas donde tengo al menos una actividad
   let VER_TRAZOS = true;
   let TR_SEL = null;
+  let F_ESP = null, F_TIPO = null;   // filtros de muros/zonas: null = todas las especialidades / tipos
+  const GRIS = "#8b949e";
+  const claveG = (g) => (g.color === GRIS ? "__otras__" : g.giro);
+  const claveA = (a) => (a.color_giro === GRIS || !a.giro ? "__otras__" : a.giro);
   const ESTADOS = { listo: true, proceso: true, sin: true };   // qué pines míos se ven
   let CAPAS_ACT = null;                                         // null = todos los gremios
   let OTROS_ZONA = [];                                          // otros gremios dentro de mi zona
@@ -107,7 +111,35 @@
     });
     VISOR.agrupar = true;
     VISOR.setPines(lista);
-    VISOR.setTrazos(VER_TRAZOS ? TRAZOS.map(t => Object.assign({}, t)) : []);
+    VISOR.setTrazos(VER_TRAZOS ? trazosVisibles() : []);
+  }
+
+  // Muros y zonas: el color es el de su especialidad; si filtras una especialidad, el % es solo el de esa.
+  function pasaTrazo(t) {
+    if (F_TIPO && !F_TIPO.has(t.tipo_elem || "__sin__")) return false;
+    if (F_ESP && !(t.giros || []).some(g => F_ESP.has(claveG(g)))) return false;
+    return true;
+  }
+  function trazosVisibles() {
+    return TRAZOS.filter(t => pasaTrazo(t) || t.id === TR_SEL).map(t => {
+      let c = t.color || GRIS, n = Number(t.avance) || 0;
+      if (F_ESP) {
+        const g = (t.giros || []).find(x => F_ESP.has(claveG(x)));
+        if (g) c = g.color;
+        const acts = t.actividades.filter(a => F_ESP.has(claveA(a)));
+        if (acts.length) n = Math.round(acts.reduce((q, a) => q + (Number(a.avance) || 0), 0) / acts.length);
+      }
+      return { id: t.id, tipo: t.tipo, nombre: (t.nombre || "").trim() || (t.tipo === "zona" ? "Zona" : "Línea"), puntos: t.puntos, avance: n, _c: c, _n: n + "%" };
+    });
+  }
+  function especialidadesTrazos() {
+    const mapa = {};
+    TRAZOS.forEach(t => (t.giros || []).forEach(g => {
+      const k = claveG(g);
+      const e = mapa[k] || (mapa[k] = { k: k, nombre: k === "__otras__" ? "Otras especialidades" : g.giro, color: k === "__otras__" ? GRIS : g.color, t: new Set() });
+      e.t.add(t.id);
+    }));
+    return Object.keys(mapa).map(k => mapa[k]).sort((a, b) => (a.k === "__otras__") - (b.k === "__otras__") || b.t.size - a.t.size);
   }
 
   // ---------- panel de capas ----------
@@ -125,6 +157,19 @@
       h += '<label class="cp-sw"><input type="checkbox" id="pp-trazos"' + (VER_TRAZOS ? " checked" : "") + '><span class="tg"></span>Muros y zonas (' + TRAZOS.length + ')</label>';
     }
     h += filaMia("listo", "Mis pines (listo)", "#1E7B4B") + filaMia("proceso", "Mis pines (en proceso)", "#D98E04") + filaMia("sin", "Mis pines (sin avance)", "#7a8591");
+    if (TRAZOS.length && VER_TRAZOS) {
+      const esp = especialidadesTrazos();
+      if (esp.length > 1) {
+        h += '<div class="cp-tit">Muros y zonas por especialidad</div><div class="tz-leyenda">' + esp.map(e =>
+          '<button type="button" class="cp-capa' + (!F_ESP || F_ESP.has(e.k) ? "" : " off") + '" data-esp="' + escP(e.k) + '" style="--c:' + e.color + '"><span class="pt"></span><span class="tx">' + escP(e.nombre) + '</span><span class="n">' + e.t.size + '</span></button>').join("") + '</div>';
+      }
+      const usados = {}; TRAZOS.forEach(t => { const k = t.tipo_elem || "__sin__"; usados[k] = (usados[k] || 0) + 1; });
+      const ks = Object.keys(usados).filter(k => k !== "__sin__").concat(usados.__sin__ ? ["__sin__"] : []);
+      if (ks.length > 1) {
+        h += '<div class="cp-tit">Muros y zonas por tipo</div><div class="tz-chipsf">' + ks.map(k =>
+          '<button type="button" class="tz-chipf' + (!F_TIPO || F_TIPO.has(k) ? " on" : "") + '" data-tipo="' + escP(k) + '">' + escP(k === "__sin__" ? "Sin tipo" : k) + ' <b>' + usados[k] + '</b></button>').join("") + '</div>';
+      }
+    }
     if (VER_OTROS && OTROS.habilitado) {
       const por = {};
       OTROS_ZONA.forEach(o => { (por[o.capa] = por[o.capa] || { nombre: o.capa, color: o.color, n: 0, resps: new Set() }); por[o.capa].n++; por[o.capa].resps.add(o.resp); });
@@ -143,8 +188,23 @@
 
   $("#p-plano-panel").addEventListener("click", (e) => {
     if (e.target.closest("#pp-cerrar-panel")) { $("#p-plano-panel").classList.remove("abierto"); return; }
+    const ch = e.target.closest(".tz-chipf");
+    if (ch) {
+      const todas = Array.from(new Set(TRAZOS.map(t => t.tipo_elem || "__sin__")));
+      const c = F_TIPO || new Set(todas);
+      if (c.has(ch.dataset.tipo)) c.delete(ch.dataset.tipo); else c.add(ch.dataset.tipo);
+      F_TIPO = c.size === todas.length ? null : c;
+      pintar(); renderPanel(); return;
+    }
     const b = e.target.closest(".cp-capa");
     if (!b) return;
+    if (b.dataset.esp) {
+      const todas = especialidadesTrazos().map(x => x.k);
+      const c = F_ESP || new Set(todas);
+      if (c.has(b.dataset.esp)) c.delete(b.dataset.esp); else c.add(b.dataset.esp);
+      F_ESP = c.size === todas.length ? null : c;
+      pintar(); renderPanel(); return;
+    }
     if (b.dataset.est) { ESTADOS[b.dataset.est] = !ESTADOS[b.dataset.est]; }
     else if (b.dataset.capa) {
       const todas = [...new Set(OTROS_ZONA.map(o => o.capa))];
@@ -287,11 +347,12 @@
     el.style.setProperty("--c", PlanoColorAvance(av));
     el.innerHTML =
       '<button class="pt-cerrar" type="button" id="pp-x" title="Cerrar">✕</button>' +
-      '<div class="pz-tit">' + (t.tipo === "zona" ? "Zona" : "Muro / línea") + '</div>' +
+      '<div class="pz-tit">' + (t.tipo === "zona" ? "Zona" : "Muro / línea") + (t.tipo_elem ? " · " + escP(t.tipo_elem) : "") + '</div>' +
       '<div class="pt-partida">' + escP(nombre) + '</div>' +
       '<div class="pt-avance"><div class="pt-barra"><div style="width:' + av + '%"></div></div><span class="pt-pct">' + av + '%</span></div>' +
       '<div class="pt-meta">Avance de todo el trabajo aquí · ' + t.n_act + (t.n_act === 1 ? ' actividad' : ' actividades') + ' · ' + t.n_listas + ' al 100%</div>' +
-      '<div class="tz-mini">' + mias.map(filaTrazo).join("") + otras.map(filaTrazo).join("") + '</div>';
+      '<details class="tz-det"' + (t.n_act <= 5 ? " open" : "") + '><summary>' + t.n_act + (t.n_act === 1 ? ' actividad' : ' actividades') + (mias.length ? ' · ' + mias.length + ' tuyas' : '') + '</summary>' +
+      '<div class="tz-mini">' + mias.map(filaTrazo).join("") + otras.map(filaTrazo).join("") + '</div></details>';
     el.hidden = false;
     $("#pp-x").onclick = cerrarTarjeta;
     el.querySelectorAll(".tzc-rep").forEach(b => { b.onclick = () => abrirReporte(Number(b.dataset.id)); });
