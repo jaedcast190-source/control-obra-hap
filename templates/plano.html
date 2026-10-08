@@ -26,6 +26,11 @@
 
 <div class="pl-layout">
   <aside class="pl-lado" id="pl-lado">
+    <div class="pl-mundo" id="pl-mundo" role="group" aria-label="Mundo">
+      <button type="button" data-m="obra">🏗 Obra</button>
+      <button type="button" data-m="interno">🏥 Interno</button>
+      <button type="button" data-m="todos">Todo</button>
+    </div>
     <div class="pl-pestanas">
       <button id="tab-colocar" class="on perm-editar">📍 Ubicar</button>
       <button id="tab-colocados">📌 Colocados <span id="n-colocados">0</span></button>
@@ -66,28 +71,57 @@
         <h3>Dibujar sobre el plano</h3>
         <div class="tz-herr" id="tz-herr">
           <button type="button" data-herr="linea"><i>╱</i><b>Línea</b><small>muro, pintura, tablaroca</small></button>
-          <button type="button" data-herr="rect"><i>▭</i><b>Rectángulo</b><small>plafón, piso</small></button>
+          <button type="button" data-herr="rect"><i>▭</i><b>Rectángulo</b><small>plafón, piso, área</small></button>
           <button type="button" data-herr="zona"><i>⬠</i><b>Zona</b><small>unir puntos</small></button>
         </div>
+        <div class="cp-fila-tit"><div class="cp-tit">Ver por especialidad</div>
+          <button type="button" class="cp-mini tz-quitar-filtros" id="tz-filtro-hay" hidden>Ver todo</button></div>
+        <div id="tz-leyenda" class="tz-leyenda"></div>
+        <div class="cp-tit">Ver por tipo</div>
+        <div id="tz-tipos-chips" class="tz-chipsf"></div>
         <div class="pl-buscar"><input type="search" id="tz-q" placeholder="Buscar entre los trazos…" autocomplete="off"></div>
         <div class="pl-lista" id="tz-lista"></div>
+        <details class="tz-det tz-tipos-adm">
+          <summary>⚙ Administrar tipos (Muro, Piso, Plafón…)</summary>
+          <p class="cp-ayuda">Da de alta los elementos que quieras ver en el plano. Los puedes renombrar o quitar.</p>
+          <div id="tz-tipos-lista"></div>
+          <div class="tz-tipo-nuevo"><input id="tz-tipo-nuevo" maxlength="40" placeholder="Nuevo tipo (ej. Cancelería)" autocomplete="off"><button type="button" id="tz-tipo-nuevo-ok" class="pt-pri">Agregar</button></div>
+        </details>
       </div>
       <div id="tz-editor" hidden>
         <button type="button" class="cp-mini tz-volver" id="tz-volver">← Todos los trazos</button>
-        <input class="pl-nota-in" id="tz-nombre" maxlength="120" placeholder="Nombre (ej. Cuarto séptico · muro norte)" autocomplete="off">
-        <div class="tz-chips" id="tz-chips">
-          <button type="button">Muro</button><button type="button">Pintura</button><button type="button">Tablaroca</button>
-          <button type="button">Plafón</button><button type="button">Piso</button><button type="button">Azulejo</button>
+        <div class="cp-tit">Nombre del trazo</div>
+        <input class="pl-nota-in" id="tz-nombre" maxlength="120" placeholder="Nombre (se llena solo al ligar el área)" autocomplete="off">
+        <div class="tz-chips" id="tz-chips"><button type="button">Muro</button><button type="button">Pintura</button><button type="button">Tablaroca</button><button type="button">Plafón</button><button type="button">Piso</button><button type="button">Azulejo</button></div>
+
+        <div class="cp-tit">Áreas ligadas <small class="tz-sub">(puede ser más de una)</small></div>
+        <div class="tz-ubs" id="tz-ub-lista"></div>
+        <div class="tz-ub-add">
+          <select id="tz-ub-bloque"><option value="">Bloque</option></select>
+          <select id="tz-ub-area"><option value="">Área</option></select>
+          <button type="button" id="tz-ub-add" class="pt-pri">+ Ligar</button>
+        </div>
+        <label class="cp-sw"><input type="checkbox" id="tz-auto"><span class="tg"></span>Traer solas las actividades de estas áreas</label>
+        <p class="cp-ayuda" id="tz-auto-txt"></p>
+
+        <div class="tz-dos">
+          <div><div class="cp-tit">Tipo de elemento</div><select id="tz-e-tipo" class="tz-sel"></select></div>
+          <div><div class="cp-tit">Especialidad (color) <i class="tz-color" id="tz-e-color"></i></div><select id="tz-e-giro" class="tz-sel"></select></div>
         </div>
         <div class="tz-av" id="tz-av"></div>
-        <div class="cp-tit">Actividades de este trazo</div>
-        <div class="tz-asig" id="tz-asignadas"></div>
-        <div class="cp-tit">Agregar actividades</div>
+
+        <details class="tz-det" id="tz-det-asig">
+          <summary>Actividades de este trazo · <b id="tz-asig-n">0</b></summary>
+          <div class="tz-asig" id="tz-asignadas"></div>
+        </details>
+
+        <div class="cp-tit">Agregar actividades a mano</div>
         <div class="pl-buscar"><input type="search" id="tz-bq" placeholder="Buscar: área, partida, responsable…" autocomplete="off"></div>
         <div class="pl-filtros">
           <div class="pl-sel"><select id="tz-bloque"><option value="">Bloque</option></select><button type="button" class="pl-x" data-para="tz-bloque" title="Quitar este filtro" hidden>✕</button></div>
           <div class="pl-sel"><select id="tz-area"><option value="">Área</option></select><button type="button" class="pl-x" data-para="tz-area" title="Quitar este filtro" hidden>✕</button></div>
-          <div class="pl-sel"><select id="tz-giro"><option value="">Especialidad</option></select><button type="button" class="pl-x" data-para="tz-giro" title="Quitar este filtro" hidden>✕</button></div>
+          <details class="tz-multi" id="tz-giros"><summary>Especialidades <b id="tz-giros-n"></b></summary>
+            <div class="tz-multi-lista"><div id="tz-giros-lista"></div><button type="button" class="cp-mini" id="tz-giros-limpiar">Quitar selección</button></div></details>
           <div class="pl-sel"><select id="tz-prov"><option value="">Responsable</option></select><button type="button" class="pl-x" data-para="tz-prov" title="Quitar este filtro" hidden>✕</button></div>
         </div>
         <div class="pl-fila-info"><span id="tz-contador" class="pl-contador"></span><button type="button" id="tz-addall" class="pl-limpiar" hidden>+ Agregar las que se ven</button></div>
@@ -109,6 +143,10 @@
       <label class="cp-sw"><input type="checkbox" id="cp-agrupar" checked><span class="tg"></span>Agrupar pines cercanos</label>
       <label class="cp-sw"><input type="checkbox" id="cp-atenuar"><span class="tg"></span>Atenuar los demás gremios</label>
       <label class="cp-sw"><input type="checkbox" id="cp-trazos" checked><span class="tg"></span>Mostrar muros y zonas (trazos)</label>
+      <div class="cp-fila-tit"><div class="cp-tit">Trazos por especialidad</div><button type="button" class="cp-mini tz-quitar-filtros" id="cp-filtro-hay" hidden>Ver todo</button></div>
+      <div id="cp-esp" class="tz-leyenda"></div>
+      <div class="cp-tit">Trazos por tipo</div>
+      <div id="cp-tipos" class="tz-chipsf"></div>
       <p class="cp-ayuda">Toca una burbuja para ver quién tiene más actividades en esa zona. Al acercar el plano las burbujas se separan en pines.</p>
       <div class="perm-editar" id="cp-admin">
         <div class="cp-tit">Proveedores</div>
