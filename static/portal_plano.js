@@ -12,6 +12,9 @@
 
   let VISOR = null, INFO = null, PINES = [], OTROS = { habilitado: false, pines: [] }, SEL = null, ABIERTO = false;
   let VER_OTROS = false;
+  let TRAZOS = [];          // muros / zonas donde tengo al menos una actividad
+  let VER_TRAZOS = true;
+  let TR_SEL = null;
   const ESTADOS = { listo: true, proceso: true, sin: true };   // qué pines míos se ven
   let CAPAS_ACT = null;                                         // null = todos los gremios
   let OTROS_ZONA = [];                                          // otros gremios dentro de mi zona
@@ -46,11 +49,11 @@
     cerrarTarjeta();
     try {
       if (!VISOR) {
-        VISOR = new PlanoVisor($("#p-plano-vp"), { onPin: abrirTarjeta, onVacio: () => cerrarTarjeta(), onCluster: abrirTarjetaZona });
+        VISOR = new PlanoVisor($("#p-plano-vp"), { onPin: abrirTarjeta, onVacio: () => cerrarTarjeta(), onCluster: abrirTarjetaZona, onTrazo: abrirTarjetaTrazo });
         await VISOR.cargarImagen("/api/plano/imagen?v=" + encodeURIComponent(INFO.version));
       }
       await recargarPines();
-      VISOR.ajustarAPines();
+      encuadrar();
     } catch (e) { $("#p-plano-vacio").hidden = false; }
   }
 
@@ -61,12 +64,27 @@
       const o = await (await fetch("/api/plano/otros")).json();
       OTROS = o && Array.isArray(o.pines) ? o : { habilitado: false, pines: [] };
     } catch (e) { OTROS = { habilitado: false, pines: [] }; }
-    $("#p-plano-vacio").hidden = PINES.length > 0;
-    $("#p-plano-vp").style.opacity = PINES.length ? "1" : ".55";
+    try {
+      const t = await (await fetch("/api/plano/trazos")).json();
+      TRAZOS = Array.isArray(t) ? t : [];
+    } catch (e) { TRAZOS = []; }
+    const hay = PINES.length > 0 || TRAZOS.length > 0;
+    $("#p-plano-vacio").hidden = hay;
+    $("#p-plano-vp").style.opacity = hay ? "1" : ".55";
     calcularZona();
     pintar();
     renderPanel();
     if (SEL) { const p = PINES.find(q => q.id === SEL); if (p) { VISOR.seleccionar(SEL); abrirTarjeta(p); } else cerrarTarjeta(); }
+    else if (TR_SEL) { const t = TRAZOS.find(q => q.id === TR_SEL); if (t && VER_TRAZOS) { VISOR.seleccionarTrazo(t.id); abrirTarjetaTrazo(t); } else cerrarTarjeta(); }
+  }
+
+  // Encuadra mis pines y mis muros/zonas juntos (si solo hay trazos, encuadra los trazos).
+  function encuadrar() {
+    const pts = PINES.map(p => [p.x, p.y]);
+    if (VER_TRAZOS) TRAZOS.forEach(t => t.puntos.forEach(q => pts.push(q)));
+    if (!pts.length) { VISOR.ajustar(); return; }
+    if (!TRAZOS.length || !VER_TRAZOS) { VISOR.ajustarAPines(); return; }
+    VISOR.enfocarPuntos(pts);
   }
 
   function estadoDe(av) { av = Number(av) || 0; return av >= 100 ? "listo" : av > 0 ? "proceso" : "sin"; }
@@ -89,6 +107,7 @@
     });
     VISOR.agrupar = true;
     VISOR.setPines(lista);
+    VISOR.setTrazos(VER_TRAZOS ? TRAZOS.map(t => Object.assign({}, t)) : []);
   }
 
   // ---------- panel de capas ----------
@@ -101,6 +120,9 @@
       '<div class="cp-tit">Mis actividades en el plano</div>';
     if (OTROS.habilitado && OTROS.pines.length && PINES.length) {
       h += '<label class="cp-sw"><input type="checkbox" id="pp-otros"' + (VER_OTROS ? " checked" : "") + '><span class="tg"></span>Ver otros gremios en mi zona</label>';
+    }
+    if (TRAZOS.length) {
+      h += '<label class="cp-sw"><input type="checkbox" id="pp-trazos"' + (VER_TRAZOS ? " checked" : "") + '><span class="tg"></span>Muros y zonas (' + TRAZOS.length + ')</label>';
     }
     h += filaMia("listo", "Mis pines (listo)", "#1E7B4B") + filaMia("proceso", "Mis pines (en proceso)", "#D98E04") + filaMia("sin", "Mis pines (sin avance)", "#7a8591");
     if (VER_OTROS && OTROS.habilitado) {
@@ -134,6 +156,7 @@
     pintar(); renderPanel();
   });
   $("#p-plano-panel").addEventListener("change", (e) => {
+    if (e.target.id === "pp-trazos") { VER_TRAZOS = e.target.checked; pintar(); renderPanel(); cerrarTarjeta(); return; }
     if (e.target.id !== "pp-otros") return;
     VER_OTROS = e.target.checked; guardarPref(VER_OTROS);
     pintar(); renderPanel(); cerrarTarjeta();
@@ -231,8 +254,52 @@
     $("#pz-acercar").onclick = () => { VISOR.acercarA(cl.pines); t.hidden = true; };
   }
 
+  // Muro / zona: promedio de las actividades de todos los gremios que trabajan ahí.
+  // Mis actividades traen su botón; las de otros gremios son solo consulta (sin código).
+  function filaTrazo(a) {
+    const av = Number(a.avance) || 0;
+    if (!a.propia) {
+      return '<div class="tz-fila" style="--g:' + a.color + '"><span class="tz-cuad"></span><div class="tz-tx">' + escP(a.partida) + '<small>' + escP([a.resp, a.giro].filter(Boolean).join(" · ")) + ' · solo consulta</small></div>' +
+        '<span class="tz-pct" style="color:' + PlanoColorAvance(av) + '">' + av + '%</span></div>';
+    }
+    const m = (typeof MIS !== "undefined" ? MIS : []).find(x => x.id === a.id) || {};
+    const decl = m.avance_decl != null ? m.avance_decl : a.avance_decl;
+    const enRev = decl != null && decl !== av;
+    const sinReconocer = m.id ? (m.reconocida !== "SÍ" && m.estado_val !== "propuesta" && m.estado_val !== "rechazada") : false;
+    let acc = "";
+    if (!m.id) acc = "";
+    else if (sinReconocer || m.tipo_interno === "Validación") acc = '<button type="button" class="tzc-lista">Ir a mi lista</button>';
+    else if (av >= 100 && !enRev) acc = '<span class="tz-ok">✅</span>';
+    else acc = '<button type="button" class="tzc-rep" data-id="' + a.id + '">Reportar</button>';
+    return '<div class="tz-fila tz-mia" style="--g:' + a.color + '"><span class="tz-cuad"></span><div class="tz-tx"><b>' + escP(a.codigo) + '</b> · ' + escP(a.partida) +
+      '<small>Tuya' + (a.giro ? ' · ' + escP(a.giro) : '') + (enRev ? ' · reportaste ' + decl + '% en revisión' : '') + '</small></div>' +
+      '<span class="tz-pct" style="color:' + PlanoColorAvance(av) + '">' + av + '%</span>' + acc + '</div>';
+  }
+
+  function abrirTarjetaTrazo(tr) {
+    const t = TRAZOS.find(q => q.id === tr.id) || tr;
+    SEL = null; TR_SEL = t.id;
+    $("#p-plano-panel").classList.remove("abierto");
+    const nombre = (t.nombre || "").trim() || (t.tipo === "zona" ? "Zona" : "Línea");
+    const av = Number(t.avance) || 0;
+    const mias = t.actividades.filter(a => a.propia), otras = t.actividades.filter(a => !a.propia);
+    const el = $("#p-plano-tarjeta");
+    el.style.setProperty("--c", PlanoColorAvance(av));
+    el.innerHTML =
+      '<button class="pt-cerrar" type="button" id="pp-x" title="Cerrar">✕</button>' +
+      '<div class="pz-tit">' + (t.tipo === "zona" ? "Zona" : "Muro / línea") + '</div>' +
+      '<div class="pt-partida">' + escP(nombre) + '</div>' +
+      '<div class="pt-avance"><div class="pt-barra"><div style="width:' + av + '%"></div></div><span class="pt-pct">' + av + '%</span></div>' +
+      '<div class="pt-meta">Avance de todo el trabajo aquí · ' + t.n_act + (t.n_act === 1 ? ' actividad' : ' actividades') + ' · ' + t.n_listas + ' al 100%</div>' +
+      '<div class="tz-mini">' + mias.map(filaTrazo).join("") + otras.map(filaTrazo).join("") + '</div>';
+    el.hidden = false;
+    $("#pp-x").onclick = cerrarTarjeta;
+    el.querySelectorAll(".tzc-rep").forEach(b => { b.onclick = () => abrirReporte(Number(b.dataset.id)); });
+    el.querySelectorAll(".tzc-lista").forEach(b => { b.onclick = () => cerrarPlano(); });
+  }
+
   function cerrarTarjeta() {
-    SEL = null;
+    SEL = null; TR_SEL = null;
     $("#p-plano-tarjeta").hidden = true;
     if (VISOR) { VISOR.seleccionarCluster(null); VISOR.seleccionar(null); }
   }
