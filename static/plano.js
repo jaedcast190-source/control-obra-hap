@@ -21,6 +21,14 @@
   let TR_PUNTOS = false;    // true = se pueden arrastrar los puntos del trazo abierto
   let TR_CAT = null;        // catálogos de los filtros del buscador de actividades del trazo
   let tBuscaT = null;
+  // MUNDO: Obra (proveedores externos) | Interno (departamentos HAP) | Todo. No se mezclan salvo que elijas "Todo".
+  function leerMundoInicial() {
+    const m = new URLSearchParams(location.search).get("mundo");
+    if (m === "obra" || m === "interno" || m === "todos") return m;
+    try { const g = localStorage.getItem("hap_plano_mundo"); if (g === "obra" || g === "interno" || g === "todos") return g; } catch (e) { /* sin almacenamiento */ }
+    return "obra";
+  }
+  let MUNDO_P = leerMundoInicial();
 
   function toast(m) { const t = $("#toast"); t.textContent = m; t.hidden = false; clearTimeout(toast._t); toast._t = setTimeout(() => t.hidden = true, 2600); }
 
@@ -45,6 +53,12 @@
     if (!INFO.puede_editar) $("#pl-sub").textContent = "Consulta del plano (solo lectura)";
     $("#cp-verotros").checked = INFO.ver_otros !== false;
 
+    // viene del 📍 de la pantalla principal: usa el mundo de esa actividad
+    const ida0 = Number(new URLSearchParams(location.search).get("actividad"));
+    if (ida0 && !new URLSearchParams(location.search).get("mundo")) {
+      try { const a0 = await api("/api/actividad/" + ida0); if (a0 && (a0.mundo === "obra" || a0.mundo === "interno")) MUNDO_P = a0.mundo; } catch (e) { /* se queda con el mundo guardado */ }
+    }
+    pintarMundo();
     VISOR = crearVisor();
     if (!INFO.existe) { mostrarSinPlano(); }
     else { await VISOR.cargarImagen("/api/plano/imagen?v=" + encodeURIComponent(INFO.version)); }
@@ -256,7 +270,7 @@
 
   async function buscarActividades() {
     const par = new URLSearchParams({
-      q: $("#pl-q").value.trim(), bloque: $("#pl-bloque").value, area: $("#pl-area").value,
+      mundo: MUNDO_P, q: $("#pl-q").value.trim(), bloque: $("#pl-bloque").value, area: $("#pl-area").value,
       giro: $("#pl-giro").value, proveedor: $("#pl-prov").value,
       solo_sin_pin: $("#pl-solo-sin").checked ? "1" : "0",
     });
@@ -337,6 +351,15 @@
     try {
       if (COLOCANDO) {
         const a = COLOCANDO;
+        // ¿cae en la zona de otra área? avisa antes de guardar
+        const zona = zonaQueContiene(f.x, f.y);
+        const suyaOk = !zona || zona.ubicaciones.some(u => u.bloque === a.bloque && (!u.area || u.area === a.area));
+        if (zona && !suyaOk) {
+          VISOR.setModoColocar(false);
+          $("#pl-banner").hidden = true;
+          const sigue = await confirmarFueraDeZona(a, zona);
+          if (!sigue) { VISOR.setModoColocar(true); $("#pl-banner").hidden = false; return; }
+        }
         const r = await api("/api/plano/pines", { method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ actividad_id: a.id, x: f.x, y: f.y }) });
         terminarModo();
@@ -344,7 +367,7 @@
         VISOR.seleccionar(r.id);
         const pin = PINES.find(p => p.id === r.id);
         if (pin) abrirTarjeta(pin);
-        toast("Pin colocado: " + a.codigo);
+        toast(zona && suyaOk ? "Pin colocado: " + a.codigo + " · detecté la zona «" + nomTrazo(zona) + "»" : "Pin colocado: " + a.codigo);
         buscarActividades();
         setTimeout(irALaLista, 900);
       } else if (MOVIENDO) {
@@ -362,7 +385,7 @@
 
   // ---------- pines ----------
   async function cargarPines() {
-    PINES = await api("/api/plano/pines");
+    PINES = await api("/api/plano/pines?mundo=" + MUNDO_P);
     $("#n-colocados").textContent = PINES.length;
     calcularCapas(); renderCapas();
     aplicarVista();
@@ -459,42 +482,154 @@
 
 
   // =====================================================================
-  //  TRAZOS: líneas (muros, pintura, tablaroca) y zonas (plafones, pisos)
-  //  con las actividades de varios gremios asignadas.
+  //  TRAZOS: líneas (muros, pintura, tablaroca) y zonas (plafones, pisos, áreas)
+  //  - cada trazo se liga a uno o varios Bloque · Área de tu lista
+  //  - si tiene el interruptor "automático", trae solo las actividades de esas áreas y calcula el %
+  //  - el color sale de la especialidad principal (no del avance)
+  //  - todo va por MUNDO (Obra / Interno): no se mezclan salvo que pidas "Todo"
   // =====================================================================
   const PUNTOS_MIN = { linea: 2, zona: 3, rect: 2 };
-  const NOMBRE_HERR = { linea: "la línea", rect: "el rectángulo", zona: "la zona" };
+  const GRIS = "#8b949e";
+  let TIPOS = [];                 // catálogo de tipos de elemento [{nombre, n}]
+  let TR_FILTRO_ESP = null;       // Set de claves de especialidad (null = todas)
+  let TR_FILTRO_TIPO = null;      // Set de tipos de elemento (null = todos)
+  let TR_GIROS_SEL = new Set();   // especialidades marcadas en el buscador de actividades
+  let TR_ASIG_ABIERTO = null;     // null = según cuántas haya; true/false = lo que eligió el usuario
 
   function nomTrazo(t) { return (t.nombre || "").trim() || ((t.tipo === "zona" ? "Zona" : "Línea") + " #" + t.id); }
   function gremiosDe(t) { return new Set(t.actividades.map(a => a.resp)).size; }
+  function textoUb(u) { return u.area ? u.bloque + " · " + u.area : u.bloque + " (todo el bloque)"; }
+  function nombreAuto(ubs) { return (ubs || []).map(u => u.area || u.bloque).join(" + ").slice(0, 120); }
+  const claveGiro = (g) => (g.color === GRIS ? "__otras__" : g.giro);
+  const claveAct = (a) => (a.color_giro === GRIS || !a.giro ? "__otras__" : a.giro);
 
+  // ---------- selector de mundo ----------
+  function pintarMundo() {
+    document.querySelectorAll("#pl-mundo button").forEach(b => b.classList.toggle("on", b.dataset.m === MUNDO_P));
+  }
+  async function cambiarMundo(m) {
+    if (m === MUNDO_P) return;
+    MUNDO_P = m;
+    try { localStorage.setItem("hap_plano_mundo", m); } catch (e) { /* sin almacenamiento */ }
+    pintarMundo();
+    terminarModo(); cerrarTarjeta(); cerrarEditor();
+    CAT = null; TR_CAT = null; VISTA.activas = null; REF_UBICAR = null;
+    TR_FILTRO_ESP = null; TR_FILTRO_TIPO = null; TR_GIROS_SEL = new Set();
+    ["#pl-bloque", "#pl-area", "#pl-giro", "#pl-prov"].forEach(id => { $(id).value = ""; });
+    $("#pl-q").value = "";
+    await cargarPines();
+    await cargarTrazos();
+    if (INFO.puede_editar) await buscarActividades();
+    if (VISOR && INFO.existe) VISOR.ajustar();
+    toast(m === "obra" ? "Mundo Obra (proveedores externos)" : m === "interno" ? "Mundo Interno (departamentos HAP)" : "Viendo todo: Obra + Interno");
+  }
+  $("#pl-mundo").addEventListener("click", (e) => { const b = e.target.closest("button[data-m]"); if (b) cambiarMundo(b.dataset.m); });
+
+  // ---------- carga ----------
   async function cargarTrazos() {
-    try { TRAZOS = await api("/api/plano/trazos"); } catch (e) { TRAZOS = []; }
+    try { TRAZOS = await api("/api/plano/trazos?mundo=" + MUNDO_P); } catch (e) { TRAZOS = []; }
+    try { TIPOS = await api("/api/plano/tipos"); } catch (e) { TIPOS = []; }
     const n = $("#n-trazos"); if (n) n.textContent = TRAZOS.length;
-    aplicarVista(); renderTrazos();
+    aplicarVista(); renderTrazos(); renderFiltrosTrazos(); renderTiposAdmin();
     if (TR_SEL) {
       if (TRAZOS.some(t => t.id === TR_SEL)) renderEditor(); else cerrarEditor();
     }
+  }
+
+  // ---------- filtros por especialidad y por tipo (como el "ver" de Ubicar) ----------
+  function leyendaEsp() {
+    const mapa = {};
+    TRAZOS.forEach(t => t.giros.forEach(g => {
+      const k = claveGiro(g);
+      const e = mapa[k] || (mapa[k] = { k: k, nombre: k === "__otras__" ? "Otras especialidades" : g.giro, color: k === "__otras__" ? GRIS : g.color, trazos: new Set() });
+      e.trazos.add(t.id);
+    }));
+    return Object.keys(mapa).map(k => mapa[k]).sort((a, b) => (a.k === "__otras__") - (b.k === "__otras__") || b.trazos.size - a.trazos.size);
+  }
+  function renderFiltrosTrazos() {
+    const esp = leyendaEsp();
+    const htmlEsp = esp.length ? esp.map(e =>
+      '<button type="button" class="cp-capa' + (!TR_FILTRO_ESP || TR_FILTRO_ESP.has(e.k) ? "" : " off") + '" data-k="' + esc(e.k) + '" style="--c:' + e.color + '"><span class="pt"></span><span class="tx">' + esc(e.nombre) + '</span><span class="n">' + e.trazos.size + '</span></button>').join("")
+      : '<p class="cp-ayuda" style="margin:0">Aún no hay trazos con actividades.</p>';
+    const usados = {}; TRAZOS.forEach(t => { const k = t.tipo_elem || "__sin__"; usados[k] = (usados[k] || 0) + 1; });
+    const claves = TIPOS.map(t => t.nombre).filter(n => usados[n]).concat(usados.__sin__ ? ["__sin__"] : []);
+    const htmlTipos = claves.length ? claves.map(k =>
+      '<button type="button" class="tz-chipf' + (!TR_FILTRO_TIPO || TR_FILTRO_TIPO.has(k) ? " on" : "") + '" data-k="' + esc(k) + '">' + esc(k === "__sin__" ? "Sin tipo" : k) + ' <b>' + usados[k] + '</b></button>').join("")
+      : "";
+    ["#tz-leyenda", "#cp-esp"].forEach(id => { const el = $(id); if (el) el.innerHTML = htmlEsp; });
+    ["#tz-tipos-chips", "#cp-tipos"].forEach(id => { const el = $(id); if (el) el.innerHTML = htmlTipos; });
+    ["#tz-filtro-hay", "#cp-filtro-hay"].forEach(id => { const el = $(id); if (el) el.hidden = !(TR_FILTRO_ESP || TR_FILTRO_TIPO); });
+  }
+  function alternar(conjunto, k, todas) {
+    if (!conjunto) conjunto = new Set(todas);
+    if (conjunto.has(k)) conjunto.delete(k); else conjunto.add(k);
+    return conjunto.size === todas.length ? null : conjunto;
+  }
+  function clickEsp(e) {
+    const b = e.target.closest(".cp-capa"); if (!b) return;
+    TR_FILTRO_ESP = alternar(TR_FILTRO_ESP, b.dataset.k, leyendaEsp().map(x => x.k));
+    renderFiltrosTrazos(); renderTrazos(); pintarTrazos();
+  }
+  function clickTipo(e) {
+    const b = e.target.closest(".tz-chipf"); if (!b) return;
+    const todas = Array.from(new Set(TRAZOS.map(t => t.tipo_elem || "__sin__")));
+    TR_FILTRO_TIPO = alternar(TR_FILTRO_TIPO, b.dataset.k, todas);
+    renderFiltrosTrazos(); renderTrazos(); pintarTrazos();
+  }
+  ["#tz-leyenda", "#cp-esp"].forEach(id => $(id).addEventListener("click", clickEsp));
+  ["#tz-tipos-chips", "#cp-tipos"].forEach(id => $(id).addEventListener("click", clickTipo));
+  document.querySelectorAll(".tz-quitar-filtros").forEach(b => b.addEventListener("click", () => {
+    TR_FILTRO_ESP = null; TR_FILTRO_TIPO = null; renderFiltrosTrazos(); renderTrazos(); pintarTrazos();
+  }));
+
+  function pasaFiltro(t) {
+    if (TR_FILTRO_TIPO && !TR_FILTRO_TIPO.has(t.tipo_elem || "__sin__")) return false;
+    if (TR_FILTRO_ESP && !t.giros.some(g => TR_FILTRO_ESP.has(claveGiro(g)))) return false;
+    return true;
   }
 
   // En Ubicar no se muestran (estorban); en las demás pestañas depende del interruptor de Capas.
   function pintarTrazos() {
     if (!VISOR) return;
     const ver = TAB === "trazos" || (TAB !== "colocar" && VISTA.trazos);
-    VISOR.setTrazos(ver ? TRAZOS.map(t => Object.assign({}, t)) : []);
-    if (ver && TR_SEL && TAB === "trazos") VISOR.seleccionarTrazo(TR_SEL);
+    if (!ver) { VISOR.setTrazos([]); return; }
+    const lista = [];
+    TRAZOS.forEach(t => {
+      if (!pasaFiltro(t) && t.id !== TR_SEL) return;
+      let c = t.color, n = t.avance;
+      if (TR_FILTRO_ESP) {
+        // viendo una especialidad: el trazo se pinta de ese color y el % es solo el de esa especialidad
+        const g = t.giros.find(x => TR_FILTRO_ESP.has(claveGiro(x)));
+        if (g) c = g.color;
+        const acts = t.actividades.filter(a => TR_FILTRO_ESP.has(claveAct(a)));
+        if (acts.length) n = Math.round(acts.reduce((s, a) => s + (a.avance || 0), 0) / acts.length);
+      }
+      lista.push({ id: t.id, tipo: t.tipo, nombre: nomTrazo(t), puntos: t.puntos, avance: n, _c: c, _n: n + "%" });
+    });
+    VISOR.setTrazos(lista);
+    if (TR_SEL && TAB === "trazos") VISOR.seleccionarTrazo(TR_SEL);
   }
 
+  // ---------- lista de trazos (agrupada por Bloque · Área) ----------
   function renderTrazos() {
     const q = ($("#tz-q").value || "").trim().toLowerCase();
-    const lista = TRAZOS.filter(t => !q || (nomTrazo(t) + " " + t.actividades.map(a => [a.partida, a.resp, a.area, a.giro].join(" ")).join(" ")).toLowerCase().indexOf(q) >= 0);
-    $("#tz-lista").innerHTML = lista.length ? lista.map(t => {
-      const c = PlanoColorAvance(t.avance);
-      return '<button type="button" class="pl-item tz-item' + (TR_SEL === t.id ? " activo" : "") + '" data-tz="' + t.id + '" style="--c:' + c + '">' +
-        '<div class="i-cod">' + (t.tipo === "zona" ? "▭ Zona" : "╱ Línea") + '<span class="i-av">' + t.avance + '%</span></div>' +
+    const lista = TRAZOS.filter(pasaFiltro).filter(t => !q ||
+      (nomTrazo(t) + " " + (t.tipo_elem || "") + " " + t.ubicaciones.map(textoUb).join(" ") + " " + t.actividades.map(a => [a.partida, a.resp, a.area, a.giro].join(" ")).join(" ")).toLowerCase().indexOf(q) >= 0);
+    const grupos = {};
+    lista.forEach(t => {
+      const g = t.ubicaciones.length ? t.ubicaciones[0].bloque : "Sin ubicar";
+      (grupos[g] = grupos[g] || []).push(t);
+    });
+    const nombres = Object.keys(grupos).sort((a, b) => (a === "Sin ubicar") - (b === "Sin ubicar") || a.localeCompare(b));
+    $("#tz-lista").innerHTML = nombres.length ? nombres.map(g =>
+      '<div class="pl-grupo">' + esc(g) + ' · ' + grupos[g].length + '</div>' +
+      grupos[g].map(t =>
+        '<button type="button" class="pl-item tz-item' + (TR_SEL === t.id ? " activo" : "") + '" data-tz="' + t.id + '" style="--c:' + t.color + '">' +
+        '<div class="i-cod">' + (t.tipo === "zona" ? "▭ Zona" : "╱ Línea") + (t.tipo_elem ? ' · ' + esc(t.tipo_elem) : '') + (t.auto ? ' · ⚡auto' : '') + '<span class="i-av">' + t.avance + '%</span></div>' +
         '<div class="i-par">' + esc(nomTrazo(t)) + '</div>' +
-        '<div class="i-met">' + (t.n_act ? t.n_act + (t.n_act === 1 ? " actividad" : " actividades") + " · " + gremiosDe(t) + (gremiosDe(t) === 1 ? " gremio" : " gremios") : "Sin actividades asignadas todavía") + '</div></button>';
-    }).join("") : '<p class="pl-sinplano" style="padding:16px">' + (TRAZOS.length ? "Sin resultados." : "Aún no hay trazos. Elige una herramienta arriba y dibuja sobre el plano.") + '</p>';
+        '<div class="i-met">' + (t.ubicaciones.length ? esc(t.ubicaciones.map(textoUb).join("  +  ")) + ' · ' : '') +
+        (t.n_act ? t.n_act + (t.n_act === 1 ? " actividad" : " actividades") + " · " + gremiosDe(t) + (gremiosDe(t) === 1 ? " gremio" : " gremios") : "Sin actividades todavía") + '</div></button>').join("")
+    ).join("") : '<p class="pl-sinplano" style="padding:16px">' + (TRAZOS.length ? "Sin resultados con esos filtros." : "Aún no hay trazos en este mundo. Elige una herramienta arriba y dibuja sobre el plano.") + '</p>';
   }
   $("#tz-q").addEventListener("input", renderTrazos);
   $("#tz-lista").addEventListener("click", (e) => {
@@ -502,6 +637,39 @@
     abrirEditor(Number(b.dataset.tz), true);
     irAlMapa();
   });
+
+  // ---------- administrar tipos de elemento (Muro, Piso, Plafón…) ----------
+  function renderTiposAdmin() {
+    const el = $("#tz-tipos-lista"); if (!el) return;
+    el.innerHTML = TIPOS.map(t =>
+      '<div class="tz-tipo-fila" data-n="' + esc(t.nombre) + '"><input value="' + esc(t.nombre) + '" maxlength="40" aria-label="Nombre del tipo">' +
+      '<small>' + t.n + ' trazos</small><button type="button" class="tz-tipo-del" title="Quitar este tipo">✕</button></div>').join("") || '<p class="cp-ayuda" style="margin:0">Sin tipos todavía.</p>';
+  }
+  $("#tz-tipos-lista").addEventListener("change", async (e) => {
+    const inp = e.target.closest("input"); if (!inp) return;
+    const viejo = inp.closest(".tz-tipo-fila").dataset.n, nuevo = inp.value.trim();
+    if (!nuevo || nuevo === viejo) { inp.value = viejo; return; }
+    try { await api("/api/plano/tipos", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ viejo: viejo, nuevo: nuevo }) }); toast("Tipo renombrado"); await cargarTrazos(); }
+    catch (err) { toast(err.message); inp.value = viejo; }
+  });
+  $("#tz-tipos-lista").addEventListener("click", async (e) => {
+    const b = e.target.closest(".tz-tipo-del"); if (!b) return;
+    const nombre = b.closest(".tz-tipo-fila").dataset.n;
+    try {
+      await api("/api/plano/tipos?nombre=" + encodeURIComponent(nombre), { method: "DELETE" });
+      toast("Tipo quitado"); await cargarTrazos();
+    } catch (err) {
+      if (/Hay \d+ trazos/.test(err.message) && confirm(err.message + " Si lo quitas, esos trazos se quedan sin tipo. ¿Quitarlo?")) {
+        try { await api("/api/plano/tipos?forzar=1&nombre=" + encodeURIComponent(nombre), { method: "DELETE" }); toast("Tipo quitado"); await cargarTrazos(); } catch (e2) { toast(e2.message); }
+      } else if (!/Hay \d+ trazos/.test(err.message)) toast(err.message);
+    }
+  });
+  $("#tz-tipo-nuevo-ok").addEventListener("click", async () => {
+    const inp = $("#tz-tipo-nuevo"), nombre = inp.value.trim(); if (!nombre) return;
+    try { await api("/api/plano/tipos", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ nombre: nombre }) }); inp.value = ""; toast("Tipo agregado: " + nombre); await cargarTrazos(); }
+    catch (err) { toast(err.message); }
+  });
+  $("#tz-tipo-nuevo").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#tz-tipo-nuevo-ok").click(); });
 
   // ---------- dibujar ----------
   $("#tz-herr").addEventListener("click", (e) => {
@@ -524,6 +692,7 @@
 
   function empezarDibujo(herr) {
     if (!INFO.existe) { toast("Primero sube el plano."); return; }
+    if (MUNDO_P === "todos") { toast("Para dibujar elige Obra o Interno arriba: cada trazo pertenece a un mundo."); return; }
     terminarModo(); cerrarTarjeta();
     if (TR_SEL) cerrarEditor();
     DIBUJO = { herr: herr, puntos: [] };
@@ -560,19 +729,59 @@
   $("#pl-banner-deshacer").addEventListener("click", deshacerPunto);
   $("#pl-banner-ok").addEventListener("click", () => terminarDibujo());
 
+  // ¿Qué zona (ya ligada a un Bloque · Área) contiene este punto? Si hay varias anidadas, la más chica.
+  function dentro(pts, x, y) {
+    let r = false;
+    for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+      const xi = pts[i][0], yi = pts[i][1], xj = pts[j][0], yj = pts[j][1];
+      if (((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi)) r = !r;
+    }
+    return r;
+  }
+  function areaPoligono(pts) { let s = 0; for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) s += pts[j][0] * pts[i][1] - pts[i][0] * pts[j][1]; return Math.abs(s / 2); }
+  function zonaQueContiene(x, y, ignorarId) {
+    let mejor = null;
+    TRAZOS.forEach(t => {
+      if (t.tipo !== "zona" || !t.ubicaciones.length || t.id === ignorarId || !dentro(t.puntos, x, y)) return;
+      if (!mejor || areaPoligono(t.puntos) < areaPoligono(mejor.puntos)) mejor = t;
+    });
+    return mejor;
+  }
+  function centro(pts) { let sx = 0, sy = 0; pts.forEach(p => { sx += p[0]; sy += p[1]; }); return [sx / pts.length, sy / pts.length]; }
+
   async function terminarDibujo() {
     const d = DIBUJO; if (!d) return;
     if (d.puntos.length < PUNTOS_MIN[d.herr]) { toast("Faltan puntos: " + (d.herr === "zona" ? "una zona necesita al menos 3." : "una línea necesita al menos 2.")); return; }
     const tipo = d.herr === "linea" ? "linea" : "zona";
+    // detección automática: si cae dentro de una zona ya ligada a un área, hereda esa ubicación
+    const c = centro(d.puntos), zona = zonaQueContiene(c[0], c[1]);
+    const ubs = zona ? zona.ubicaciones.map(u => ({ bloque: u.bloque, area: u.area })) : [];
     try {
       const r = await api("/api/plano/trazos", { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tipo: tipo, puntos: d.puntos, nombre: "", actividades: [] }) });
+        body: JSON.stringify({ tipo: tipo, puntos: d.puntos, nombre: "", ubicaciones: ubs, actividades: [], mundo: MUNDO_P }) });
       terminarModo();
       await cargarTrazos();
       abrirEditor(r.id, false);
-      toast("Trazo creado · ahora ponle nombre y asigna las actividades");
-      setTimeout(() => { const el = $("#tz-nombre"); if (el && esCelular()) irALaLista(); }, 700);
+      toast(zona ? "Detecté que está dentro de «" + nomTrazo(zona) + "» y quedó ligado a esa área" : "Trazo creado · liga el área, ponle nombre y asigna actividades");
+      setTimeout(() => { if (esCelular()) irALaLista(); }, 700);
     } catch (err) { toast(err.message); }
+  }
+
+  // Al ubicar un pin: avisa si cae en la zona de otra área.
+  function confirmarFueraDeZona(a, zona) {
+    return new Promise(resolve => {
+      const el = $("#pl-tarjeta");
+      el.style.removeProperty("--c");
+      const suya = TRAZOS.find(t => t.tipo === "zona" && t.ubicaciones.some(u => u.bloque === a.bloque && (!u.area || u.area === a.area)));
+      el.innerHTML = '<div class="pz-tit" style="color:#b45309">⚠ Esta actividad no es de esta zona</div>' +
+        '<div class="pt-partida" style="font-size:14.5px">' + esc(a.codigo) + ' · ' + esc(a.partida) + ' es de <b>' + esc([a.bloque, a.area].filter(Boolean).join(" · ")) + '</b>, pero la estás poniendo en <b>' + esc(nomTrazo(zona)) + '</b>.</div>' +
+        '<div class="pt-acciones">' + (suya ? '<button type="button" class="pt-pri" id="fz-suya">Ver su zona (' + esc(nomTrazo(suya)) + ')</button>' : '') +
+        '<button type="button" id="fz-dejar">Dejarla aquí</button></div>';
+      el.hidden = false;
+      $("#fz-dejar").onclick = () => { el.hidden = true; resolve(true); };
+      const bs = $("#fz-suya");
+      if (bs) bs.onclick = () => { el.hidden = true; VISOR.enfocarPuntos(suya.puntos); resolve(false); };
+    });
   }
 
   // ---------- editor del trazo ----------
@@ -581,7 +790,7 @@
   function abrirEditor(id, enfocar) {
     const t = TRAZOS.find(x => x.id === id); if (!t) return;
     if (TAB !== "trazos") pestana("trazos");
-    TR_SEL = id; TR_PUNTOS = false;
+    TR_SEL = id; TR_PUNTOS = false; TR_ASIG_ABIERTO = null;
     $("#tz-inicio").hidden = true; $("#tz-editor").hidden = false;
     renderEditor();
     pintarTrazos();
@@ -590,6 +799,17 @@
     if (enfocar) VISOR.enfocarPuntos(t.puntos);
     $("#pl-tarjeta").hidden = true;
     renderTrazos();
+    // el buscador de actividades arranca filtrado al área ligada
+    const u = t.ubicaciones[0];
+    $("#tz-bloque").value = ""; $("#tz-area").value = "";
+    TR_GIROS_SEL = new Set();
+    prepararBuscadorTrazo(u);
+  }
+
+  async function prepararBuscadorTrazo(u) {
+    if (!TR_CAT) { try { llenarFiltrosT(await api("/api/plano/actividades?mundo=" + MUNDO_P + "&q=zzzz-sin-resultados")); } catch (e) { /* se llena al buscar */ } }
+    if (u && TR_CAT) { $("#tz-bloque").value = u.bloque; llenarAreasT(); if (u.area) $("#tz-area").value = u.area; }
+    marcarFiltrosT(); renderGirosMulti();
     buscarParaTrazo();
   }
 
@@ -605,21 +825,49 @@
     const t = trazoActual(); if (!t) return;
     const nom = $("#tz-nombre");
     if (document.activeElement !== nom) nom.value = t.nombre || "";
-    const c = PlanoColorAvance(t.avance);
-    $("#tz-av").style.setProperty("--c", c);
+    nom.placeholder = nombreAuto(t.ubicaciones) || "Nombre (se llena solo al ligar el área)";
+    // ubicaciones ligadas
+    $("#tz-ub-lista").innerHTML = t.ubicaciones.length ? t.ubicaciones.map((u, i) =>
+      '<span class="tz-ub"><span>' + esc(textoUb(u)) + '</span><button type="button" data-i="' + i + '" title="Quitar esta área" aria-label="Quitar">✕</button></span>').join("")
+      : '<span class="cp-ayuda" style="margin:0">Aún sin área: elige abajo el Bloque y el Área de tu lista.</span>';
+    $("#tz-auto").checked = !!t.auto;
+    $("#tz-auto-txt").textContent = t.auto
+      ? "Trae solas las actividades de sus áreas (" + t.n_auto + ") y el % se calcula con todas. Las que des de alta después también entran."
+      : "Apagado: solo cuentan las actividades que tú agregues a mano.";
+    // tipo de elemento
+    const sel = $("#tz-e-tipo");
+    sel.innerHTML = '<option value="">(sin tipo)</option>' + TIPOS.map(x => '<option value="' + esc(x.nombre) + '">' + esc(x.nombre) + '</option>').join("");
+    sel.value = t.tipo_elem || "";
+    // especialidad principal = color
+    const gs = $("#tz-e-giro");
+    const opciones = t.giros.filter(g => g.giro !== "Sin especialidad").map(g => g.giro);
+    if (t.giro && opciones.indexOf(t.giro) < 0) opciones.unshift(t.giro);
+    gs.innerHTML = '<option value="">(automática)</option>' + opciones.map(g => '<option value="' + esc(g) + '">' + esc(g) + '</option>').join("");
+    gs.value = t.giro || "";
+    $("#tz-e-color").style.background = t.color;
+    // avance
+    $("#tz-av").style.setProperty("--c", PlanoColorAvance(t.avance));
     $("#tz-av").innerHTML = t.n_act
       ? '<div class="pt-avance"><div class="pt-barra"><div style="width:' + t.avance + '%"></div></div><span class="pt-pct">' + t.avance + '%</span></div>' +
         '<div class="tz-av-txt">Promedio de ' + t.n_act + (t.n_act === 1 ? " actividad" : " actividades") + ' · ' + gremiosDe(t) + (gremiosDe(t) === 1 ? " gremio" : " gremios") + ' · ' + t.n_listas + ' al 100%</div>'
-      : '<div class="tz-av-txt">Aún sin actividades: asígnalas abajo para que el trazo muestre avance.</div>';
-    $("#tz-asignadas").innerHTML = t.actividades.length ? t.actividades.map(a =>
-      '<div class="tz-fila" style="--g:' + a.color + '"><span class="tz-cuad"></span>' +
-      '<div class="tz-tx"><b>' + esc(a.codigo) + '</b> · ' + esc(a.partida) + '<small>' + esc([a.resp, a.giro].filter(Boolean).join(" · ")) + '</small></div>' +
-      '<span class="tz-pct" style="color:' + PlanoColorAvance(a.avance) + '">' + (a.avance || 0) + '%</span>' +
-      '<button type="button" class="tz-quitar" data-id="' + a.id + '" title="Quitar esta actividad del trazo" aria-label="Quitar">✕</button></div>'
+      : '<div class="tz-av-txt">Aún sin actividades: enciende el automático o agrégalas abajo para que el trazo muestre %.</div>';
+    // actividades: desplegable, agrupadas por especialidad
+    const det = $("#tz-det-asig");
+    det.open = TR_ASIG_ABIERTO != null ? TR_ASIG_ABIERTO : t.n_act <= 6;
+    $("#tz-asig-n").textContent = t.n_act;
+    const porGiro = {};
+    t.actividades.forEach(a => { const k = (a.giro || "").trim() || "Sin especialidad"; (porGiro[k] = porGiro[k] || []).push(a); });
+    $("#tz-asignadas").innerHTML = t.n_act ? Object.keys(porGiro).sort().map(k =>
+      '<div class="tz-gr">' + esc(k) + ' · ' + porGiro[k].length + '</div>' + porGiro[k].map(a =>
+        '<div class="tz-fila" style="--g:' + a.color_giro + '"><div class="tz-tx"><b>' + esc(a.codigo) + '</b> · ' + esc(a.partida) + '<small>' + esc([a.resp, a.auto ? "automática" : ""].filter(Boolean).join(" · ")) + '</small></div>' +
+        '<span class="tz-pct" style="color:' + PlanoColorAvance(a.avance) + '">' + (a.avance || 0) + '%</span>' +
+        (a.auto ? '' : '<button type="button" class="tz-quitar" data-id="' + a.id + '" title="Quitar esta actividad del trazo" aria-label="Quitar">✕</button>') + '</div>').join("")
     ).join("") : '<p class="cp-ayuda" style="margin:0">Ninguna todavía.</p>';
     $("#tz-puntos").textContent = TR_PUNTOS ? "✔ Listo con los puntos" : "Corregir puntos";
     $("#tz-puntos").classList.toggle("pt-pri", TR_PUNTOS);
   }
+  // solo cuenta lo que el usuario toca (abrir o cerrar a mano), no los cambios que hace el programa
+  $("#tz-det-asig > summary").addEventListener("click", () => { TR_ASIG_ABIERTO = !$("#tz-det-asig").open; });
 
   async function guardarTrazo(cambios) {
     const t = trazoActual(); if (!t) return;
@@ -636,10 +884,49 @@
     el.value = el.value.trim() ? (el.value.trim().toLowerCase().indexOf(base.toLowerCase()) >= 0 ? el.value.trim() : el.value.trim() + " · " + base) : base;
     guardarTrazo({ nombre: el.value });
   });
+  $("#tz-e-tipo").addEventListener("change", (e) => guardarTrazo({ tipo_elem: e.target.value }));
+  $("#tz-e-giro").addEventListener("change", (e) => guardarTrazo({ giro: e.target.value }));
+  $("#tz-auto").addEventListener("change", (e) => guardarTrazo({ auto: e.target.checked }));
+
+  // ligar el trazo a Bloque · Área(s) de tu lista (puede ser más de una: dos áreas separadas por un pasillo)
+  function llenarUbBloques() {
+    if (!TR_CAT) return;
+    llenarSelectT("#tz-ub-bloque", "Bloque", TR_CAT.bloques);
+    llenarUbAreas();
+  }
+  function llenarUbAreas() {
+    if (!TR_CAT) return;
+    const b = $("#tz-ub-bloque").value;
+    const lista = [...new Set(TR_CAT.areas.filter(x => x.bloque === b).map(x => x.area))];
+    const el = $("#tz-ub-area"), actual = el.value;
+    el.innerHTML = '<option value="">' + (b ? "(todo el bloque)" : "Área") + '</option>' + lista.map(v => '<option value="' + esc(v) + '">' + esc(v) + '</option>').join("");
+    if (actual && lista.indexOf(actual) >= 0) el.value = actual;
+  }
+  $("#tz-ub-bloque").addEventListener("change", llenarUbAreas);
+  $("#tz-ub-add").addEventListener("click", async () => {
+    const t = trazoActual(); if (!t) return;
+    const b = $("#tz-ub-bloque").value, a = $("#tz-ub-area").value;
+    if (!b) { toast("Elige primero el Bloque."); return; }
+    if (t.ubicaciones.some(u => u.bloque === b && u.area === a)) { toast("Esa área ya está ligada."); return; }
+    const nuevas = t.ubicaciones.concat([{ bloque: b, area: a }]);
+    const cambios = { ubicaciones: nuevas };
+    if (!t.nombre || t.nombre === nombreAuto(t.ubicaciones)) cambios.nombre = nombreAuto(nuevas);   // el nombre sigue al área mientras no lo hayas cambiado a mano
+    await guardarTrazo(cambios);
+    prepararBuscadorTrazo({ bloque: b, area: a });
+  });
+  $("#tz-ub-lista").addEventListener("click", async (e) => {
+    const b = e.target.closest("button[data-i]"); if (!b) return;
+    const t = trazoActual(); if (!t) return;
+    const nuevas = t.ubicaciones.filter((u, i) => i !== Number(b.dataset.i));
+    const cambios = { ubicaciones: nuevas };
+    if (t.nombre === nombreAuto(t.ubicaciones)) cambios.nombre = nombreAuto(nuevas);
+    guardarTrazo(cambios);
+  });
+
   $("#tz-asignadas").addEventListener("click", (e) => {
     const b = e.target.closest(".tz-quitar"); if (!b) return;
     const t = trazoActual(); if (!t) return;
-    guardarTrazo({ actividades: t.actividades.map(a => a.id).filter(i => i !== Number(b.dataset.id)) });
+    guardarTrazo({ actividades: t.actividades.filter(a => !a.auto).map(a => a.id).filter(i => i !== Number(b.dataset.id)) });
   });
 
   async function guardarPuntosTrazo(t) {
@@ -664,9 +951,9 @@
     } catch (e) { toast(e.message); }
   });
 
-  // ---------- buscar actividades para asignarlas al trazo ----------
+  // ---------- buscar actividades para asignarlas al trazo (varias especialidades a la vez) ----------
   function marcarFiltrosT() {
-    ["tz-bloque", "tz-area", "tz-giro", "tz-prov"].forEach(id => {
+    ["tz-bloque", "tz-area", "tz-prov"].forEach(id => {
       const el = $("#" + id), x = document.querySelector('.pl-x[data-para="' + id + '"]');
       const hay = !!el.value;
       if (x) x.hidden = !hay;
@@ -682,8 +969,9 @@
     TR_CAT = d;
     llenarSelectT("#tz-bloque", "Bloque", d.bloques);
     llenarAreasT();
-    llenarSelectT("#tz-giro", "Especialidad", d.giros);
     llenarSelectT("#tz-prov", "Responsable", d.proveedores);
+    llenarUbBloques();
+    renderGirosMulti();
     marcarFiltrosT();
   }
   function llenarAreasT() {
@@ -691,12 +979,25 @@
     const b = $("#tz-bloque").value;
     llenarSelectT("#tz-area", "Área", [...new Set(TR_CAT.areas.filter(x => !b || x.bloque === b).map(x => x.area))]);
   }
+  function renderGirosMulti() {
+    const lista = (TR_CAT && TR_CAT.giros) || [];
+    $("#tz-giros-lista").innerHTML = lista.map(g =>
+      '<label><input type="checkbox" value="' + esc(g) + '"' + (TR_GIROS_SEL.has(g) ? " checked" : "") + '> ' + esc(g) + '</label>').join("");
+    $("#tz-giros-n").textContent = TR_GIROS_SEL.size ? "· " + TR_GIROS_SEL.size : "";
+    $("#tz-giros").classList.toggle("con-valor", TR_GIROS_SEL.size > 0);
+  }
+  $("#tz-giros-lista").addEventListener("change", (e) => {
+    const c = e.target.closest("input"); if (!c) return;
+    if (c.checked) TR_GIROS_SEL.add(c.value); else TR_GIROS_SEL.delete(c.value);
+    renderGirosMulti(); buscarParaTrazo();
+  });
+  $("#tz-giros-limpiar").addEventListener("click", () => { TR_GIROS_SEL = new Set(); renderGirosMulti(); buscarParaTrazo(); });
 
   async function buscarParaTrazo() {
     const t = trazoActual(); if (!t) return;
     const par = new URLSearchParams({
-      q: $("#tz-bq").value.trim(), bloque: $("#tz-bloque").value, area: $("#tz-area").value,
-      giro: $("#tz-giro").value, proveedor: $("#tz-prov").value,
+      mundo: t.mundo, q: $("#tz-bq").value.trim(), bloque: $("#tz-bloque").value, area: $("#tz-area").value,
+      giro: Array.from(TR_GIROS_SEL).join("|"), proveedor: $("#tz-prov").value,
     });
     try {
       const d = await api("/api/plano/actividades?" + par.toString());
@@ -724,22 +1025,22 @@
   }
   $("#tz-bq").addEventListener("input", () => { clearTimeout(tBuscaT); tBuscaT = setTimeout(buscarParaTrazo, 250); });
   $("#tz-bloque").addEventListener("change", () => { $("#tz-area").value = ""; llenarAreasT(); buscarParaTrazo(); });
-  ["#tz-area", "#tz-giro", "#tz-prov"].forEach(id => $(id).addEventListener("change", buscarParaTrazo));
-  ["#tz-bloque", "#tz-area", "#tz-giro", "#tz-prov"].forEach(id => $(id).addEventListener("change", marcarFiltrosT));
+  ["#tz-area", "#tz-prov"].forEach(id => $(id).addEventListener("change", buscarParaTrazo));
+  ["#tz-bloque", "#tz-area", "#tz-prov"].forEach(id => $(id).addEventListener("change", marcarFiltrosT));
   document.querySelectorAll('.pl-x[data-para^="tz-"]').forEach(x => x.addEventListener("click", () => {
     const sel = $("#" + x.dataset.para); sel.value = ""; sel.dispatchEvent(new Event("change"));
   }));
   $("#tz-resultados").addEventListener("click", (e) => {
     const b = e.target.closest(".tz-res-item"); if (!b || b.disabled) return;
     const t = trazoActual(); if (!t) return;
-    guardarTrazo({ actividades: t.actividades.map(a => a.id).concat([Number(b.dataset.id)]) }).then(buscarParaTrazo);
+    guardarTrazo({ actividades: t.actividades.filter(a => !a.auto).map(a => a.id).concat([Number(b.dataset.id)]) }).then(buscarParaTrazo);
   });
   $("#tz-addall").addEventListener("click", () => {
     const t = trazoActual(); if (!t) return;
     const nuevas = JSON.parse($("#tz-resultados").dataset.nuevas || "[]");
     if (!nuevas.length) return;
     if (nuevas.length > 30 && !confirm("Vas a agregar " + nuevas.length + " actividades a este trazo. ¿Continuar?")) return;
-    guardarTrazo({ actividades: t.actividades.map(a => a.id).concat(nuevas) }).then(buscarParaTrazo);
+    guardarTrazo({ actividades: t.actividades.filter(a => !a.auto).map(a => a.id).concat(nuevas) }).then(buscarParaTrazo);
     toast(nuevas.length + " actividades agregadas");
   });
 
@@ -756,13 +1057,14 @@
     el.style.setProperty("--c", color);
     el.innerHTML =
       '<button class="pt-cerrar" type="button" id="pt-x" title="Cerrar">✕</button>' +
-      '<div class="pz-tit">' + (t.tipo === "zona" ? "Zona" : "Línea") + '</div>' +
+      '<div class="pz-tit">' + (t.tipo === "zona" ? "Zona" : "Línea") + (t.tipo_elem ? " · " + esc(t.tipo_elem) : "") + '</div>' +
       '<div class="pt-partida">' + esc(nomTrazo(t)) + '</div>' +
+      (t.ubicaciones.length ? '<div class="pt-meta">' + esc(t.ubicaciones.map(textoUb).join("  +  ")) + '</div>' : '') +
       '<div class="pt-avance"><div class="pt-barra"><div style="width:' + t.avance + '%"></div></div><span class="pt-pct">' + t.avance + '%</span></div>' +
       (t.actividades.length
-        ? '<div class="tz-mini">' + t.actividades.map(a =>
-            '<div class="tz-fila" style="--g:' + a.color + '"><span class="tz-cuad"></span><div class="tz-tx"><b>' + esc(a.codigo) + '</b> · ' + esc(a.partida) + '<small>' + esc([a.resp, a.giro].filter(Boolean).join(" · ")) + '</small></div>' +
-            '<span class="tz-pct" style="color:' + PlanoColorAvance(a.avance) + '">' + (a.avance || 0) + '%</span></div>').join("") + '</div>'
+        ? '<details class="tz-det"><summary>' + t.n_act + (t.n_act === 1 ? " actividad" : " actividades") + ' · ' + gremiosDe(t) + ' gremios</summary><div class="tz-mini">' + t.actividades.map(a =>
+            '<div class="tz-fila" style="--g:' + a.color_giro + '"><div class="tz-tx"><b>' + esc(a.codigo) + '</b> · ' + esc(a.partida) + '<small>' + esc([a.resp, a.giro].filter(Boolean).join(" · ")) + '</small></div>' +
+            '<span class="tz-pct" style="color:' + PlanoColorAvance(a.avance) + '">' + (a.avance || 0) + '%</span></div>').join("") + '</div></details>'
         : '<div class="pt-meta">Sin actividades asignadas.</div>') +
       (INFO.puede_trazar ? '<div class="pt-acciones"><button type="button" class="pt-pri" id="tzc-editar">Editar trazo</button></div>' : '');
     el.hidden = false;
