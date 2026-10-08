@@ -6,6 +6,7 @@
    Uso:
      const visor = new PlanoVisor(contenedor, { onPin(pin){}, onVacio({x,y}){} });
      visor.cargarImagen(url); visor.setPines(lista); visor.seleccionar(id);
+     Trazos (muros / zonas): visor.setTrazos(lista); visor.setBorrador({tipo,puntos}); visor.setEdicionTrazo(id);
    ===================================================================== */
 (function () {
   "use strict";
@@ -30,6 +31,9 @@
     this.agrupar = false;          // true = pines cercanos se funden en burbujas con número
     this.clusters = [];            // burbujas visibles ahora: { id, x, y, pines }
     this.seleccionCluster = null;
+    this.trazos = []; this.trazoSel = null; this.trazoEdit = null;   // líneas y zonas dibujadas
+    this.borrador = null;          // trazo que se está dibujando: { tipo, puntos:[[x,y]], cursor:{x,y}|null }
+    this._vdrag = null;
     this._escalaPintada = 0; this._rafPintar = 0;
     this.imgW = 0; this.imgH = 0;
     this._punteros = new Map();
@@ -41,7 +45,8 @@
     this.cont.classList.add("plano-vp");
     this.cont.innerHTML =
       '<div class="plano-lienzo"><img class="plano-img" alt="Plano de obra" draggable="false">' +
-      '<div class="plano-capa"></div></div>' +
+      '<svg class="plano-svg" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none"></svg>' +
+      '<div class="plano-capa"></div><div class="plano-capa-tr"></div></div>' +
       '<div class="plano-cargando">Cargando plano…</div>' +
       '<div class="plano-zoom">' +
       '<button type="button" data-z="in" title="Acercar">+</button>' +
@@ -51,6 +56,8 @@
     this.lienzo = this.cont.querySelector(".plano-lienzo");
     this.img = this.cont.querySelector(".plano-img");
     this.capa = this.cont.querySelector(".plano-capa");
+    this.svg = this.cont.querySelector(".plano-svg");
+    this.capaTr = this.cont.querySelector(".plano-capa-tr");
     this.cargandoEl = this.cont.querySelector(".plano-cargando");
   };
 
@@ -63,8 +70,11 @@
         self.imgW = self.img.naturalWidth; self.imgH = self.img.naturalHeight;
         self.lienzo.style.width = self.imgW + "px";
         self.lienzo.style.height = self.imgH + "px";
+        self.svg.setAttribute("viewBox", "0 0 " + self.imgW + " " + self.imgH);
+        self.svg.setAttribute("width", self.imgW); self.svg.setAttribute("height", self.imgH);
         self.cargandoEl.hidden = true;
         self.ajustar();
+        self._pintarTrazos();
         ok();
       };
       self.img.onerror = function () {
@@ -79,6 +89,8 @@
   PlanoVisor.prototype._aplicar = function () {
     this.lienzo.style.transform = "translate(" + this.tx + "px," + this.ty + "px) scale(" + this.escala + ")";
     this.cont.style.setProperty("--inv", String(1 / this.escala));
+    // etiquetas de % de los trazos: solo cuando ya hay zoom (si no, estorban)
+    this.cont.classList.toggle("plano-cerca", this.escala > this.minEscala * 2.2);
     if (this.agrupar && this.pines.length && Math.abs(this.escala - this._escalaPintada) > 1e-6) {
       const self = this;
       if (!this._rafPintar) this._rafPintar = requestAnimationFrame(function () { self._rafPintar = 0; self.seleccionCluster = null; self._pintarPines(); });
@@ -261,6 +273,7 @@
   PlanoVisor.prototype.seleccionar = function (id, centrar) {
     this.seleccion = id;
     this.seleccionCluster = null;
+    if (this.trazoSel != null) { this.trazoSel = null; this._pintarTrazos(); }
     this._pintarPines();
     if (centrar) {
       const p = this.pines.find(function (q) { return q.id === id; });
@@ -270,6 +283,7 @@
 
   PlanoVisor.prototype.seleccionarCluster = function (idx) {
     this.seleccionCluster = idx;
+    if (idx != null && this.trazoSel != null) { this.trazoSel = null; this._pintarTrazos(); }
     this._pintarPines();
   };
 
@@ -284,6 +298,126 @@
     this.escala = Math.min(this.maxEscala, Math.max(this.escala * 1.8, ajuste));
     this.centrarEn((x0 + x1) / 2, (y0 + y1) / 2);
     this._pintarPines();
+  };
+
+  // ---------------------------------------------------------------------
+  //  TRAZOS: líneas (muros, pintura…) y zonas (plafones, pisos…)
+  //  Cada trazo: { id, tipo:'linea'|'zona', nombre, puntos:[[x,y],...], avance, n_act }
+  //  Opcionales: _c (color), _t ('tenue'), _n (texto de la etiqueta).
+  // ---------------------------------------------------------------------
+  function ptsStr(pts, W, H) {
+    return pts.map(function (p) { return (p[0] * W).toFixed(1) + "," + (p[1] * H).toFixed(1); }).join(" ");
+  }
+
+  // Punto donde va la etiqueta: mitad del recorrido (línea) o promedio de vértices (zona).
+  function anclaje(t) {
+    const pts = t.puntos;
+    if (t.tipo === "zona") {
+      let sx = 0, sy = 0; pts.forEach(function (p) { sx += p[0]; sy += p[1]; });
+      return [sx / pts.length, sy / pts.length];
+    }
+    let total = 0; const seg = [];
+    for (let i = 1; i < pts.length; i++) { const d = Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]); seg.push(d); total += d; }
+    let mitad = total / 2;
+    for (let i = 0; i < seg.length; i++) {
+      if (mitad <= seg[i] || i === seg.length - 1) {
+        const k = seg[i] ? Math.min(1, mitad / seg[i]) : 0;
+        return [pts[i][0] + (pts[i + 1][0] - pts[i][0]) * k, pts[i][1] + (pts[i + 1][1] - pts[i][1]) * k];
+      }
+      mitad -= seg[i];
+    }
+    return pts[0];
+  }
+
+  PlanoVisor.prototype.setTrazos = function (lista) {
+    this.trazos = lista || [];
+    this._pintarTrazos();
+  };
+
+  PlanoVisor.prototype.seleccionarTrazo = function (id) {
+    this.trazoSel = id;
+    this._pintarTrazos();
+  };
+
+  // Muestra los puntitos arrastrables de un trazo para corregirlo (null = apagar).
+  PlanoVisor.prototype.setEdicionTrazo = function (id) {
+    this.trazoEdit = id;
+    this._pintarTrazos();
+  };
+
+  // Trazo que se está dibujando ahora (null = nada).
+  PlanoVisor.prototype.setBorrador = function (b) {
+    this.borrador = b ? { tipo: b.tipo, puntos: (b.puntos || []).slice(), cursor: null } : null;
+    this._pintarTrazos();
+  };
+
+  PlanoVisor.prototype._pintarTrazos = function () {
+    if (!this.svg) return;
+    const W = this.imgW, H = this.imgH, self = this;
+    if (!W) { this.svg.innerHTML = ""; this.capaTr.innerHTML = ""; return; }
+    let s = "", h = "";
+    const lista = this.trazos.filter(function (t) { return t.puntos && t.puntos.length >= 2; })
+      .sort(function (a, b) { return (a.tipo === "zona" ? 0 : 1) - (b.tipo === "zona" ? 0 : 1); });
+    lista.forEach(function (t) {
+      const c = t._c || colorAvance(t.avance);
+      const cls = (self.trazoSel === t.id ? " sel" : "") + (t._t === "tenue" ? " tenue" : "");
+      const str = ptsStr(t.puntos, W, H);
+      const tit = esc((t.nombre || (t.tipo === "zona" ? "Zona" : "Línea")) + " · " + (Number(t.avance) || 0) + "%");
+      if (t.tipo === "zona") {
+        s += '<g class="tr tr-z' + cls + '" data-tr="' + t.id + '" style="--c:' + c + '"><title>' + tit + '</title>' +
+          '<polygon class="tr-zona" points="' + str + '"/></g>';
+      } else {
+        s += '<g class="tr tr-l' + cls + '" data-tr="' + t.id + '" style="--c:' + c + '"><title>' + tit + '</title>' +
+          '<polyline class="tr-casing" points="' + str + '"/><polyline class="tr-trazo" points="' + str + '"/>' +
+          '<polyline class="tr-hit" points="' + str + '"/></g>';
+      }
+      if (t._t !== "tenue") {
+        const a = anclaje(t);
+        const txt = t._n != null ? t._n : ((Number(t.avance) || 0) + "%");
+        h += '<span class="plano-tr-etq' + (self.trazoSel === t.id ? " sel" : "") + '" style="left:' + (a[0] * 100) + '%;top:' + (a[1] * 100) + '%;--c:' + c + '">' + esc(txt) + '</span>';
+      }
+      if (self.trazoEdit === t.id) {
+        t.puntos.forEach(function (p, i) {
+          h += '<button type="button" class="plano-vtx" data-i="' + i + '" style="left:' + (p[0] * 100) + '%;top:' + (p[1] * 100) + '%" title="Arrastra para corregir"></button>';
+        });
+      }
+    });
+    // borrador: lo que se está dibujando (línea punteada azul + puntitos)
+    const b = this.borrador;
+    if (b && b.puntos.length) {
+      const pts = b.puntos.concat(b.cursor ? [[b.cursor.x, b.cursor.y]] : []);
+      if (pts.length >= 2) {
+        const str = ptsStr(pts, W, H);
+        s += b.tipo === "zona" && pts.length >= 3
+          ? '<g class="tr tr-borr"><polygon class="tr-zona" points="' + str + '"/></g>'
+          : '<g class="tr tr-borr"><polyline class="tr-casing" points="' + str + '"/><polyline class="tr-trazo" points="' + str + '"/></g>';
+      }
+      b.puntos.forEach(function (p, i) {
+        h += '<i class="plano-vtx nuevo' + (i === 0 ? " ini" : "") + '" style="left:' + (p[0] * 100) + '%;top:' + (p[1] * 100) + '%"></i>';
+      });
+    }
+    this.svg.innerHTML = s;
+    this.capaTr.innerHTML = h;
+  };
+
+  // Encuadra un trazo (lista de puntos) en pantalla.
+  PlanoVisor.prototype.enfocarPuntos = function (pts) {
+    if (!pts || !pts.length || !this.imgW) return;
+    const xs = pts.map(function (p) { return p[0]; }), ys = pts.map(function (p) { return p[1]; });
+    const x0 = Math.min.apply(null, xs), x1 = Math.max.apply(null, xs), y0 = Math.min.apply(null, ys), y1 = Math.max.apply(null, ys);
+    const cw = this.cont.clientWidth || 800, ch = this.cont.clientHeight || 500;
+    const bw = Math.max(x1 - x0, 0.03) * 1.8, bh = Math.max(y1 - y0, 0.03) * 2.2;
+    const esc2 = Math.min(cw / (bw * this.imgW), ch / (bh * this.imgH));
+    this.escala = Math.min(this.maxEscala, Math.max(this.minEscala, esc2));
+    this.centrarEn((x0 + x1) / 2, (y0 + y1) / 2);
+    this._pintarPines();
+  };
+
+  PlanoVisor.prototype._fraccionLibre = function (e) {
+    const r = this.cont.getBoundingClientRect();
+    const x = ((e.clientX - r.left - this.tx) / this.escala) / this.imgW;
+    const y = ((e.clientY - r.top - this.ty) / this.escala) / this.imgH;
+    return { x: Math.min(1, Math.max(0, x)), y: Math.min(1, Math.max(0, y)) };
   };
 
   PlanoVisor.prototype.setModoColocar = function (activo) {
@@ -302,6 +436,36 @@
 
   PlanoVisor.prototype._enlazar = function () {
     const self = this, cont = this.cont;
+
+    // --- arrastrar los puntitos de un trazo para corregirlo (va antes que el arrastre del plano) ---
+    cont.addEventListener("pointerdown", function (e) {
+      const v = e.target.closest ? e.target.closest(".plano-vtx[data-i]") : null;
+      if (!v || self.trazoEdit == null) return;
+      e.stopImmediatePropagation(); e.preventDefault();
+      try { cont.setPointerCapture(e.pointerId); } catch (err) { /* sin captura */ }
+      self._vdrag = { pid: e.pointerId, i: Number(v.dataset.i) };
+    });
+    cont.addEventListener("pointermove", function (e) {
+      if (self._vdrag && e.pointerId === self._vdrag.pid) {
+        e.stopImmediatePropagation();
+        const t = self.trazos.find(function (q) { return q.id === self.trazoEdit; });
+        if (t) { const f = self._fraccionLibre(e); t.puntos[self._vdrag.i] = [Math.round(f.x * 1e5) / 1e5, Math.round(f.y * 1e5) / 1e5]; self._pintarTrazos(); }
+        return;
+      }
+      // línea elástica hasta el cursor mientras se dibuja con mouse
+      if (self.borrador && self.borrador.puntos.length && e.pointerType === "mouse" && !self._punteros.size) {
+        self.borrador.cursor = self._fraccionLibre(e); self._pintarTrazos();
+      }
+    });
+    function soltarVertice(e) {
+      if (!self._vdrag || e.pointerId !== self._vdrag.pid) return;
+      e.stopImmediatePropagation();
+      self._vdrag = null;
+      const t = self.trazos.find(function (q) { return q.id === self.trazoEdit; });
+      if (t && self.opc.onTrazoEditado) self.opc.onTrazoEditado(t);
+    }
+    cont.addEventListener("pointerup", soltarVertice);
+    cont.addEventListener("pointercancel", soltarVertice);
 
     cont.addEventListener("wheel", function (e) {
       e.preventDefault();
@@ -355,6 +519,7 @@
         // toque simple: ¿sobre un pin o sobre el plano vacío?
         const clEl = inicio.objetivo && inicio.objetivo.closest ? inicio.objetivo.closest(".plano-cl") : null;
         const pinEl = inicio.objetivo && inicio.objetivo.closest ? inicio.objetivo.closest(".plano-pin,.plano-pt") : null;
+        const trEl = inicio.objetivo && inicio.objetivo.closest ? inicio.objetivo.closest("[data-tr]") : null;
         if (clEl && !self.modoColocar) {
           const cl = self.clusters[Number(clEl.dataset.cl)];
           if (cl) { self.seleccion = null; self.seleccionarCluster(cl.idx); if (self.opc.onCluster) self.opc.onCluster(cl); }
@@ -362,6 +527,10 @@
           const id = Number(pinEl.dataset.pin);
           const pin = self.pines.find(function (q) { return q.id === id; });
           if (pin) { self.seleccionar(id); if (self.opc.onPin) self.opc.onPin(pin); }
+        } else if (trEl && !self.modoColocar) {
+          const idt = Number(trEl.dataset.tr);
+          const tr = self.trazos.find(function (q) { return q.id === idt; });
+          if (tr) { self.seleccion = null; self.seleccionCluster = null; self._pintarPines(); self.seleccionarTrazo(idt); if (self.opc.onTrazo) self.opc.onTrazo(tr); }
         } else {
           const f = self._fraccionDesdeEvento(e);
           if (f && self.opc.onVacio) self.opc.onVacio(f);
@@ -377,7 +546,7 @@
     cont.addEventListener("pointercancel", soltar);
 
     cont.addEventListener("dblclick", function (e) {
-      if (self.modoColocar || e.target.closest(".plano-pin,.plano-pt,.plano-cl") || e.target.closest(".plano-zoom")) return;
+      if (self.modoColocar || e.target.closest(".plano-pin,.plano-pt,.plano-cl,.plano-vtx,[data-tr]") || e.target.closest(".plano-zoom")) return;
       const r = cont.getBoundingClientRect();
       self.zoomEn(2, e.clientX - r.left, e.clientY - r.top);
     });
