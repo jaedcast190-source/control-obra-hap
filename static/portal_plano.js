@@ -35,10 +35,14 @@
     if (v && typeof render === "function") render();
   }
 
+  function irArriba() { try { window.scrollTo(0, 0); } catch (e) { /* sin scroll */ } }
+
   async function abrirPlano() {
     ABIERTO = true;
     VER_OTROS = leerPref();
     mostrarLista(false);
+    $("#p-plano-panel").classList.remove("abierto");
+    irArriba();
     cerrarTarjeta();
     try {
       if (!VISOR) {
@@ -93,7 +97,8 @@
     PINES.forEach(p => cuenta[estadoDe(p.avance)]++);
     const filaMia = (k, txt, color) =>
       '<button type="button" class="cp-capa' + (ESTADOS[k] ? "" : " off") + '" data-est="' + k + '" style="--c:' + color + '"><span class="pt"></span><span class="tx">' + txt + '</span><span class="n">' + cuenta[k] + '</span></button>';
-    let h = '<div class="cp-tit">Mis actividades en el plano</div>';
+    let h = '<button type="button" class="cp-cerrar-movil" id="pp-cerrar-panel">Listo · ver el plano</button>' +
+      '<div class="cp-tit">Mis actividades en el plano</div>';
     if (OTROS.habilitado && OTROS.pines.length && PINES.length) {
       h += '<label class="cp-sw"><input type="checkbox" id="pp-otros"' + (VER_OTROS ? " checked" : "") + '><span class="tg"></span>Ver otros gremios en mi zona</label>';
     }
@@ -115,6 +120,7 @@
   }
 
   $("#p-plano-panel").addEventListener("click", (e) => {
+    if (e.target.closest("#pp-cerrar-panel")) { $("#p-plano-panel").classList.remove("abierto"); return; }
     const b = e.target.closest(".cp-capa");
     if (!b) return;
     if (b.dataset.est) { ESTADOS[b.dataset.est] = !ESTADOS[b.dataset.est]; }
@@ -151,6 +157,7 @@
 
   function abrirTarjeta(pin) {
     SEL = pin.id;
+    $("#p-plano-panel").classList.remove("abierto");
     if (pin._otro) { abrirTarjetaOtro(pin); return; }
     // datos al día desde MIS (incluye si ya la reconoció y si está al 100%)
     const a = (typeof MIS !== "undefined" ? MIS : []).find(x => x.id === pin.actividad_id) || {};
@@ -202,6 +209,7 @@
   // Burbuja: cuántas actividades hay juntas y de quién (mías + otros gremios cercanos si están a la vista).
   function abrirTarjetaZona(cl) {
     SEL = null;
+    $("#p-plano-panel").classList.remove("abierto");
     const propios = cl.pines.filter(p => !p._otro);
     const cuenta = { listo: 0, proceso: 0, sin: 0 };
     propios.forEach(p => cuenta[estadoDe(p.avance)]++);
@@ -229,7 +237,7 @@
     if (VISOR) { VISOR.seleccionarCluster(null); VISOR.seleccionar(null); }
   }
 
-  function cerrarPlano() { ABIERTO = false; cerrarTarjeta(); mostrarLista(true); }
+  function cerrarPlano() { ABIERTO = false; cerrarTarjeta(); $("#p-plano-panel").classList.remove("abierto"); mostrarLista(true); irArriba(); }
 
   // Al guardar un reporte, portal.js vuelve a cargar MIS: refrescamos pines y tarjeta.
   const cargarOriginal = window.cargar;
