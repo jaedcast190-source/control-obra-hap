@@ -251,6 +251,57 @@ button.plano-vtx{pointer-events:auto;cursor:move;width:24px;height:24px;touch-ac
 .tz-fila button.tzc-lista{background:#fff;color:#1E7B4B;border:1px solid #1E7B4B}
 .tz-ok{flex:none;font-size:16px}
 
+/* ---- Trazos v2: mundos, áreas ligadas, filtros, desplegables ---- */
+.pl-mundo{display:flex;gap:4px;padding:8px 10px 0;background:#fff}
+.pl-mundo button{flex:1;padding:7px 4px;border:1px solid #cbd2da;border-radius:9px;background:#f4f6f8;font:inherit;font-size:12.5px;font-weight:700;color:#4b5563;cursor:pointer;min-width:0}
+.pl-mundo button.on{background:#17231f;border-color:#17231f;color:#fff}
+.pl-mundo button[data-m="todos"].on{background:#6d28d9;border-color:#6d28d9}
+.tz-leyenda{display:flex;flex-wrap:wrap;gap:5px}
+.tz-leyenda .cp-capa{width:auto;margin:0;padding:3px 10px 3px 8px;border-radius:14px;gap:6px;font-size:12.5px;font-weight:600}
+.tz-leyenda .cp-capa .pt{width:11px;height:11px}
+.tz-leyenda .cp-capa .tx{flex:none}
+.tz-leyenda .cp-capa .n{font-size:12px;color:#6b7280}
+.tz-leyenda p{margin:0}
+.tz-chipsf{display:flex;flex-wrap:wrap;gap:5px}
+.tz-chipf{border:1px solid #cbd2da;background:#fff;border-radius:14px;padding:3px 10px;font:inherit;font-size:12.5px;font-weight:600;color:#374151;cursor:pointer}
+.tz-chipf b{color:#6b7280;font-weight:800;margin-left:2px}
+.tz-chipf.on{background:#1E7B4B;border-color:#1E7B4B;color:#fff}
+.tz-chipf.on b{color:#d4f1e1}
+.tz-sub{font-weight:500;text-transform:none;letter-spacing:0;color:#6b7280}
+.tz-ubs{display:flex;flex-wrap:wrap;gap:5px}
+.tz-ub{display:inline-flex;align-items:center;gap:6px;background:#eaf6ef;border:1px solid #bfe3cf;border-radius:14px;padding:3px 4px 3px 10px;font-size:12.5px;font-weight:600;color:#14583a}
+.tz-ub button{border:0;background:#1E7B4B;color:#fff;border-radius:50%;width:18px;height:18px;font-size:10px;font-weight:800;cursor:pointer;padding:0;line-height:1}
+.tz-ub-add{display:grid;grid-template-columns:1fr 1fr auto;gap:6px}
+.tz-ub-add select,.tz-sel{padding:8px 8px;border:1px solid #cbd2da;border-radius:8px;font-size:13.5px;min-width:0;width:100%;box-sizing:border-box;background:#fff}
+.tz-ub-add button{padding:8px 10px;border-radius:8px;border:0;background:#1E7B4B;color:#fff;font:inherit;font-size:13px;font-weight:700;cursor:pointer}
+.tz-dos{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.tz-color{display:inline-block;width:12px;height:12px;border-radius:50%;vertical-align:-1px;margin-left:4px;border:1px solid rgba(0,0,0,.2)}
+.tz-gr{font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:.3px;color:#6b7280;margin:6px 0 2px}
+.tz-det{border:1px solid #d9dee4;border-radius:10px;background:#fff;padding:0}
+.tz-det > summary{cursor:pointer;padding:9px 12px;font-weight:700;font-size:13.5px;color:#1f2933;list-style:none;display:flex;justify-content:space-between;align-items:center}
+.tz-det > summary::-webkit-details-marker{display:none}
+.tz-det > summary::after{content:"▾";color:#6b7280;transition:transform .15s}
+.tz-det[open] > summary::after{transform:rotate(180deg)}
+.tz-det > .tz-asig,.tz-det > .tz-mini,.tz-det > div,.tz-det > p{margin:0 10px 10px}
+.tz-det .tz-asig{max-height:300px;overflow-y:auto}
+.tz-tipos-adm{margin-top:4px}
+.tz-tipo-fila{display:flex;align-items:center;gap:6px;margin-bottom:5px}
+.tz-tipo-fila input{flex:1;min-width:0;padding:6px 8px;border:1px solid #cbd2da;border-radius:8px;font-size:13.5px}
+.tz-tipo-fila small{color:#6b7280;font-size:11.5px;white-space:nowrap}
+.tz-tipo-del{border:0;background:#fde8e6;color:#b42318;border-radius:50%;width:24px;height:24px;font-size:12px;font-weight:800;cursor:pointer;flex:none}
+.tz-tipo-nuevo{display:flex;gap:6px;margin:6px 10px 10px}
+.tz-tipo-nuevo input{flex:1;min-width:0;padding:8px 9px;border:1px solid #cbd2da;border-radius:8px;font-size:13.5px}
+.tz-tipo-nuevo button{padding:8px 12px;border-radius:8px;border:0;background:#1E7B4B;color:#fff;font:inherit;font-size:13px;font-weight:700;cursor:pointer}
+.tz-multi{position:relative;grid-column:1 / -1;border:1px solid #cbd2da;border-radius:8px;background:#fff}
+.tz-multi > summary{cursor:pointer;padding:8px 10px;font-size:14px;color:#374151;list-style:none;display:flex;justify-content:space-between}
+.tz-multi > summary::-webkit-details-marker{display:none}
+.tz-multi > summary::after{content:"▾";color:#6b7280}
+.tz-multi.con-valor{border-color:#1E7B4B;background:#f3faf6;font-weight:600}
+.tz-multi-lista{max-height:210px;overflow-y:auto;padding:4px 10px 8px;border-top:1px solid #e1e6eb}
+.tz-multi-lista label{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:13.5px;cursor:pointer}
+.tz-multi-lista input{width:16px;height:16px;flex:none}
+.tz-item .i-met{white-space:normal}
+
 /* Celular: va al FINAL del archivo para ganarle a las reglas base de arriba */
 @media (max-width:760px){
   .pl-tag{top:auto;bottom:12px;left:12px;right:auto;max-width:calc(100% - 84px);font-size:12px}
