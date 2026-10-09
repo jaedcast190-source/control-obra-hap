@@ -302,6 +302,24 @@ button.plano-vtx{pointer-events:auto;cursor:move;width:24px;height:24px;touch-ac
 .tz-multi-lista input{width:16px;height:16px;flex:none}
 .tz-item .i-met{white-space:normal}
 
+/* ---- Trazos: avance por responsable y selector de trazos encimados ---- */
+.tz-resps{display:flex;flex-direction:column;gap:5px;margin:2px 0 6px}
+.tz-resp-f{display:grid;grid-template-columns:12px minmax(0,1fr) 70px 40px;align-items:center;gap:7px;font-size:13px}
+.tz-resp-f .pt{width:11px;height:11px;border-radius:50%}
+.tz-resp-f .rn{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#1f2933;font-weight:600}
+.tz-resp-f .rn small{color:#6b7280;font-weight:500;margin-left:5px;font-size:11.5px}
+.tz-resp-f .rb{height:7px;border-radius:4px;background:#e5e9ee;overflow:hidden}
+.tz-resp-f .rb i{display:block;height:100%}
+.tz-resp-f b{text-align:right;font-size:13px}
+.tz-elegir{display:flex;flex-direction:column;gap:6px;margin-top:6px;max-height:44vh;overflow-y:auto}
+.tz-elegir-f{display:flex;align-items:center;gap:9px;width:100%;padding:8px 10px;border:1px solid #d9dee4;border-left:5px solid var(--c,#8b949e);border-radius:9px;background:#fff;font:inherit;text-align:left;cursor:pointer}
+.tz-elegir-f:hover{border-color:#1E7B4B;background:#f3faf6}
+.tz-elegir-f .pt{display:none}
+.tz-elegir-f .tx{flex:1;min-width:0;font-size:13.5px;line-height:1.25}
+.tz-elegir-f .tx small{display:block;color:#6b7280;font-size:12px}
+.tz-elegir-f .pc{font-weight:800;font-size:14px}
+.tz-det > .tz-leyenda{margin:0 10px 10px}
+
 /* Celular: va al FINAL del archivo para ganarle a las reglas base de arriba */
 @media (max-width:760px){
   .pl-tag{top:auto;bottom:12px;left:12px;right:auto;max-width:calc(100% - 84px);font-size:12px}
