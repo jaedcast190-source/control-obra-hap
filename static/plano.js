@@ -95,7 +95,7 @@
 
   function crearVisor() {
     return new PlanoVisor($("#pl-vista"), { onPin: abrirTarjeta, onVacio: alTocarVacio, onCluster: abrirTarjetaZona, onPintado: pintarTag,
-      onTrazo: alTocarTrazo, onTrazoEditado: guardarPuntosTrazo });
+      onTrazo: alTocarTrazo, onTrazoEditado: guardarPuntosTrazo, onTrazosVarios: elegirTrazo });
   }
 
   function mostrarSinPlano() {
@@ -493,11 +493,23 @@
   let TIPOS = [];                 // catálogo de tipos de elemento [{nombre, n}]
   let TR_FILTRO_ESP = null;       // Set de claves de especialidad (null = todas)
   let TR_FILTRO_TIPO = null;      // Set de tipos de elemento (null = todos)
+  let TR_FILTRO_RESP = null;      // Set de responsables (null = todos)
   let TR_GIROS_SEL = new Set();   // especialidades marcadas en el buscador de actividades
   let TR_ASIG_ABIERTO = null;     // null = según cuántas haya; true/false = lo que eligió el usuario
 
   function nomTrazo(t) { return (t.nombre || "").trim() || ((t.tipo === "zona" ? "Zona" : "Línea") + " #" + t.id); }
   function gremiosDe(t) { return new Set(t.actividades.map(a => a.resp)).size; }
+  function textoResps(t) {
+    const r = t.resps.map(x => x.resp);
+    return r.length <= 2 ? r.join(" y ") : r.slice(0, 2).join(", ") + " +" + (r.length - 2);
+  }
+  // barras de avance por responsable (dos proveedores pueden trabajar en el mismo muro)
+  function htmlResps(t) {
+    if (!t.resps || t.resps.length < 1 || !t.n_act) return "";
+    return '<div class="tz-resps">' + t.resps.map(r =>
+      '<div class="tz-resp-f"><span class="pt" style="background:' + r.color + '"></span><span class="rn">' + esc(r.resp) + '<small>' + r.n + (r.n === 1 ? " act." : " act.") + '</small></span>' +
+      '<span class="rb"><i style="width:' + r.avance + '%;background:' + PlanoColorAvance(r.avance) + '"></i></span><b style="color:' + PlanoColorAvance(r.avance) + '">' + r.avance + '%</b></div>').join("") + '</div>';
+  }
   function textoUb(u) { return u.area ? u.bloque + " · " + u.area : u.bloque + " (todo el bloque)"; }
   function nombreAuto(ubs) { return (ubs || []).map(u => u.area || u.bloque).join(" + ").slice(0, 120); }
   const claveGiro = (g) => (g.color === GRIS ? "__otras__" : g.giro);
@@ -514,7 +526,7 @@
     pintarMundo();
     terminarModo(); cerrarTarjeta(); cerrarEditor();
     CAT = null; TR_CAT = null; VISTA.activas = null; REF_UBICAR = null;
-    TR_FILTRO_ESP = null; TR_FILTRO_TIPO = null; TR_GIROS_SEL = new Set();
+    TR_FILTRO_ESP = null; TR_FILTRO_TIPO = null; TR_FILTRO_RESP = null; TR_GIROS_SEL = new Set();
     ["#pl-bloque", "#pl-area", "#pl-giro", "#pl-prov"].forEach(id => { $(id).value = ""; });
     $("#pl-q").value = "";
     await cargarPines();
@@ -556,9 +568,18 @@
     const htmlTipos = claves.length ? claves.map(k =>
       '<button type="button" class="tz-chipf' + (!TR_FILTRO_TIPO || TR_FILTRO_TIPO.has(k) ? " on" : "") + '" data-k="' + esc(k) + '">' + esc(k === "__sin__" ? "Sin tipo" : k) + ' <b>' + usados[k] + '</b></button>').join("")
       : "";
+    // responsables (quién trabaja en los trazos); el color es el de su capa en los pines
+    const rmap = {};
+    TRAZOS.forEach(t => t.resps.forEach(r => { const e = rmap[r.resp] || (rmap[r.resp] = { resp: r.resp, color: r.color, t: new Set() }); e.t.add(t.id); }));
+    const rlista = Object.keys(rmap).map(k => rmap[k]).sort((a, b) => b.t.size - a.t.size || a.resp.localeCompare(b.resp));
+    const htmlResp = rlista.length ? rlista.map(e =>
+      '<button type="button" class="cp-capa' + (!TR_FILTRO_RESP || TR_FILTRO_RESP.has(e.resp) ? "" : " off") + '" data-r="' + esc(e.resp) + '" style="--c:' + e.color + '"><span class="pt"></span><span class="tx">' + esc(e.resp) + '</span><span class="n">' + e.t.size + '</span></button>').join("")
+      : '<p class="cp-ayuda" style="margin:0">Aún no hay trazos con actividades.</p>';
+    ["#tz-resp", "#cp-resp"].forEach(id => { const el = $(id); if (el) el.innerHTML = htmlResp; });
+    ["#tz-resp-n", "#cp-resp-n"].forEach(id => { const el = $(id); if (el) el.textContent = TR_FILTRO_RESP ? "· " + TR_FILTRO_RESP.size + " de " + rlista.length : ""; });
     ["#tz-leyenda", "#cp-esp"].forEach(id => { const el = $(id); if (el) el.innerHTML = htmlEsp; });
     ["#tz-tipos-chips", "#cp-tipos"].forEach(id => { const el = $(id); if (el) el.innerHTML = htmlTipos; });
-    ["#tz-filtro-hay", "#cp-filtro-hay"].forEach(id => { const el = $(id); if (el) el.hidden = !(TR_FILTRO_ESP || TR_FILTRO_TIPO); });
+    ["#tz-filtro-hay", "#cp-filtro-hay"].forEach(id => { const el = $(id); if (el) el.hidden = !(TR_FILTRO_ESP || TR_FILTRO_TIPO || TR_FILTRO_RESP); });
   }
   function alternar(conjunto, k, todas) {
     if (!conjunto) conjunto = new Set(todas);
@@ -576,15 +597,26 @@
     TR_FILTRO_TIPO = alternar(TR_FILTRO_TIPO, b.dataset.k, todas);
     renderFiltrosTrazos(); renderTrazos(); pintarTrazos();
   }
+  function clickResp(e) {
+    const b = e.target.closest(".cp-capa"); if (!b) return;
+    const todos = Array.from(new Set(TRAZOS.reduce((acc, t) => acc.concat(t.resps.map(r => r.resp)), [])));
+    TR_FILTRO_RESP = alternar(TR_FILTRO_RESP, b.dataset.r, todos);
+    renderFiltrosTrazos(); renderTrazos(); pintarTrazos();
+  }
+  ["#tz-resp", "#cp-resp"].forEach(id => $(id).addEventListener("click", clickResp));
   ["#tz-leyenda", "#cp-esp"].forEach(id => $(id).addEventListener("click", clickEsp));
   ["#tz-tipos-chips", "#cp-tipos"].forEach(id => $(id).addEventListener("click", clickTipo));
   document.querySelectorAll(".tz-quitar-filtros").forEach(b => b.addEventListener("click", () => {
-    TR_FILTRO_ESP = null; TR_FILTRO_TIPO = null; renderFiltrosTrazos(); renderTrazos(); pintarTrazos();
+    TR_FILTRO_ESP = null; TR_FILTRO_TIPO = null; TR_FILTRO_RESP = null; renderFiltrosTrazos(); renderTrazos(); pintarTrazos();
   }));
 
+  // actividades del trazo que cumplen los filtros de especialidad y responsable
+  function actsFiltradas(t) {
+    return t.actividades.filter(a => (!TR_FILTRO_ESP || TR_FILTRO_ESP.has(claveAct(a))) && (!TR_FILTRO_RESP || TR_FILTRO_RESP.has(a.resp)));
+  }
   function pasaFiltro(t) {
     if (TR_FILTRO_TIPO && !TR_FILTRO_TIPO.has(t.tipo_elem || "__sin__")) return false;
-    if (TR_FILTRO_ESP && !t.giros.some(g => TR_FILTRO_ESP.has(claveGiro(g)))) return false;
+    if ((TR_FILTRO_ESP || TR_FILTRO_RESP) && !actsFiltradas(t).length) return false;
     return true;
   }
 
@@ -597,12 +629,14 @@
     TRAZOS.forEach(t => {
       if (!pasaFiltro(t) && t.id !== TR_SEL) return;
       let c = t.color, n = t.avance;
-      if (TR_FILTRO_ESP) {
-        // viendo una especialidad: el trazo se pinta de ese color y el % es solo el de esa especialidad
-        const g = t.giros.find(x => TR_FILTRO_ESP.has(claveGiro(x)));
-        if (g) c = g.color;
-        const acts = t.actividades.filter(a => TR_FILTRO_ESP.has(claveAct(a)));
-        if (acts.length) n = Math.round(acts.reduce((s, a) => s + (a.avance || 0), 0) / acts.length);
+      if (TR_FILTRO_ESP || TR_FILTRO_RESP) {
+        // viendo una especialidad o un responsable: el % es solo el de esas actividades
+        // (con especialidad elegida, además, el trazo toma el color de esa especialidad)
+        const acts = actsFiltradas(t);
+        if (acts.length) {
+          n = Math.round(acts.reduce((s, a) => s + (a.avance || 0), 0) / acts.length);
+          if (TR_FILTRO_ESP) c = acts[0].color_giro;
+        }
       }
       lista.push({ id: t.id, tipo: t.tipo, nombre: nomTrazo(t), puntos: t.puntos, avance: n, _c: c, _n: n + "%" });
     });
@@ -628,7 +662,7 @@
         '<div class="i-cod">' + (t.tipo === "zona" ? "▭ Zona" : "╱ Línea") + (t.tipo_elem ? ' · ' + esc(t.tipo_elem) : '') + (t.auto ? ' · ⚡auto' : '') + '<span class="i-av">' + t.avance + '%</span></div>' +
         '<div class="i-par">' + esc(nomTrazo(t)) + '</div>' +
         '<div class="i-met">' + (t.ubicaciones.length ? esc(t.ubicaciones.map(textoUb).join("  +  ")) + ' · ' : '') +
-        (t.n_act ? t.n_act + (t.n_act === 1 ? " actividad" : " actividades") + " · " + gremiosDe(t) + (gremiosDe(t) === 1 ? " gremio" : " gremios") : "Sin actividades todavía") + '</div></button>').join("")
+        (t.n_act ? t.n_act + (t.n_act === 1 ? " actividad" : " actividades") + " · " + textoResps(t) : "Sin actividades todavía") + '</div></button>').join("")
     ).join("") : '<p class="pl-sinplano" style="padding:16px">' + (TRAZOS.length ? "Sin resultados con esos filtros." : "Aún no hay trazos en este mundo. Elige una herramienta arriba y dibuja sobre el plano.") + '</p>';
   }
   $("#tz-q").addEventListener("input", renderTrazos);
@@ -851,6 +885,7 @@
       ? '<div class="pt-avance"><div class="pt-barra"><div style="width:' + t.avance + '%"></div></div><span class="pt-pct">' + t.avance + '%</span></div>' +
         '<div class="tz-av-txt">Promedio de ' + t.n_act + (t.n_act === 1 ? " actividad" : " actividades") + ' · ' + gremiosDe(t) + (gremiosDe(t) === 1 ? " gremio" : " gremios") + ' · ' + t.n_listas + ' al 100%</div>'
       : '<div class="tz-av-txt">Aún sin actividades: enciende el automático o agrégalas abajo para que el trazo muestre %.</div>';
+    $("#tz-resps").innerHTML = t.resps.length > 1 ? '<div class="cp-tit">Avance por responsable</div>' + htmlResps(t) : (t.resps.length ? htmlResps(t) : "");
     // actividades: desplegable, agrupadas por especialidad
     const det = $("#tz-det-asig");
     det.open = TR_ASIG_ABIERTO != null ? TR_ASIG_ABIERTO : t.n_act <= 6;
@@ -1050,6 +1085,27 @@
     abrirTarjetaTrazo(TRAZOS.find(t => t.id === tr.id) || tr);
   }
 
+  // Varios trazos en el mismo lugar: lista para elegir cuál abrir.
+  function elegirTrazo(lista) {
+    SEL = null;
+    const el = $("#pl-tarjeta");
+    el.style.removeProperty("--c");
+    el.innerHTML = '<button class="pt-cerrar" type="button" id="pt-x" title="Cerrar">✕</button>' +
+      '<div class="pz-tit">Hay ' + lista.length + ' trazos aquí · elige uno</div>' +
+      '<div class="tz-elegir">' + lista.map(x => {
+        const t = TRAZOS.find(q => q.id === x.id) || x;
+        return '<button type="button" class="tz-elegir-f" data-id="' + t.id + '" style="--c:' + (t.color || GRIS) + '"><span class="pt"></span>' +
+          '<span class="tx"><b>' + esc(nomTrazo(t)) + '</b><small>' + esc([t.tipo_elem, textoResps(t)].filter(Boolean).join(" · ")) + '</small></span><span class="pc">' + t.avance + '%</span></button>';
+      }).join("") + '</div>';
+    el.hidden = false;
+    $("#pt-x").onclick = () => cerrarTarjeta();
+    el.querySelectorAll(".tz-elegir-f").forEach(b => { b.onclick = () => {
+      const t = TRAZOS.find(q => q.id === Number(b.dataset.id)); if (!t) return;
+      VISOR.seleccionarTrazo(t.id);
+      alTocarTrazo(t);
+    }; });
+  }
+
   function abrirTarjetaTrazo(t) {
     SEL = null;
     const color = PlanoColorAvance(t.avance);
@@ -1061,6 +1117,7 @@
       '<div class="pt-partida">' + esc(nomTrazo(t)) + '</div>' +
       (t.ubicaciones.length ? '<div class="pt-meta">' + esc(t.ubicaciones.map(textoUb).join("  +  ")) + '</div>' : '') +
       '<div class="pt-avance"><div class="pt-barra"><div style="width:' + t.avance + '%"></div></div><span class="pt-pct">' + t.avance + '%</span></div>' +
+      (t.resps.length > 1 ? htmlResps(t) : '') +
       (t.actividades.length
         ? '<details class="tz-det"><summary>' + t.n_act + (t.n_act === 1 ? " actividad" : " actividades") + ' · ' + gremiosDe(t) + ' gremios</summary><div class="tz-mini">' + t.actividades.map(a =>
             '<div class="tz-fila" style="--g:' + a.color_giro + '"><div class="tz-tx"><b>' + esc(a.codigo) + '</b> · ' + esc(a.partida) + '<small>' + esc([a.resp, a.giro].filter(Boolean).join(" · ")) + '</small></div>' +
