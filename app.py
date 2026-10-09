@@ -4677,6 +4677,17 @@ def _trazos_para(db, rol, proveedor, mundo=None):
             e = g.setdefault(k, {"giro": k, "n": 0, "color": colores.get(k, GIRO_COLOR_OTRAS) if k != "Sin especialidad" else GIRO_COLOR_OTRAS})
             e["n"] += 1
         giros = sorted(g.values(), key=lambda e: (-e["n"], e["giro"]))
+        # avance separado por responsable (dos proveedores pueden trabajar en el mismo muro)
+        rs = {}
+        for a in acts:
+            e = rs.setdefault(a["resp"], {"resp": a["resp"], "n": 0, "suma": 0, "listas": 0, "color": a["color"], "propia": False})
+            e["n"] += 1; e["suma"] += a["avance"] or 0; e["listas"] += 1 if (a["avance"] or 0) >= 100 else 0
+            e["propia"] = e["propia"] or a["propia"]
+        resps = []
+        for e in sorted(rs.values(), key=lambda e: (-e["n"], e["resp"])):
+            resps.append({"resp": e["resp"], "n": e["n"], "avance": int(round(e["suma"] / e["n"])), "listas": e["listas"],
+                          "color": e["color"], "propia": e["propia"]})
+        mias = [a for a in acts if a["propia"]]
         giro_st = (tr["giro"] or "").strip()
         principal = giro_st or (giros[0]["giro"] if giros and giros[0]["giro"] != "Sin especialidad" else "")
         if principal and not giro_st:
@@ -4693,7 +4704,9 @@ def _trazos_para(db, rol, proveedor, mundo=None):
             "actividades": acts, "n_act": n, "n_auto": len(auto_ids),
             "n_listas": sum(1 for a in acts if (a["avance"] or 0) >= 100),
             "avance": int(round(sum((a["avance"] or 0) for a in acts) / n)) if n else 0,
-            "giros": giros,
+            "giros": giros, "resps": resps,
+            "mi_n": len(mias) if not gestor else 0,
+            "mi_avance": int(round(sum((a["avance"] or 0) for a in mias) / len(mias))) if (mias and not gestor) else 0,
         })
     return sal
 
