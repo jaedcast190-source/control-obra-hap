@@ -79,6 +79,7 @@
         <div id="tz-leyenda" class="tz-leyenda"></div>
         <div class="cp-tit">Ver por tipo</div>
         <div id="tz-tipos-chips" class="tz-chipsf"></div>
+        <details class="tz-det"><summary>Ver por responsable <b id="tz-resp-n"></b></summary><div id="tz-resp" class="tz-leyenda"></div></details>
         <div class="pl-buscar"><input type="search" id="tz-q" placeholder="Buscar entre los trazos…" autocomplete="off"></div>
         <div class="pl-lista" id="tz-lista"></div>
         <details class="tz-det tz-tipos-adm">
@@ -109,6 +110,7 @@
           <div><div class="cp-tit">Especialidad (color) <i class="tz-color" id="tz-e-color"></i></div><select id="tz-e-giro" class="tz-sel"></select></div>
         </div>
         <div class="tz-av" id="tz-av"></div>
+        <div id="tz-resps"></div>
 
         <details class="tz-det" id="tz-det-asig">
           <summary>Actividades de este trazo · <b id="tz-asig-n">0</b></summary>
@@ -147,6 +149,8 @@
       <div id="cp-esp" class="tz-leyenda"></div>
       <div class="cp-tit">Trazos por tipo</div>
       <div id="cp-tipos" class="tz-chipsf"></div>
+      <div class="cp-tit">Trazos por responsable <small class="tz-sub" id="cp-resp-n"></small></div>
+      <div id="cp-resp" class="tz-leyenda"></div>
       <p class="cp-ayuda">Toca una burbuja para ver quién tiene más actividades en esa zona. Al acercar el plano las burbujas se separan en pines.</p>
       <div class="perm-editar" id="cp-admin">
         <div class="cp-tit">Proveedores</div>
