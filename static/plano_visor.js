@@ -530,7 +530,10 @@
         } else if (trEl && !self.modoColocar) {
           const idt = Number(trEl.dataset.tr);
           const tr = self.trazos.find(function (q) { return q.id === idt; });
-          if (tr) { self.seleccion = null; self.seleccionCluster = null; self._pintarPines(); self.seleccionarTrazo(idt); if (self.opc.onTrazo) self.opc.onTrazo(tr); }
+          const f0 = self._fraccionDesdeEvento(e);
+          const juntos = f0 && self.opc.onTrazosVarios ? self.trazosEnPunto(f0, tr) : [];
+          if (juntos.length > 1) { self.seleccion = null; self.seleccionCluster = null; self._pintarPines(); self.opc.onTrazosVarios(juntos, f0); }
+          else if (tr) { self.seleccion = null; self.seleccionCluster = null; self._pintarPines(); self.seleccionarTrazo(idt); if (self.opc.onTrazo) self.opc.onTrazo(tr); }
         } else {
           const f = self._fraccionDesdeEvento(e);
           if (f && self.opc.onVacio) self.opc.onVacio(f);
@@ -552,6 +555,43 @@
     });
 
     window.addEventListener("resize", function () { if (self.imgW) { self._limitar(); self._aplicar(); } });
+  };
+
+  // Trazos que están "en el mismo lugar" que el toque: líneas a menos de ~18 px de la pantalla,
+  // o (si no hay líneas) zonas que contienen el punto y son casi del mismo tamaño que la más chica.
+  PlanoVisor.prototype.trazosEnPunto = function (f, tocado) {
+    const W = this.imgW, H = this.imgH, esc = this.escala || 1;
+    if (!W) return tocado ? [tocado] : [];
+    const px = f.x * W, py = f.y * H, tol = 18 / esc;
+    function distSeg(ax, ay, bx, by) {
+      const dx = bx - ax, dy = by - ay, l2 = dx * dx + dy * dy;
+      let t = l2 ? ((px - ax) * dx + (py - ay) * dy) / l2 : 0; t = Math.max(0, Math.min(1, t));
+      return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+    }
+    function dentro(pts) {
+      let r = false;
+      for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+        const xi = pts[i][0] * W, yi = pts[i][1] * H, xj = pts[j][0] * W, yj = pts[j][1] * H;
+        if (((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi)) r = !r;
+      }
+      return r;
+    }
+    function area(pts) { let a = 0; for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) a += pts[j][0] * W * pts[i][1] * H - pts[i][0] * W * pts[j][1] * H; return Math.abs(a / 2); }
+    const lineas = [], zonas = [];
+    this.trazos.forEach(function (t) {
+      if (!t.puntos || t.puntos.length < 2 || t._t === "tenue") return;
+      if (t.tipo === "zona") { if (t.puntos.length >= 3 && dentro(t.puntos)) zonas.push({ t: t, a: area(t.puntos) }); }
+      else {
+        let d = Infinity;
+        for (let i = 0; i < t.puntos.length - 1; i++) d = Math.min(d, distSeg(t.puntos[i][0] * W, t.puntos[i][1] * H, t.puntos[i + 1][0] * W, t.puntos[i + 1][1] * H));
+        if (d <= tol) lineas.push(t);
+      }
+    });
+    if (lineas.length) return lineas;
+    if (!zonas.length) return tocado ? [tocado] : [];
+    zonas.sort(function (a, b) { return a.a - b.a; });
+    const chica = zonas[0].a;
+    return zonas.filter(function (z) { return z.a <= chica * 1.6; }).map(function (z) { return z.t; });
   };
 
   // Resumen de una zona: cuántas actividades tiene cada gremio (para la tarjeta de la burbuja).
