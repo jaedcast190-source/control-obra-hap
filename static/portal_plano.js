@@ -53,7 +53,7 @@
     cerrarTarjeta();
     try {
       if (!VISOR) {
-        VISOR = new PlanoVisor($("#p-plano-vp"), { onPin: abrirTarjeta, onVacio: () => cerrarTarjeta(), onCluster: abrirTarjetaZona, onTrazo: abrirTarjetaTrazo });
+        VISOR = new PlanoVisor($("#p-plano-vp"), { onPin: abrirTarjeta, onVacio: () => cerrarTarjeta(), onCluster: abrirTarjetaZona, onTrazo: abrirTarjetaTrazo, onTrazosVarios: elegirTrazo });
         await VISOR.cargarImagen("/api/plano/imagen?v=" + encodeURIComponent(INFO.version));
       }
       await recargarPines();
@@ -336,6 +336,34 @@
       '<span class="tz-pct" style="color:' + PlanoColorAvance(av) + '">' + av + '%</span>' + acc + '</div>';
   }
 
+  // Varios muros/zonas en el mismo lugar: lista para elegir cuál ver.
+  function elegirTrazo(lista) {
+    SEL = null;
+    const el = $("#p-plano-tarjeta");
+    el.style.removeProperty("--c");
+    el.innerHTML = '<button class="pt-cerrar" type="button" id="pp-x" title="Cerrar">✕</button>' +
+      '<div class="pz-tit">Hay ' + lista.length + ' muros o zonas aquí · elige uno</div>' +
+      '<div class="tz-elegir">' + lista.map(x => {
+        const t = TRAZOS.find(q => q.id === x.id) || x;
+        const nom = (t.nombre || "").trim() || (t.tipo === "zona" ? "Zona" : "Línea");
+        return '<button type="button" class="tz-elegir-f" data-id="' + t.id + '" style="--c:' + (t.color || GRIS) + '"><span class="tx"><b>' + escP(nom) + '</b><small>' +
+          escP([t.tipo_elem, t.mi_n ? "tienes " + t.mi_n + (t.mi_n === 1 ? " actividad" : " actividades") : ""].filter(Boolean).join(" · ")) + '</small></span><span class="pc">' + (Number(t.avance) || 0) + '%</span></button>';
+      }).join("") + '</div>';
+    el.hidden = false;
+    $("#pp-x").onclick = cerrarTarjeta;
+    el.querySelectorAll(".tz-elegir-f").forEach(b => { b.onclick = () => {
+      const t = TRAZOS.find(q => q.id === Number(b.dataset.id)); if (!t) return;
+      VISOR.seleccionarTrazo(t.id); abrirTarjetaTrazo(t);
+    }; });
+  }
+
+  function htmlRespsP(t) {
+    if (!t.resps || t.resps.length < 2) return "";
+    return '<div class="tz-resps">' + t.resps.map(r =>
+      '<div class="tz-resp-f"><span class="pt" style="background:' + r.color + '"></span><span class="rn">' + escP(r.resp) + (r.propia ? " (tú)" : "") + '<small>' + r.n + ' act.</small></span>' +
+      '<span class="rb"><i style="width:' + r.avance + '%;background:' + PlanoColorAvance(r.avance) + '"></i></span><b style="color:' + PlanoColorAvance(r.avance) + '">' + r.avance + '%</b></div>').join("") + '</div>';
+  }
+
   function abrirTarjetaTrazo(tr) {
     const t = TRAZOS.find(q => q.id === tr.id) || tr;
     SEL = null; TR_SEL = t.id;
@@ -349,8 +377,10 @@
       '<button class="pt-cerrar" type="button" id="pp-x" title="Cerrar">✕</button>' +
       '<div class="pz-tit">' + (t.tipo === "zona" ? "Zona" : "Muro / línea") + (t.tipo_elem ? " · " + escP(t.tipo_elem) : "") + '</div>' +
       '<div class="pt-partida">' + escP(nombre) + '</div>' +
-      '<div class="pt-avance"><div class="pt-barra"><div style="width:' + av + '%"></div></div><span class="pt-pct">' + av + '%</span></div>' +
-      '<div class="pt-meta">Avance de todo el trabajo aquí · ' + t.n_act + (t.n_act === 1 ? ' actividad' : ' actividades') + ' · ' + t.n_listas + ' al 100%</div>' +
+      (t.mi_n && t.n_act > t.mi_n ? '<div class="pt-meta" style="margin:0">Tu avance aquí · ' + t.mi_n + (t.mi_n === 1 ? ' actividad' : ' actividades') + '</div>' +
+        '<div class="pt-avance" style="--c:' + PlanoColorAvance(t.mi_avance) + '"><div class="pt-barra"><div style="width:' + t.mi_avance + '%"></div></div><span class="pt-pct">' + t.mi_avance + '%</span></div>' : '') +
+      htmlRespsP(t) +
+      '<div class="pt-meta">' + 'Avance de todo el trabajo aquí' + (t.mi_n && t.n_act > t.mi_n ? ': ' + av + '%' : '') + ' · ' + t.n_act + (t.n_act === 1 ? ' actividad' : ' actividades') + ' · ' + t.n_listas + ' al 100%</div>' +
       '<details class="tz-det"' + (t.n_act <= 5 ? " open" : "") + '><summary>' + t.n_act + (t.n_act === 1 ? ' actividad' : ' actividades') + (mias.length ? ' · ' + mias.length + ' tuyas' : '') + '</summary>' +
       '<div class="tz-mini">' + mias.map(filaTrazo).join("") + otras.map(filaTrazo).join("") + '</div></details>';
     el.hidden = false;
